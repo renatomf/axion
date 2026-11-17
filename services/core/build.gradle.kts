@@ -19,8 +19,9 @@ dependencies {
     // libraries below take their versions from it.
     implementation(platform(libs.spring.boot.dependencies))
 
-    // Spring core, auto-configuration and logging (Logback via SLF4J).
-    implementation(libs.spring.boot.starter)
+    // Spring MVC on an embedded Tomcat server, plus Spring core,
+    // auto-configuration and logging (Logback via SLF4J).
+    implementation(libs.spring.boot.starter.webmvc)
 
     // Test-only libraries: on the test classpath, never in the packaged JAR.
     testImplementation(libs.spring.boot.starter.test)
