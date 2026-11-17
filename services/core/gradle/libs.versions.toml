@@ -12,6 +12,8 @@ spring-boot = "4.1.2"
 spring-boot-dependencies = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "spring-boot" }
 # Spring MVC on an embedded Tomcat server; includes the base Spring Boot starter.
 spring-boot-starter-webmvc = { module = "org.springframework.boot:spring-boot-starter-webmvc" }
+# Production-ready endpoints (health, info, metrics) under /actuator.
+spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
 # Test toolkit: JUnit Jupiter (JUnit 6), AssertJ, Mockito and Spring's test support.
 spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
 # Lets Gradle launch JUnit tests; Gradle 9 requires it on the test runtime classpath.

@@ -22,6 +22,8 @@ dependencies {
     // Spring MVC on an embedded Tomcat server, plus Spring core,
     // auto-configuration and logging (Logback via SLF4J).
     implementation(libs.spring.boot.starter.webmvc)
+    // Operational endpoints under /actuator, starting with health.
+    implementation(libs.spring.boot.starter.actuator)
 
     // Test-only libraries: on the test classpath, never in the packaged JAR.
     testImplementation(libs.spring.boot.starter.test)
