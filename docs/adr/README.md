@@ -15,3 +15,4 @@ Statuses: `Proposed`, `Accepted`, `Superseded`, `Deprecated`.
 
 | ADR | Title | Status |
 |---|---|---|
+| [0001](0001-record-architecture-decisions.md) | Record architecture decisions | Accepted |
