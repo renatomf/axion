@@ -11,3 +11,8 @@ pre-commit:
 
     - name: editorconfig
       run: editorconfig-checker {staged_files}
+
+commit-msg:
+  jobs:
+    - name: commitlint
+      run: pnpm exec commitlint --edit {1}
