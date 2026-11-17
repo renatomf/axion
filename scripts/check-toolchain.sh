@@ -46,6 +46,7 @@ check_tool "uv"             -    uv --version
 check_tool "just"           -    just --version
 check_tool "GitHub CLI"     -    gh --version
 check_tool "Gitleaks"       8.19 gitleaks version
+check_tool "editorconfig-checker" 3.0 editorconfig-checker --version
 
 echo "Environment"
 if docker info >/dev/null 2>&1; then

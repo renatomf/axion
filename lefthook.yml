@@ -8,3 +8,6 @@ pre-commit:
   jobs:
     - name: gitleaks
       run: gitleaks git --pre-commit --staged --redact --no-banner .
+
+    - name: editorconfig
+      run: editorconfig-checker {staged_files}
