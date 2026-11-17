@@ -32,6 +32,25 @@ Commits must be signed (SSH or GPG): `main` rejects unsigned commits.
 
 Do not bypass hooks with `--no-verify`. If a hook reports a false positive, fix its configuration in a pull request instead.
 
+## Continuous integration
+
+GitHub Actions runs these security gates on every pull request and on `main` ([`.github/workflows/`](.github/workflows)):
+
+| Workflow | Check |
+|---|---|
+| Gitleaks | Scans the full git history for secrets |
+| CodeQL | Static analysis (SAST); findings appear under **Security → Code scanning** |
+
+Dependabot ([`.github/dependabot.yml`](.github/dependabot.yml)) opens weekly, grouped update PRs for GitHub Actions and the root pnpm tooling.
+
+Workflow rules:
+
+- Actions are pinned to a full commit SHA, with the version in a comment (`uses: owner/action@<sha> # vX.Y.Z`). Tags can be moved; SHAs cannot.
+- Permissions are read-only by default (`permissions: contents: read`); a job asks only for what it needs.
+- Downloaded tools are verified against their published SHA-256 checksum.
+
+Security vulnerabilities are reported privately; see [`SECURITY.md`](SECURITY.md).
+
 ## Workflow
 
 Every change follows the same path:
