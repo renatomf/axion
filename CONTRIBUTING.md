@@ -55,6 +55,25 @@ The service is a Spring Boot application; its entry point is [`Application`](ser
 | [`build.gradle.kts`](services/core/build.gradle.kts) | Plugins, the Java toolchain and dependencies |
 | [`gradle.properties`](services/core/gradle.properties) | Gradle options (configuration and build caches) |
 
+### Core service configuration
+
+Configuration lives in [`src/main/resources`](services/core/src/main/resources). [`application.yml`](services/core/src/main/resources/application.yml) holds safe defaults for every environment; a profile file `application-<profile>.yml` overrides them when that profile is active.
+
+| Profile | Active when | Differences |
+|---|---|---|
+| default | No profile is set (e.g. `java -jar build/libs/finaxis-core.jar`) | Safe defaults |
+| `local` | `./gradlew bootRun`, or `SPRING_PROFILES_ACTIVE=local` | Health shows component details |
+
+The service listens on port 8080. Only the Actuator health endpoint is exposed:
+
+```bash
+curl localhost:8080/actuator/health             # {"status":"UP",...}
+curl localhost:8080/actuator/health/liveness    # the process is alive
+curl localhost:8080/actuator/health/readiness   # the service accepts traffic
+```
+
+Exposing another Actuator endpoint is a security decision: it needs a reason in the pull request.
+
 Versions are declared only in the version catalog. To upgrade Gradle, run `./gradlew wrapper --gradle-version <version> --gradle-distribution-sha256-sum <checksum>` with the checksum published at [gradle.org/release-checksums](https://gradle.org/release-checksums/), then run the same command a second time so the wrapper JAR and scripts are updated too.
 
 ## Continuous integration
