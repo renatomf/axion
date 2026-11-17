@@ -1,0 +1,42 @@
+# --- Secrets and local environment -----------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# --- Operating systems ------------------------------------------------------
+.DS_Store
+Thumbs.db
+
+# --- Editors and tools ------------------------------------------------------
+.idea/
+*.iml
+.vscode/*
+!.vscode/extensions.json
+.claude/settings.local.json
+
+# --- Java / Gradle ----------------------------------------------------------
+.gradle/
+build/
+out/
+*.class
+
+# --- Node / TypeScript ------------------------------------------------------
+node_modules/
+.next/
+.turbo/
+dist/
+coverage/
+*.tsbuildinfo
+
+# --- Python -----------------------------------------------------------------
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Logs -------------------------------------------------------------------
+*.log
