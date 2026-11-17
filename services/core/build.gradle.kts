@@ -1,6 +1,8 @@
 // Build script for the core service: https://docs.gradle.org/current/userguide/writing_build_scripts.html
 plugins {
     java
+    // Adds `bootRun` and packages the service as an executable JAR (`bootJar`).
+    alias(libs.plugins.spring.boot)
 }
 
 java {

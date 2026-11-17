@@ -13,3 +13,4 @@ spring-boot-dependencies = { module = "org.springframework.boot:spring-boot-depe
 spring-boot-starter = { module = "org.springframework.boot:spring-boot-starter" }
 
 [plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
