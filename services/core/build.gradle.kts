@@ -30,6 +30,13 @@ dependencies {
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 
+tasks.bootRun {
+    // `./gradlew bootRun` is how developers start the service locally, so it
+    // activates the `local` profile (src/main/resources/application-local.yml).
+    // The packaged JAR runs with the default profile unless told otherwise.
+    systemProperty("spring.profiles.active", "local")
+}
+
 tasks.test {
     // Run tests with the JUnit Platform (JUnit Jupiter). Without this line
     // Gradle looks for JUnit 4 tests and would find none.

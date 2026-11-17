@@ -1,0 +1,10 @@
+# Overrides for the `local` profile: a developer machine. Active when the
+# service runs with `./gradlew bootRun`, or with
+# SPRING_PROFILES_ACTIVE=local. Never active in shared environments.
+
+management:
+  endpoint:
+    health:
+      # Show each health component (disk space, ping and, later, the
+      # database) to help diagnose problems locally.
+      show-details: always
