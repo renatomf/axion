@@ -16,6 +16,8 @@ spring-boot-starter-webmvc = { module = "org.springframework.boot:spring-boot-st
 spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
 # Test toolkit: JUnit Jupiter (JUnit 6), AssertJ, Mockito and Spring's test support.
 spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
+# MockMvc support for testing Spring MVC endpoints without a real server.
+spring-boot-starter-webmvc-test = { module = "org.springframework.boot:spring-boot-starter-webmvc-test" }
 # Lets Gradle launch JUnit tests; Gradle 9 requires it on the test runtime classpath.
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 
