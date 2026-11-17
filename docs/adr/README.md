@@ -16,3 +16,4 @@ Statuses: `Proposed`, `Accepted`, `Superseded`, `Deprecated`.
 | ADR | Title | Status |
 |---|---|---|
 | [0001](0001-record-architecture-decisions.md) | Record architecture decisions | Accepted |
+| [0002](0002-modular-monolith.md) | Build the core as a modular monolith | Accepted |
