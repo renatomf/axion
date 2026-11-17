@@ -40,7 +40,10 @@ Do not bypass hooks with `--no-verify`. If a hook reports a false positive, fix 
 cd services/core
 ./gradlew build      # compile, test and package build/libs/finaxis-core.jar
 ./gradlew bootRun    # start the service from the build
+./gradlew test       # run the tests only
 ```
+
+Tests use JUnit Jupiter and AssertJ, from Spring Boot's test starter. Test reports are written to `build/reports/tests/test/index.html`.
 
 The service is a Spring Boot application; its entry point is [`Application`](services/core/src/main/java/dev/finaxis/core/Application.java). Spring Boot's own versions come from its bill of materials, imported as a Gradle platform, so libraries it manages are declared in the catalog without a version.
 
