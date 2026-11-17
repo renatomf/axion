@@ -38,11 +38,14 @@ Early development: **Phase 0 (Foundation)**. Nothing is runnable yet.
 
 ## Getting started
 
-Development happens on Linux (or WSL2 on Windows). Verify your toolchain:
+Development happens on Linux (or WSL2 on Windows). Verify your toolchain, then install the repository tooling and git hooks:
 
 ```bash
 ./scripts/check-toolchain.sh
+pnpm install
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full setup.
 
 ## Built with AI assistance
 
