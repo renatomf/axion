@@ -11,3 +11,12 @@ java {
         languageVersion = JavaLanguageVersion.of(libs.versions.java.get())
     }
 }
+
+dependencies {
+    // Import Spring Boot's bill of materials as a Gradle platform, so the
+    // libraries below take their versions from it.
+    implementation(platform(libs.spring.boot.dependencies))
+
+    // Spring core, auto-configuration and logging (Logback via SLF4J).
+    implementation(libs.spring.boot.starter)
+}

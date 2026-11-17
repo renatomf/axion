@@ -4,7 +4,12 @@
 
 [versions]
 java = "25"
+spring-boot = "4.1.2"
 
 [libraries]
+# Bill of materials: the versions Spring Boot has tested together. Libraries
+# managed by it are declared below without a version.
+spring-boot-dependencies = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "spring-boot" }
+spring-boot-starter = { module = "org.springframework.boot:spring-boot-starter" }
 
 [plugins]
