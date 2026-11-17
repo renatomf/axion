@@ -29,6 +29,13 @@ Early development: **Phase 0 (Foundation)**. Nothing is runnable yet.
 | `apps/mobile` | Expo (React Native), Android |
 | Infrastructure | PostgreSQL, Keycloak, Docker Compose |
 
+## Documentation
+
+- [Platform overview](docs/design-docs/2026-11-17-platform-overview.md): the approved design.
+- [Roadmap](docs/roadmap.md): phases and the pull-request plan.
+- [All documentation](docs/README.md)
+- [Contributing](CONTRIBUTING.md)
+
 ## Getting started
 
 Development happens on Linux (or WSL2 on Windows). Verify your toolchain:
