@@ -21,4 +21,8 @@ dependencies {
 
     // Spring core, auto-configuration and logging (Logback via SLF4J).
     implementation(libs.spring.boot.starter)
+
+    // Test-only libraries: on the test classpath, never in the packaged JAR.
+    testImplementation(libs.spring.boot.starter.test)
+    testRuntimeOnly(libs.junit.platform.launcher)
 }
