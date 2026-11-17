@@ -1,0 +1,5 @@
+# Git hooks managed by Lefthook: https://lefthook.dev
+# Installed by `pnpm install` through the `prepare` script in package.json.
+#
+# Hooks are a fast local guardrail, not a security boundary: they can be
+# skipped with `git commit --no-verify`, so CI repeats the checks that matter.
