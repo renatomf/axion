@@ -1,0 +1,10 @@
+# Version catalog for the core service: https://docs.gradle.org/current/userguide/version_catalogs.html
+# Gradle loads this file automatically and exposes it to build scripts as `libs`.
+# Every version used by the build is declared here, and only here.
+
+[versions]
+java = "25"
+
+[libraries]
+
+[plugins]

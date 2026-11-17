@@ -32,6 +32,25 @@ Commits must be signed (SSH or GPG): `main` rejects unsigned commits.
 
 Do not bypass hooks with `--no-verify`. If a hook reports a false positive, fix its configuration in a pull request instead.
 
+### Core service build
+
+[`services/core`](services/core) builds with Gradle through the wrapper; no local Gradle install is needed. The wrapper downloads the pinned Gradle version and verifies its SHA-256 checksum.
+
+```bash
+cd services/core
+./gradlew build
+```
+
+| File | Purpose |
+|---|---|
+| [`gradle/wrapper/gradle-wrapper.properties`](services/core/gradle/wrapper/gradle-wrapper.properties) | Pinned Gradle version and its checksum |
+| [`settings.gradle.kts`](services/core/settings.gradle.kts) | Build name and the only allowed repositories |
+| [`gradle/libs.versions.toml`](services/core/gradle/libs.versions.toml) | Version catalog: every version the build uses |
+| [`build.gradle.kts`](services/core/build.gradle.kts) | Plugins and the Java toolchain |
+| [`gradle.properties`](services/core/gradle.properties) | Gradle options (configuration and build caches) |
+
+Versions are declared only in the version catalog. To upgrade Gradle, run `./gradlew wrapper --gradle-version <version> --gradle-distribution-sha256-sum <checksum>` with the checksum published at [gradle.org/release-checksums](https://gradle.org/release-checksums/), then run the same command a second time so the wrapper JAR and scripts are updated too.
+
 ## Continuous integration
 
 GitHub Actions runs these security gates on every pull request and on `main` ([`.github/workflows/`](.github/workflows)):
@@ -41,7 +60,7 @@ GitHub Actions runs these security gates on every pull request and on `main` ([`
 | Gitleaks | Scans the full git history for secrets |
 | CodeQL | Static analysis (SAST); findings appear under **Security → Code scanning** |
 
-Dependabot ([`.github/dependabot.yml`](.github/dependabot.yml)) opens weekly, grouped update PRs for GitHub Actions and the root pnpm tooling.
+Dependabot ([`.github/dependabot.yml`](.github/dependabot.yml)) opens weekly, grouped update PRs for GitHub Actions, the root pnpm tooling and the core Gradle build.
 
 Workflow rules:
 
