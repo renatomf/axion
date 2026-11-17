@@ -6,4 +6,4 @@ How the system is protected, and the evidence for it.
 - **ASVS mapping:** each OWASP ASVS 5.0 Level 2 requirement mapped to a control and a test.
 - **AI golden rule:** the principles that keep LLM features away from moving money.
 
-Vulnerabilities are reported privately, never in public issues; the disclosure policy is `SECURITY.md` at the repository root (PR 0.06).
+Vulnerabilities are reported privately, never in public issues; the disclosure policy is [`SECURITY.md`](../../SECURITY.md).
