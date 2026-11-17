@@ -10,7 +10,27 @@ Development happens on Linux (or WSL2 on Windows, with the repository on the Lin
 ./scripts/check-toolchain.sh
 ```
 
+Gitleaks and editorconfig-checker are single binaries: download them from their official GitHub releases, verify the published SHA-256 checksum, and place them on your `PATH` (e.g. `~/.local/bin`).
+
+Install the repository tooling and git hooks:
+
+```bash
+pnpm install
+```
+
 Commits must be signed (SSH or GPG): `main` rejects unsigned commits.
+
+### Git hooks
+
+[Lefthook](https://lefthook.dev) runs these checks locally ([`lefthook.yml`](lefthook.yml)):
+
+| Hook | Check |
+|---|---|
+| `pre-commit` | Gitleaks scans staged changes for secrets |
+| `pre-commit` | editorconfig-checker validates staged files against [`.editorconfig`](.editorconfig) |
+| `commit-msg` | commitlint validates the message against [Commits](#commits) |
+
+Do not bypass hooks with `--no-verify`. If a hook reports a false positive, fix its configuration in a pull request instead.
 
 ## Workflow
 
