@@ -38,15 +38,18 @@ Do not bypass hooks with `--no-verify`. If a hook reports a false positive, fix 
 
 ```bash
 cd services/core
-./gradlew build
+./gradlew build      # compile, test and package build/libs/finaxis-core.jar
+./gradlew bootRun    # start the service from the build
 ```
+
+The service is a Spring Boot application; its entry point is [`Application`](services/core/src/main/java/dev/finaxis/core/Application.java). Spring Boot's own versions come from its bill of materials, imported as a Gradle platform, so libraries it manages are declared in the catalog without a version.
 
 | File | Purpose |
 |---|---|
 | [`gradle/wrapper/gradle-wrapper.properties`](services/core/gradle/wrapper/gradle-wrapper.properties) | Pinned Gradle version and its checksum |
 | [`settings.gradle.kts`](services/core/settings.gradle.kts) | Build name and the only allowed repositories |
 | [`gradle/libs.versions.toml`](services/core/gradle/libs.versions.toml) | Version catalog: every version the build uses |
-| [`build.gradle.kts`](services/core/build.gradle.kts) | Plugins and the Java toolchain |
+| [`build.gradle.kts`](services/core/build.gradle.kts) | Plugins, the Java toolchain and dependencies |
 | [`gradle.properties`](services/core/gradle.properties) | Gradle options (configuration and build caches) |
 
 Versions are declared only in the version catalog. To upgrade Gradle, run `./gradlew wrapper --gradle-version <version> --gradle-distribution-sha256-sum <checksum>` with the checksum published at [gradle.org/release-checksums](https://gradle.org/release-checksums/), then run the same command a second time so the wrapper JAR and scripts are updated too.
