@@ -26,3 +26,9 @@ dependencies {
     testImplementation(libs.spring.boot.starter.test)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
+
+tasks.test {
+    // Run tests with the JUnit Platform (JUnit Jupiter). Without this line
+    // Gradle looks for JUnit 4 tests and would find none.
+    useJUnitPlatform()
+}
