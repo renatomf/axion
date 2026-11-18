@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.Arrays;
 import java.util.Currency;
+import java.util.List;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
@@ -85,6 +87,47 @@ class MoneyPropertiesTest {
                 .abs();
 
         assertThat(error).isLessThanOrEqualTo(new BigDecimal("0.5"));
+    }
+
+    /** Allocation never loses or creates a minor unit, over the whole {@code long} range. */
+    @Property(tries = 1000)
+    void allocatedPartsAddUpToTheAmount(@ForAll long minorUnits, @ForAll("ratios") long[] ratios) {
+        Money money = Money.ofMinor(minorUnits, BRL);
+
+        List<Money> parts = money.allocate(ratios);
+
+        assertThat(parts).hasSize(ratios.length);
+        assertThat(parts.stream().reduce(Money.zero(BRL), Money::plus)).isEqualTo(money);
+    }
+
+    /**
+     * Each part is less than one minor unit away from its exact share, {@code amount × ratio / total}.
+     * Multiplied out to stay in whole numbers: {@code |part × total − amount × ratio| < total}.
+     */
+    @Property(tries = 1000)
+    void eachPartIsWithinOneMinorUnitOfItsExactShare(@ForAll long minorUnits, @ForAll("ratios") long[] ratios) {
+        List<Money> parts = Money.ofMinor(minorUnits, BRL).allocate(ratios);
+        BigInteger total = Arrays.stream(ratios).mapToObj(BigInteger::valueOf).reduce(BigInteger.ZERO, BigInteger::add);
+
+        for (int i = 0; i < ratios.length; i++) {
+            BigInteger exactTimesTotal = BigInteger.valueOf(minorUnits).multiply(BigInteger.valueOf(ratios[i]));
+            BigInteger distance = BigInteger.valueOf(parts.get(i).minorUnits())
+                    .multiply(total)
+                    .subtract(exactTimesTotal)
+                    .abs();
+            assertThat(distance).isLessThan(total);
+        }
+    }
+
+    /** Ratios of up to a billion, so that amount × ratio overflows a {@code long}, with a positive total. */
+    @Provide
+    Arbitrary<long[]> ratios() {
+        return Arbitraries.longs()
+                .between(0, 1_000_000_000)
+                .array(long[].class)
+                .ofMinSize(1)
+                .ofMaxSize(10)
+                .filter(ratios -> Arrays.stream(ratios).anyMatch(ratio -> ratio > 0));
     }
 
     @Provide
