@@ -7,6 +7,10 @@ spring:
   application:
     # Identifies the service in logs and, later, in metrics and traces.
     name: finaxis-core
+  flyway:
+    # Fail on a file in db/migration whose name Flyway cannot parse, instead
+    # of silently skipping it.
+    validate-migration-naming: true
 
 management:
   endpoints:

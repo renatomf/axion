@@ -23,6 +23,10 @@ spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-
 spring-boot-starter-jdbc = { module = "org.springframework.boot:spring-boot-starter-jdbc" }
 # PostgreSQL JDBC driver.
 postgresql = { module = "org.postgresql:postgresql" }
+# Versioned database migrations, applied by Flyway when the service starts.
+spring-boot-starter-flyway = { module = "org.springframework.boot:spring-boot-starter-flyway" }
+# Flyway's PostgreSQL support, a separate module since Flyway 10.
+flyway-database-postgresql = { module = "org.flywaydb:flyway-database-postgresql" }
 # Nullness annotations (@NullMarked, @Nullable), the standard Spring itself uses.
 jspecify = { module = "org.jspecify:jspecify" }
 # Test toolkit: JUnit Jupiter (JUnit 6), AssertJ, Mockito and Spring's test support.

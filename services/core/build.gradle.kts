@@ -45,6 +45,9 @@ dependencies {
     implementation(libs.spring.boot.starter.jdbc)
     // The PostgreSQL driver is needed only when the service runs, never to compile.
     runtimeOnly(libs.postgresql)
+    // Schema migrations from src/main/resources/db/migration, run at startup.
+    implementation(libs.spring.boot.starter.flyway)
+    implementation(libs.flyway.database.postgresql)
     // Annotations that state, in the code, which references may be null.
     implementation(libs.jspecify)
 
