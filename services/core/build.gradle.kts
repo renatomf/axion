@@ -19,12 +19,23 @@ dependencies {
     // libraries below take their versions from it.
     implementation(platform(libs.spring.boot.dependencies))
 
-    // Spring core, auto-configuration and logging (Logback via SLF4J).
-    implementation(libs.spring.boot.starter)
+    // Spring MVC on an embedded Tomcat server, plus Spring core,
+    // auto-configuration and logging (Logback via SLF4J).
+    implementation(libs.spring.boot.starter.webmvc)
+    // Operational endpoints under /actuator, starting with health.
+    implementation(libs.spring.boot.starter.actuator)
 
     // Test-only libraries: on the test classpath, never in the packaged JAR.
     testImplementation(libs.spring.boot.starter.test)
+    testImplementation(libs.spring.boot.starter.webmvc.test)
     testRuntimeOnly(libs.junit.platform.launcher)
+}
+
+tasks.bootRun {
+    // `./gradlew bootRun` is how developers start the service locally, so it
+    // activates the `local` profile (src/main/resources/application-local.yml).
+    // The packaged JAR runs with the default profile unless told otherwise.
+    systemProperty("spring.profiles.active", "local")
 }
 
 tasks.test {
