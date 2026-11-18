@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
 /**
@@ -24,6 +25,8 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
  */
 @Configuration(proxyBeanMethods = false)
 class SecurityConfiguration {
+
+    static final String CONTENT_SECURITY_POLICY = "default-src 'none'; frame-ancestors 'none'";
 
     /**
      * @param resolver Spring MVC's exception resolver, which applies the {@code web} module's error
@@ -47,6 +50,14 @@ class SecurityConfiguration {
         ProblemDetailsSecurityHandler rejections = new ProblemDetailsSecurityHandler(resolver);
         http.exceptionHandling(
                 exceptions -> exceptions.authenticationEntryPoint(rejections).accessDeniedHandler(rejections));
+
+        // Security headers for a JSON API, on every response, errors included. Spring Security
+        // already sends X-Content-Type-Options: nosniff, X-Frame-Options: DENY, Cache-Control:
+        // no-store and, on HTTPS requests, Strict-Transport-Security. The core serves no HTML, so
+        // the policy below lets a browser load nothing from a response and frame it nowhere, and no
+        // URL of the core leaks to other sites through the Referer header.
+        http.headers(headers -> headers.contentSecurityPolicy(csp -> csp.policyDirectives(CONTENT_SECURITY_POLICY))
+                .referrerPolicy(referrer -> referrer.policy(ReferrerPolicy.NO_REFERRER)));
 
         // Clients authenticate on every request (API keys and service tokens arrive in phase 1),
         // so the core never creates an HTTP session.
