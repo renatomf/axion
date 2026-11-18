@@ -3,6 +3,8 @@ plugins {
     java
     // Adds `bootRun` and packages the service as an executable JAR (`bootJar`).
     alias(libs.plugins.spring.boot)
+    // Formats the code; `spotlessCheck` runs as part of `check` (and so `build`).
+    alias(libs.plugins.spotless)
 }
 
 java {
@@ -11,6 +13,16 @@ java {
     // using whatever `java` is on the PATH.
     toolchain {
         languageVersion = JavaLanguageVersion.of(libs.versions.java.get())
+    }
+}
+
+spotless {
+    java {
+        // One formatter for all Java code, so formatting is never discussed in
+        // review. Palantir Java Format: 4-space indentation, 120 columns.
+        palantirJavaFormat(libs.versions.palantir.java.format.get())
+        // Imports: no unused ones, sorted the same way everywhere.
+        removeUnusedImports()
     }
 }
 

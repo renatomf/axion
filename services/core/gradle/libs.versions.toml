@@ -5,6 +5,8 @@
 [versions]
 java = "25"
 spring-boot = "4.1.2"
+spotless = "8.11.0"
+palantir-java-format = "2.103.0"
 
 [libraries]
 # Bill of materials: the versions Spring Boot has tested together. Libraries
@@ -22,4 +24,6 @@ spring-boot-starter-webmvc-test = { module = "org.springframework.boot:spring-bo
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 
 [plugins]
+# Code formatter: `spotlessCheck` fails the build on unformatted code, `spotlessApply` fixes it.
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }

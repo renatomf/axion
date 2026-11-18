@@ -37,10 +37,7 @@ class HealthEndpointTest {
 
     @Test
     void hidesComponentDetails() {
-        assertThat(mvc.get().uri("/actuator/health"))
-                .hasStatusOk()
-                .bodyJson()
-                .doesNotHavePath("$.components");
+        assertThat(mvc.get().uri("/actuator/health")).hasStatusOk().bodyJson().doesNotHavePath("$.components");
     }
 
     @Test
