@@ -2,9 +2,23 @@
 # service runs with `./gradlew bootRun`, or with
 # SPRING_PROFILES_ACTIVE=local. Never active in shared environments.
 
+spring:
+  config:
+    # Read the local infrastructure settings (FINAXIS_DB_PASSWORD,
+    # FINAXIS_DB_PORT) from the same git-ignored file Docker Compose uses,
+    # so they are defined once. `[.properties]` tells Spring to parse the
+    # .env file as KEY=value properties. The path is relative to the
+    # working directory, services/core under `./gradlew bootRun`.
+    import: optional:file:../../infra/compose/.env[.properties]
+  datasource:
+    # The PostgreSQL started by `just up` (infra/compose/compose.yaml).
+    url: jdbc:postgresql://localhost:${FINAXIS_DB_PORT:5432}/finaxis
+    username: finaxis
+    password: ${FINAXIS_DB_PASSWORD}
+
 management:
   endpoint:
     health:
-      # Show each health component (disk space, ping and, later, the
-      # database) to help diagnose problems locally.
+      # Show each health component (disk space, ping and the database) to
+      # help diagnose problems locally.
       show-details: always
