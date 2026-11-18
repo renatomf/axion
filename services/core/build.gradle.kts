@@ -1,4 +1,7 @@
 // Build script for the core service: https://docs.gradle.org/current/userguide/writing_build_scripts.html
+import net.ltgt.gradle.errorprone.CheckSeverity
+import net.ltgt.gradle.errorprone.errorprone
+
 plugins {
     java
     // Adds `bootRun` and packages the service as an executable JAR (`bootJar`).
@@ -48,6 +51,20 @@ dependencies {
 
     // Error Prone itself: on its own configuration, used only by the compiler.
     errorprone(libs.errorprone.core)
+    errorprone(libs.nullaway)
+}
+
+tasks.withType<JavaCompile>().configureEach {
+    options.errorprone {
+        // A possible null dereference is a compile error, not a warning.
+        check("NullAway", CheckSeverity.ERROR)
+        // Check every class under dev.finaxis, even in a package that forgot
+        // its @NullMarked package-info.
+        option("NullAway:AnnotatedPackages", "dev.finaxis")
+        // Follow the JSpecify specification, including generics such as
+        // List<@Nullable String>.
+        option("NullAway:JSpecifyMode", "true")
+    }
 }
 
 tasks.bootRun {
