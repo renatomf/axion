@@ -90,6 +90,23 @@ class PostEntryTest {
     }
 
     @Test
+    void checksBalancesInAccountIdOrder() {
+        var held =
+                ledger.openAccount(new AccountRequest(tenant, "tenant:held", AccountType.LIABILITY, BRL, false, false));
+        var first = available.value().compareTo(held.value()) < 0 ? available : held;
+        var second = first.equals(available) ? held : available;
+        // Both tenant balances are zero, so both are short; the postings list the later one first.
+        var request = request(
+                newSource(),
+                List.of(
+                        PostingRequest.debit(second, TEN),
+                        PostingRequest.debit(first, TEN),
+                        PostingRequest.credit(settlement, Money.ofMinor(2_000, BRL))));
+
+        assertThat(ledger.post(request)).isEqualTo(new PostResult.InsufficientFunds(first));
+    }
+
+    @Test
     void postsARefusedSourceOnceTheFundsAreThere() {
         var payout = payOut(newSource(), TEN);
         ledger.post(payout);

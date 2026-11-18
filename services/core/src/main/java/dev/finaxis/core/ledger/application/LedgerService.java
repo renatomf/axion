@@ -15,6 +15,7 @@ import dev.finaxis.core.ledger.persistence.JdbcBalances;
 import dev.finaxis.core.ledger.persistence.JdbcEntries;
 import dev.finaxis.core.shared.UuidV7Generator;
 import java.time.Clock;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -32,6 +33,9 @@ import org.springframework.transaction.interceptor.TransactionAspectSupport;
  */
 @Service
 public class LedgerService implements LedgerApi {
+
+    /** The order in which an entry locks balance rows: ascending account ID. */
+    private static final Comparator<AccountId> LOCK_ORDER = Comparator.comparing(AccountId::value);
 
     private final JdbcAccounts accounts;
     private final JdbcEntries entries;
@@ -117,13 +121,20 @@ public class LedgerService implements LedgerApi {
      * Changes the balance of each account the entry touches, once per account (ledger design,
      * section 5.2), and stops at the first guarded balance that would go below zero.
      *
-     * @return the account whose balance was short, if one was
+     * <p>Each update locks the balance row until the transaction ends. Updating in ascending account
+     * ID order means two entries touching the same accounts lock them in the same order: one waits
+     * for the other, instead of each holding a row the other needs, which would be a deadlock.
+     *
+     * @return the first account, in ID order, whose balance was short, if one was
      */
     private Optional<AccountId> updateBalances(Entry entry) {
         Map<AccountId, Account> touched = entry.postings().stream()
                 .map(Posting::account)
                 .collect(Collectors.toMap(Account::id, Function.identity(), (same, again) -> same));
-        for (var change : entry.balanceChanges().entrySet()) {
+        var inLockOrder = entry.balanceChanges().entrySet().stream()
+                .sorted(Map.Entry.comparingByKey(LOCK_ORDER))
+                .toList();
+        for (var change : inLockOrder) {
             var account = Objects.requireNonNull(touched.get(change.getKey()));
             // A hot account's balance is folded in by a scheduled job instead (section 5.3).
             if (!account.hot() && !balances.apply(account, change.getValue())) {
