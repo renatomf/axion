@@ -65,7 +65,8 @@ class JdbcEntriesTest {
         assertThat(entries.claim(first, request)).isTrue();
         assertThat(entries.claim(new EntryId(ids.next()), request)).isFalse();
 
-        assertThat(entries.findBySource(request.source())).contains(first);
+        assertThat(entries.findBySource(request.source()))
+                .contains(new JdbcEntries.SourcedEntry(first, request.tenantId()));
     }
 
     @Test

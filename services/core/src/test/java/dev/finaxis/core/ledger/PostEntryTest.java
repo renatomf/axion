@@ -35,6 +35,7 @@ class PostEntryTest {
     private final LedgerApi ledger;
     private final JdbcClient jdbc;
 
+    private UUID tenant;
     private AccountId settlement;
     private AccountId available;
 
@@ -46,7 +47,7 @@ class PostEntryTest {
 
     @BeforeEach
     void openAccounts() {
-        var tenant = UUID.randomUUID();
+        tenant = UUID.randomUUID();
         settlement = ledger.openAccount(
                 new AccountRequest(tenant, "platform:settlement", AccountType.ASSET, BRL, true, false));
         available = ledger.openAccount(
@@ -80,6 +81,22 @@ class PostEntryTest {
         assertThatThrownBy(() -> ledger.post(settle(source, Money.ofMinor(2_000, BRL))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("already posted with other postings");
+    }
+
+    @Test
+    void rejectsASourceReusedForAnotherTenant() {
+        var request = settle(newSource(), TEN);
+        ledger.post(request);
+        var otherTenant = new EntryRequest(
+                UUID.randomUUID(),
+                request.source(),
+                request.effectiveDate(),
+                request.correlationId(),
+                request.postings());
+
+        assertThatThrownBy(() -> ledger.post(otherTenant))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("already posted for another tenant");
     }
 
     @Test
@@ -134,8 +151,8 @@ class PostEntryTest {
                 source, List.of(PostingRequest.debit(settlement, amount), PostingRequest.credit(available, amount)));
     }
 
-    private static EntryRequest request(EntrySource source, List<PostingRequest> postings) {
-        return new EntryRequest(UUID.randomUUID(), source, LocalDate.of(2026, 11, 18), "corr-1", postings);
+    private EntryRequest request(EntrySource source, List<PostingRequest> postings) {
+        return new EntryRequest(tenant, source, LocalDate.of(2026, 11, 18), "corr-1", postings);
     }
 
     private static EntrySource newSource() {

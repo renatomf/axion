@@ -85,10 +85,14 @@ public class LedgerService implements LedgerApi {
         }
         // The source was posted before. Entries are never deleted, so it is there to read.
         var existing = entries.findBySource(request.source()).orElseThrow();
-        if (!sameLegs(entries.findPostings(existing), request.postings())) {
+        // A source fact belongs to one tenant, so the same source for another tenant is a bug.
+        if (!existing.tenantId().equals(request.tenantId())) {
+            throw new IllegalStateException("Source " + request.source() + " was already posted for another tenant");
+        }
+        if (!sameLegs(entries.findPostings(existing.id()), request.postings())) {
             throw new IllegalStateException("Source " + request.source() + " was already posted with other postings");
         }
-        return new PostResult.AlreadyPosted(existing);
+        return new PostResult.AlreadyPosted(existing.id());
     }
 
     /** The domain entry for the request, with the accounts its postings reference. */

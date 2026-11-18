@@ -63,17 +63,26 @@ public class JdbcEntries {
         return inserted == 1;
     }
 
+    /**
+     * An entry that a source produced: its ID and the tenant it was posted for.
+     *
+     * @param id the entry's primary key
+     * @param tenantId the tenant of the source fact
+     */
+    public record SourcedEntry(EntryId id, UUID tenantId) {}
+
     /** The entry the source produced for its purpose, if there is one. */
-    public Optional<EntryId> findBySource(EntrySource source) {
+    public Optional<SourcedEntry> findBySource(EntrySource source) {
         return jdbc.sql("""
-                        SELECT id
+                        SELECT id, tenant_id
                           FROM ledger.entries
                          WHERE source_type = :type AND source_id = :id AND purpose = :purpose
                         """)
                 .param("type", source.type())
                 .param("id", source.id())
                 .param("purpose", source.purpose())
-                .query((row, rowNumber) -> new EntryId(row.getObject("id", UUID.class)))
+                .query((row, rowNumber) -> new SourcedEntry(
+                        new EntryId(row.getObject("id", UUID.class)), row.getObject("tenant_id", UUID.class)))
                 .optional();
     }
 

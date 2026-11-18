@@ -32,8 +32,8 @@ public interface LedgerApi {
      * @throws IllegalArgumentException if the request breaks the ledger's rules (fewer than two or
      *     more than 32 postings, unbalanced, an amount that is not positive, an unknown account, or
      *     a currency other than the account's), which is a bug in the caller
-     * @throws IllegalStateException if the source was already posted with other postings, which is
-     *     a bug in the caller
+     * @throws IllegalStateException if the source was already posted for another tenant or with
+     *     other postings, which is a bug in the caller
      */
     PostResult post(EntryRequest request);
 }
