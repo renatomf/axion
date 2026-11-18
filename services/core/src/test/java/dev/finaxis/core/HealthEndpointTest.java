@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 
@@ -16,6 +17,7 @@ import org.springframework.test.web.servlet.assertj.MockMvcTester;
  * Spring MVC stack (routing, Actuator, JSON serialization) without opening a network port.
  */
 @SpringBootTest
+@Import(PostgresTestConfiguration.class)
 @AutoConfigureMockMvc
 class HealthEndpointTest {
 
