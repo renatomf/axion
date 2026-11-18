@@ -1,8 +1,13 @@
 package dev.finaxis.core.shared;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.math.RoundingMode;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Currency;
+import java.util.List;
+import java.util.stream.IntStream;
 
 /**
  * An amount of money: a whole number of the currency's minor units (centavos for BRL) and the
@@ -120,6 +125,67 @@ public record Money(long minorUnits, Currency currency) {
     public Money times(BigDecimal rate) {
         BigDecimal exact = BigDecimal.valueOf(minorUnits).multiply(rate);
         return new Money(exact.setScale(0, RoundingMode.HALF_EVEN).longValueExact(), currency);
+    }
+
+    /**
+     * Splits this amount into parts proportional to the ratios, without losing or creating a minor
+     * unit: the parts always add up to this amount. {@code allocate(70, 27, 3)} of R$ 100.00 is R$
+     * 70.00, R$ 27.00 and R$ 3.00; {@code allocate(1, 1, 1)} of R$ 1.00 is R$ 0.34, R$ 0.33 and R$
+     * 0.33.
+     *
+     * <p>Rounding each share with {@link #times} could leave the parts one centavo short of, or over,
+     * the total. Instead each part first gets its exact share rounded down, and the centavos left over
+     * go one each to the parts with the largest discarded fractions (the largest remainder method);
+     * on a tie, the earlier part wins. Every part is then within one minor unit of its exact share. A
+     * negative amount is split as its absolute value and negated, so the result mirrors the positive
+     * one.
+     *
+     * @param ratios the weight of each part, in order; none negative, at least one positive
+     * @return one part per ratio, in the order of the ratios
+     * @throws IllegalArgumentException if there are no ratios, one is negative, or all are zero
+     */
+    public List<Money> allocate(long... ratios) {
+        if (ratios.length == 0) {
+            throw new IllegalArgumentException("At least one ratio is required");
+        }
+        BigInteger ratioTotal = BigInteger.ZERO;
+        for (long ratio : ratios) {
+            if (ratio < 0) {
+                throw new IllegalArgumentException("Ratios must not be negative: " + ratio);
+            }
+            ratioTotal = ratioTotal.add(BigInteger.valueOf(ratio));
+        }
+        if (ratioTotal.signum() == 0) {
+            throw new IllegalArgumentException("At least one ratio must be positive");
+        }
+
+        // BigInteger: amount × ratio may not fit in a long, even when each share does.
+        BigInteger amount = BigInteger.valueOf(minorUnits).abs();
+        long[] shares = new long[ratios.length];
+        BigInteger[] remainders = new BigInteger[ratios.length];
+        BigInteger allocated = BigInteger.ZERO;
+        for (int i = 0; i < ratios.length; i++) {
+            BigInteger[] division =
+                    amount.multiply(BigInteger.valueOf(ratios[i])).divideAndRemainder(ratioTotal);
+            shares[i] = division[0].longValueExact();
+            remainders[i] = division[1];
+            allocated = allocated.add(division[0]);
+        }
+
+        // Fewer centavos are left over than there are parts, so this hands out at most one each.
+        int leftOver = amount.subtract(allocated).intValueExact();
+        List<Integer> byLargestRemainder = IntStream.range(0, ratios.length)
+                .boxed()
+                .sorted(Comparator.comparing((Integer i) -> remainders[i]).reversed())
+                .toList();
+        for (int i : byLargestRemainder.subList(0, leftOver)) {
+            shares[i]++;
+        }
+
+        int sign = minorUnits < 0 ? -1 : 1;
+        return Arrays.stream(shares)
+                .mapToObj(share -> new Money(sign * share, currency))
+                .toList();
     }
 
     /**
