@@ -6,7 +6,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * What a caller asks for when it posts an entry through {@code LedgerApi.post} (ledger design,
+ * What a caller asks for when it posts an entry through {@link LedgerApi#post} (ledger design,
  * section 6).
  *
  * @param tenantId the tenant of the source fact; each posting belongs to its own account's tenant

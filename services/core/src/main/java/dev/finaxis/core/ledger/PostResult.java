@@ -1,7 +1,7 @@
 package dev.finaxis.core.ledger;
 
 /**
- * The outcome of {@code LedgerApi.post}. Expected outcomes are values, not exceptions (overview
+ * The outcome of {@link LedgerApi#post}. Expected outcomes are values, not exceptions (overview
  * design, section 19.1), and the interface is sealed, so a {@code switch} over it must handle each
  * one.
  *

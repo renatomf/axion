@@ -19,8 +19,8 @@ import java.util.Optional;
  * database checks it again at commit (PR 1.09). A broken entry is a programming error in the caller,
  * so it throws.
  *
- * <p>The source of the entry, its tenant, business date and correlation ID join it with the API that
- * posts it (PR 1.10).
+ * <p>The entry's source, tenant, business date and correlation ID are not part of the model: they
+ * travel beside it, in the {@code EntryRequest} that posts it.
  *
  * @param id the entry's primary key
  * @param postings the legs, in the order given; between two and {@value #MAX_POSTINGS}
