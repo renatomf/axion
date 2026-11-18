@@ -35,6 +35,8 @@ dependencies {
     // Import Spring Boot's bill of materials as a Gradle platform, so the
     // libraries below take their versions from it.
     implementation(platform(libs.spring.boot.dependencies))
+    // The same for Spring Modulith: its modules below take their versions from it.
+    implementation(platform(libs.spring.modulith.bom))
 
     // Spring MVC on an embedded Tomcat server, plus Spring core,
     // auto-configuration and logging (Logback via SLF4J).
@@ -48,6 +50,8 @@ dependencies {
     // Schema migrations from src/main/resources/db/migration, run at startup.
     implementation(libs.spring.boot.starter.flyway)
     implementation(libs.flyway.database.postgresql)
+    // Module annotations; they only describe the structure and add no runtime behavior.
+    implementation(libs.spring.modulith.api)
     // Annotations that state, in the code, which references may be null.
     implementation(libs.jspecify)
 
@@ -56,6 +60,7 @@ dependencies {
     testImplementation(libs.spring.boot.starter.webmvc.test)
     testImplementation(libs.spring.boot.testcontainers)
     testImplementation(libs.testcontainers.postgresql)
+    testImplementation(libs.spring.modulith.starter.test)
     testRuntimeOnly(libs.junit.platform.launcher)
 
     // Error Prone itself: on its own configuration, used only by the compiler.
