@@ -3,11 +3,14 @@ package dev.finaxis.core.web;
 import java.util.Locale;
 import java.util.Map;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
@@ -26,11 +29,29 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  * can branch on, unlike {@code title} and {@code detail}, which are for humans and may change. A
  * handler may set a specific code (such as {@code idempotency_key_reused}); otherwise the code is
  * the HTTP status name, such as {@code not_found}.
+ *
+ * <p>An exception no other handler knows is a bug or an infrastructure failure. The client gets a
+ * {@code 500} with a generic detail; the exception, whose message and stack trace may reveal
+ * internals, is only logged, with the request's correlation ID.
  */
 @RestControllerAdvice
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     static final String CODE = "code";
+
+    private static final Logger LOG = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
+    /**
+     * Handles every exception not handled more specifically: Spring MVC picks the handler whose
+     * exception type is the closest match, so this one only gets what no other handler declares.
+     */
+    @ExceptionHandler(Exception.class)
+    public @Nullable ResponseEntity<Object> handleUnexpected(Exception ex, WebRequest request) {
+        LOG.error("Unexpected error while handling {}", request.getDescription(false), ex);
+        HttpStatus status = HttpStatus.INTERNAL_SERVER_ERROR;
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, "An unexpected error occurred.");
+        return handleExceptionInternal(ex, problem, new HttpHeaders(), status, request);
+    }
 
     /**
      * Every response built by {@link ResponseEntityExceptionHandler} passes through this method, so
