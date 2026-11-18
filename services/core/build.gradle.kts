@@ -5,6 +5,8 @@ plugins {
     alias(libs.plugins.spring.boot)
     // Formats the code; `spotlessCheck` runs as part of `check` (and so `build`).
     alias(libs.plugins.spotless)
+    // Runs Error Prone checks while javac compiles main and test code.
+    alias(libs.plugins.errorprone)
 }
 
 java {
@@ -41,6 +43,9 @@ dependencies {
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.spring.boot.starter.webmvc.test)
     testRuntimeOnly(libs.junit.platform.launcher)
+
+    // Error Prone itself: on its own configuration, used only by the compiler.
+    errorprone(libs.errorprone.core)
 }
 
 tasks.bootRun {
