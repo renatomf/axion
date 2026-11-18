@@ -62,4 +62,36 @@ class MoneyTest {
         assertThat(Money.ofMinor(-1, BRL).isNegative()).isTrue();
         assertThat(Money.ofMinor(-1, BRL).isPositive()).isFalse();
     }
+
+    @Test
+    void addsAndSubtractsInTheSameCurrency() {
+        Money hundred = Money.ofMinor(10000, BRL);
+        Money thirty = Money.ofMinor(3000, BRL);
+
+        assertThat(hundred.plus(thirty)).isEqualTo(Money.ofMinor(13000, BRL));
+        assertThat(hundred.minus(thirty)).isEqualTo(Money.ofMinor(7000, BRL));
+        assertThat(thirty.minus(hundred)).isEqualTo(Money.ofMinor(-7000, BRL));
+        assertThat(thirty.negate()).isEqualTo(Money.ofMinor(-3000, BRL));
+    }
+
+    @Test
+    void rejectsCombiningDifferentCurrencies() {
+        Money reais = Money.ofMinor(100, BRL);
+        Money dollars = Money.ofMinor(100, Currency.getInstance("USD"));
+
+        assertThatThrownBy(() -> reais.plus(dollars))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Cannot combine BRL with USD");
+        assertThatThrownBy(() -> reais.minus(dollars)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void failsInsteadOfOverflowing() {
+        Money max = Money.ofMinor(Long.MAX_VALUE, BRL);
+        Money min = Money.ofMinor(Long.MIN_VALUE, BRL);
+
+        assertThatThrownBy(() -> max.plus(Money.ofMinor(1, BRL))).isInstanceOf(ArithmeticException.class);
+        assertThatThrownBy(() -> min.minus(Money.ofMinor(1, BRL))).isInstanceOf(ArithmeticException.class);
+        assertThatThrownBy(min::negate).isInstanceOf(ArithmeticException.class);
+    }
 }

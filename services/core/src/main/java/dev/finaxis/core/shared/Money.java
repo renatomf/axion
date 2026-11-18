@@ -71,6 +71,49 @@ public record Money(long minorUnits, Currency currency) {
         return minorUnits < 0;
     }
 
+    /**
+     * This amount plus another in the same currency.
+     *
+     * @throws IllegalArgumentException if the currencies differ
+     * @throws ArithmeticException if the result does not fit in a {@code long}, instead of wrapping
+     *     around to a wrong amount
+     */
+    public Money plus(Money other) {
+        requireSameCurrency(other);
+        return new Money(Math.addExact(minorUnits, other.minorUnits), currency);
+    }
+
+    /**
+     * This amount minus another in the same currency; the result may be negative.
+     *
+     * @throws IllegalArgumentException if the currencies differ
+     * @throws ArithmeticException if the result does not fit in a {@code long}
+     */
+    public Money minus(Money other) {
+        requireSameCurrency(other);
+        return new Money(Math.subtractExact(minorUnits, other.minorUnits), currency);
+    }
+
+    /**
+     * The same amount with the opposite sign.
+     *
+     * @throws ArithmeticException for {@code Long.MIN_VALUE} minor units, which has no positive
+     *     counterpart
+     */
+    public Money negate() {
+        return new Money(Math.negateExact(minorUnits), currency);
+    }
+
+    /**
+     * Adding reais to dollars has no meaning; converting needs a rate and is a business decision, never
+     * an implicit step. Mixing currencies is a programming error, so it is an exception, not a result.
+     */
+    private void requireSameCurrency(Money other) {
+        if (!currency.equals(other.currency)) {
+            throw new IllegalArgumentException("Cannot combine " + currency + " with " + other.currency);
+        }
+    }
+
     /** The currency code and the amount in major units, such as {@code BRL 100.50}, for logs and tests. */
     @Override
     public String toString() {
