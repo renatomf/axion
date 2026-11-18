@@ -33,6 +33,21 @@ All money, payment rails and data are simulated, and the video says so in its fi
 
 Phase 1 charges no platform fee, so the settlement entry in scene 5 has two postings. Fees and split, with the three-way entry of the overview design (section 6.4), arrive in phase 2.
 
+## What each scene needs
+
+The roadmap items a scene depends on. A scene is ready to record when all of its items are merged.
+
+| Scene | Roadmap items |
+|---|---|
+| 2 — Create a charge | 1.20–1.21 API keys, 1.26 idempotency keys, 1.33–1.35 charge domain, BR Code and creation |
+| 3 — The charge appears | 1.44 outbox, 1.49 live notifications, 1.53–1.61 console up to live updates |
+| 4 — The student pays | 1.29–1.30 rails simulator, 1.38 rails anti-corruption layer, 1.39 settlement, 1.63 dashboard |
+| 5 — The ledger | 1.08–1.11 ledger domain, schema, posting and balances, 1.60 charge timeline |
+| 6 — The school is notified | 1.45–1.46 webhook endpoints and delivery, 1.64 developer area |
+| 7 — Duplicates | 1.31 chaos API, 1.38 deduplication |
+| 8 — A tenant endpoint fails | 1.47 webhook reliability, 1.64 delivery log and replay |
+| 9 — Closing | 1.23 tenant isolation harness, 1.42 fault-injection suite, 1.67 demo mode, 1.70 load tests |
+
 ## Out of scope
 
 The phase 1 video does not show split, sub-accounts, payouts, the mobile app, Pix Automático, boleto, reconciliation or AI features. They belong to later phases and their own videos.
