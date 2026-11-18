@@ -95,12 +95,15 @@ Versions are declared only in the version catalog. To upgrade Gradle, run `./gra
 
 ## Continuous integration
 
-GitHub Actions runs these security gates on every pull request and on `main` ([`.github/workflows/`](.github/workflows)):
+GitHub Actions runs these checks on every pull request and on `main` ([`.github/workflows/`](.github/workflows)):
 
 | Workflow | Check |
 |---|---|
+| Core | `./gradlew build` in `services/core`: every [code quality gate](#code-quality-gates) and the tests; test reports are kept as an artifact when it fails |
 | Gitleaks | Scans the full git history for secrets |
-| CodeQL | Static analysis (SAST); findings appear under **Security → Code scanning** |
+| CodeQL | Static analysis (SAST) of workflows and Java code; findings appear under **Security → Code scanning** |
+
+The Core workflow validates the Gradle wrapper JAR against known checksums and caches Gradle dependencies; only `main` writes the cache.
 
 Dependabot ([`.github/dependabot.yml`](.github/dependabot.yml)) opens weekly, grouped update PRs for GitHub Actions, the root pnpm tooling and the core Gradle build.
 
