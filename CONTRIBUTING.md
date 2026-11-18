@@ -74,7 +74,7 @@ Types are non-null by default: every package carries `@NullMarked` in its `packa
 
 ### Module boundaries
 
-The core is a modular monolith ([ADR-0002](docs/adr/0002-modular-monolith.md)): each direct subpackage of `dev.finaxis.core` is a module, such as `shared` (the shared kernel) or `observability`. Two tests fail the build when the structure is broken; neither starts the application:
+The core is a modular monolith ([ADR-0002](docs/adr/0002-modular-monolith.md)): each direct subpackage of `dev.finaxis.core` is a module, such as `shared` (the shared kernel), `observability` or `web` (HTTP API conventions). Two tests fail the build when the structure is broken; neither starts the application:
 
 | Test | Tool | Fails on |
 |---|---|---|
@@ -127,6 +127,22 @@ curl -i -H 'X-Correlation-Id: my-request-1' localhost:8080/actuator/health
 ```
 
 Log through SLF4J (`LoggerFactory.getLogger(...)`), never `System.out`. Never log secrets, credentials or personal data (CPF, CNPJ, names, Pix keys), even though all data in this project is synthetic.
+
+### API errors
+
+Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) Problem Details document (`application/problem+json`), built in one place: [`ApiExceptionHandler`](services/core/src/main/java/dev/finaxis/core/web/ApiExceptionHandler.java) in the `web` module.
+
+```bash
+curl -i localhost:8080/v1/charges
+# HTTP/1.1 404
+# Content-Type: application/problem+json
+# {"detail":"No static resource v1/charges.","instance":"/v1/charges","status":404,"title":"Not Found","code":"not_found"}
+```
+
+- `code` is stable and snake_case; clients branch on it, never on `title` or `detail`, which are for humans and may change. A handler may set a specific code (such as `idempotency_key_reused`); otherwise it is the HTTP status name (`not_found`, `method_not_allowed`).
+- `type` is omitted, which RFC 9457 reads as `about:blank`.
+- An exception no handler knows is a bug or an infrastructure failure: it becomes a `500` with the detail `An unexpected error occurred.` and code `internal_server_error`. The exception is logged with the correlation ID; its message and stack trace never reach the response.
+- Expected business outcomes are values, not exceptions (overview design, section 19.1); the endpoint maps them to a problem with a specific code.
 
 ### Local infrastructure
 
