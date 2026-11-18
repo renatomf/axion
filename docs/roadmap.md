@@ -63,8 +63,8 @@ Estimates assume the Spring learning curve. Quality is never traded for schedule
 | 0.11 | Code quality gates | Spotless, Error Prone, NullAway, JSpecify | Static analysis, null safety |
 | 0.12 | CI for the core | GitHub Actions build and test with Gradle caching; CI added as a required status check in the `main` ruleset | Continuous integration |
 | 0.13 | Local infrastructure | Docker Compose with PostgreSQL (profile `core`); `justfile` (`just up`, `just down`) | Containers, Compose profiles |
-| 0.14 | Database connection and migrations | Datasource, Flyway baseline migration | Flyway, versioned migrations |
-| 0.15 | Integration testing | Testcontainers PostgreSQL test | Testing with real infrastructure |
+| 0.14 | Database connection and migrations | Datasource, Flyway baseline migration, tests against a Testcontainers PostgreSQL | Flyway, versioned migrations, testing with real infrastructure |
+| 0.15 | — | Merged into 0.14: with a datasource, every application test needs a database | — |
 | 0.16 | Structured logging | JSON logs, correlation ID filter | Observability from day one |
 | 0.17 | Module boundaries | Spring Modulith verification, ArchUnit rules (pure domain, constructor injection, `Clock`), `shared` module placeholder | Modular monolith enforcement |
 | 0.18 | Error handling baseline | RFC 9457 Problem Details, global exception handling | Consistent API errors |
