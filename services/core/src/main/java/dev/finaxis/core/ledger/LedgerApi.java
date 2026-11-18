@@ -5,7 +5,7 @@ package dev.finaxis.core.ledger;
  * transaction when there is one, so the ledger's writes commit or roll back with the caller's
  * business change.
  *
- * <p>Posting entries, balances and history join this interface in the next pull requests.
+ * <p>Balances and history join this interface in the next pull requests.
  */
 public interface LedgerApi {
 
@@ -18,4 +18,22 @@ public interface LedgerApi {
      *     terms (type, currency, overdraft rule or hot flag), which is a bug in the caller
      */
     AccountId openAccount(AccountRequest request);
+
+    /**
+     * Posts a balanced entry, or returns the one its source already produced: posting the same
+     * request twice has one effect, for example when the caller retries after a timeout.
+     *
+     * <p>The ledger checks that the entry balances again when the transaction commits; if it does
+     * not, the whole transaction rolls back. Balances are not updated yet: that comes with the
+     * overdraft check (roadmap, PR 1.11).
+     *
+     * @return {@link PostResult.Posted} if this call posted the entry, {@link
+     *     PostResult.AlreadyPosted} if the source had already been posted with the same postings
+     * @throws IllegalArgumentException if the request breaks the ledger's rules (fewer than two or
+     *     more than 32 postings, unbalanced, an amount that is not positive, an unknown account, or
+     *     a currency other than the account's), which is a bug in the caller
+     * @throws IllegalStateException if the source was already posted for another tenant or with
+     *     other postings, which is a bug in the caller
+     */
+    PostResult post(EntryRequest request);
 }
