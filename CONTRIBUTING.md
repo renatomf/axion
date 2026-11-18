@@ -43,7 +43,7 @@ cd services/core
 ./gradlew test       # run the tests only
 ```
 
-Tests use JUnit Jupiter and AssertJ, from Spring Boot's test starter. Test reports are written to `build/reports/tests/test/index.html`.
+Tests use JUnit Jupiter and AssertJ, from Spring Boot's test starter. Tests that start the application run against a real PostgreSQL in Docker, started by [Testcontainers](https://testcontainers.com) ([`PostgresTestConfiguration`](services/core/src/test/java/dev/finaxis/core/PostgresTestConfiguration.java)), so Docker must be running; `just up` is not needed. Test reports are written to `build/reports/tests/test/index.html`.
 
 The service is a Spring Boot application; its entry point is [`Application`](services/core/src/main/java/dev/finaxis/core/Application.java). Spring Boot's own versions come from its bill of materials, imported as a Gradle platform, so libraries it manages are declared in the catalog without a version.
 
@@ -78,8 +78,8 @@ Configuration lives in [`src/main/resources`](services/core/src/main/resources).
 
 | Profile | Active when | Differences |
 |---|---|---|
-| default | No profile is set (e.g. `java -jar build/libs/finaxis-core.jar`) | Safe defaults |
-| `local` | `./gradlew bootRun`, or `SPRING_PROFILES_ACTIVE=local` | Health shows component details |
+| default | No profile is set (e.g. `java -jar build/libs/finaxis-core.jar`) | Safe defaults; the database is set with `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME` and `SPRING_DATASOURCE_PASSWORD` |
+| `local` | `./gradlew bootRun`, or `SPRING_PROFILES_ACTIVE=local` | Connects to the PostgreSQL started by `just up`, with the settings in `infra/compose/.env`; health shows component details |
 
 The service listens on port 8080. Only the Actuator health endpoint is exposed:
 
@@ -92,6 +92,15 @@ curl localhost:8080/actuator/health/readiness   # the service accepts traffic
 Exposing another Actuator endpoint is a security decision: it needs a reason in the pull request.
 
 Versions are declared only in the version catalog. To upgrade Gradle, run `./gradlew wrapper --gradle-version <version> --gradle-distribution-sha256-sum <checksum>` with the checksum published at [gradle.org/release-checksums](https://gradle.org/release-checksums/), then run the same command a second time so the wrapper JAR and scripts are updated too.
+
+### Database migrations
+
+The schema is managed by [Flyway](https://documentation.red-gate.com/flyway). Migrations are SQL files in [`src/main/resources/db/migration`](services/core/src/main/resources/db/migration), applied in version order when the service starts; Flyway records each one in the `flyway_schema_history` table.
+
+- Name files `V<version>__<description>.sql` (two underscores), e.g. `V2__create_ledger_schema.sql`. A name Flyway cannot parse fails the build instead of being skipped.
+- Migrations are forward-only: an applied migration is never edited or deleted. A change is a new migration.
+- Breaking changes follow expand/contract: add the new structure, migrate the code, then remove the old structure in a later migration.
+- Each module creates its own schema and database role in its own migrations; the `public` schema is closed to every role but the owner.
 
 ### Local infrastructure
 

@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.annotation.Import;
 
 /**
  * Smoke test: the Spring application context starts.
@@ -15,6 +16,7 @@ import org.springframework.context.ApplicationContext;
  * created or any configuration is invalid.
  */
 @SpringBootTest
+@Import(PostgresTestConfiguration.class)
 class ApplicationTest {
 
     private final ApplicationContext context;

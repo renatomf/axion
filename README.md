@@ -48,10 +48,6 @@ just up    # start PostgreSQL locally
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full setup.
 
-## Built with AI assistance
-
-This project is built with AI assistance (Claude Code). Every change is reviewed by the author before it is merged.
-
 ## License
 
 [Apache License 2.0](LICENSE)
