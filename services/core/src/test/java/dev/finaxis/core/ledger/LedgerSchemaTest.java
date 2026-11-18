@@ -59,6 +59,44 @@ class LedgerSchemaTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
+    @Test
+    @Transactional
+    void rejectsUpdatingAPostingEvenAsTheOwner() {
+        // These tests connect as the database owner, who holds every privilege:
+        // only the trigger stands in the way.
+        var entry = insertEntryWithOnePosting();
+
+        assertThatThrownBy(() -> jdbc.sql("UPDATE ledger.postings SET amount = 1 WHERE entry_id = ?")
+                        .param(entry)
+                        .update())
+                .hasMessageContaining("append-only");
+    }
+
+    @Test
+    @Transactional
+    void rejectsDeletingAnEntryEvenAsTheOwner() {
+        var entry = insertEntryWithOnePosting();
+
+        assertThatThrownBy(() -> jdbc.sql("DELETE FROM ledger.entries WHERE id = ?")
+                        .param(entry)
+                        .update())
+                .hasMessageContaining("append-only");
+    }
+
+    @Test
+    @Transactional
+    void rejectsTruncatingPostings() {
+        assertThatThrownBy(() -> jdbc.sql("TRUNCATE ledger.postings").update()).hasMessageContaining("append-only");
+    }
+
+    private UUID insertEntryWithOnePosting() {
+        var tenant = UUID.randomUUID();
+        var account = insertAccount(tenant, "LIABILITY", "CREDIT", "BRL");
+        var entry = insertEntry(tenant);
+        insertPosting(entry, account, tenant, "BRL", "CREDIT", 100);
+        return entry;
+    }
+
     private UUID insertAccount(UUID tenant, String type, String normalBalance, String currency) {
         var id = UUID.randomUUID();
         jdbc.sql("""
