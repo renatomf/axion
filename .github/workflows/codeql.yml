@@ -1,8 +1,9 @@
 # Static application security testing (SAST) with CodeQL.
 # Findings are published to the repository's Security > Code scanning tab.
 #
-# Languages are added as code arrives: today the repository contains only
-# GitHub Actions workflows; java-kotlin joins with the Gradle build.
+# Languages are added as code arrives: GitHub Actions workflows and the Java
+# code of the core service. With build-mode `none`, CodeQL reads Java sources
+# directly; it does not need to compile them.
 name: CodeQL
 
 on:
@@ -27,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [actions]
+        language: [actions, java-kotlin]
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
