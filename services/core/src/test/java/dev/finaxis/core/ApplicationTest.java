@@ -2,6 +2,8 @@ package dev.finaxis.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Clock;
+import java.time.ZoneOffset;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -31,5 +33,10 @@ class ApplicationTest {
     @Test
     void contextLoads() {
         assertThat(context.getBean(Application.class)).isNotNull();
+    }
+
+    @Test
+    void providesAClockInUtc() {
+        assertThat(context.getBean(Clock.class).getZone()).isEqualTo(ZoneOffset.UTC);
     }
 }
