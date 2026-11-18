@@ -43,6 +43,7 @@ Development happens on Linux (or WSL2 on Windows). Verify your toolchain, then i
 ```bash
 ./scripts/check-toolchain.sh
 pnpm install
+just up    # start PostgreSQL locally
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full setup.

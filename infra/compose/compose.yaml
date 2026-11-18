@@ -1,0 +1,32 @@
+# Local development infrastructure. Start it from the repository root with
+# `just up`; see CONTRIBUTING.md (Local infrastructure).
+#
+# Services join a profile so only what a task needs is started:
+#   core  PostgreSQL for the core service
+name: finaxis
+
+services:
+  postgres:
+    profiles: [core]
+    # Pinned by digest: a tag can be moved, a digest cannot.
+    # Dependabot bumps the tag and the digest together.
+    image: postgres:17.12-bookworm@sha256:40865bc877a289da75963d97d72b59633f639fc5af7a4e856bfa3714cae5b536
+    environment:
+      POSTGRES_DB: finaxis
+      POSTGRES_USER: finaxis
+      # Read from infra/compose/.env (git-ignored); see .env.example.
+      POSTGRES_PASSWORD: ${FINAXIS_DB_PASSWORD:?set FINAXIS_DB_PASSWORD in infra/compose/.env}
+    ports:
+      # Bound to localhost only: the database is not reachable from the network.
+      # FINAXIS_DB_PORT changes the host port if 5432 is already taken.
+      - "127.0.0.1:${FINAXIS_DB_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username=finaxis --dbname=finaxis"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:

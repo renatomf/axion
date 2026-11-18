@@ -36,3 +36,15 @@ updates:
     groups:
       core-dependencies:
         patterns: ["*"]
+
+  # Local infrastructure images in infra/compose. Tag and digest are bumped
+  # together. Major versions follow the design doc and are upgraded by hand.
+  - package-ecosystem: docker-compose
+    directory: /infra/compose
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+    ignore:
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
