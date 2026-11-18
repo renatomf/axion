@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
@@ -21,8 +22,13 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>{@code @WebMvcTest} starts only the Spring MVC layer: controllers, controller advice and
  * filters, without a database, so no Docker is needed. {@link FailingController} exists only in this
  * test; it is imported explicitly because Spring Boot never scans classes nested in a test class.
+ *
+ * <p>{@code addFilters = false} leaves the servlet filters, Spring Security among them, out of
+ * {@link MockMvcTester}: these tests are about errors raised inside Spring MVC, which security would
+ * otherwise reject before they happen. Security has its own tests.
  */
 @WebMvcTest
+@AutoConfigureMockMvc(addFilters = false)
 @Import(ApiExceptionHandlerTest.FailingController.class)
 class ApiExceptionHandlerTest {
 
