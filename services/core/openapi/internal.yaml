@@ -1,0 +1,35 @@
+# Contract of the /internal API, the source of truth for its endpoints.
+# Lint it with `just lint-api`; see CONTRIBUTING.md, "API contracts".
+openapi: 3.1.1
+info:
+  title: Finaxis Internal API
+  version: 0.0.1
+  summary: API that the console's BFF and the intelligence service call.
+  description: |
+    Not exposed to tenants: these routes accept only service-authenticated
+    calls on the internal network. The console's TypeScript client is
+    generated from this contract.
+
+    Conventions are those of the public API: snake_case JSON and paths,
+    amounts in minor units, RFC 9457 Problem Details errors with a stable
+    `code`, and authentication on every operation.
+  license:
+    name: Apache 2.0
+    identifier: Apache-2.0
+  contact:
+    url: https://github.com/renatomf/finaxis
+servers:
+  - url: http://localhost:8080
+    description: Local development
+security:
+  - service_token: []
+paths: {}
+components:
+  securitySchemes:
+    service_token:
+      description: >-
+        An OAuth 2.0 access token issued by Keycloak, sent as a bearer token.
+        Defined with human authentication (roadmap 1.19).
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
