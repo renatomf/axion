@@ -55,6 +55,11 @@ dependencies {
 }
 
 tasks.withType<JavaCompile>().configureEach {
+    // Zero warnings: enable every javac lint and treat any warning, from javac
+    // or Error Prone, as an error. A warning nobody fixes is noise that hides
+    // the next one.
+    options.compilerArgs.addAll(listOf("-Xlint:all", "-Werror"))
+
     options.errorprone {
         // A possible null dereference is a compile error, not a warning.
         check("NullAway", CheckSeverity.ERROR)
