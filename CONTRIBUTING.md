@@ -144,6 +144,24 @@ curl -i localhost:8080/v1/charges
 - An exception no handler knows is a bug or an infrastructure failure: it becomes a `500` with the detail `An unexpected error occurred.` and code `internal_server_error`. The exception is logged with the correlation ID; its message and stack trace never reach the response.
 - Expected business outcomes are values, not exceptions (overview design, section 19.1); the endpoint maps them to a problem with a specific code.
 
+### API contracts
+
+The core's APIs are designed contract-first: the OpenAPI 3.1 documents in [`services/core/openapi/`](services/core/openapi) are the source of truth, and code follows them.
+
+| File | Contract |
+|---|---|
+| [`v1.yaml`](services/core/openapi/v1.yaml) | Public `/v1` API, called by tenants' systems with an API key |
+| [`internal.yaml`](services/core/openapi/internal.yaml) | `/internal` API, called by the console's BFF and the intelligence service with a service token |
+| [`components.yaml`](services/core/openapi/components.yaml) | Building blocks both contracts reference: the `Problem` schema and the common error responses |
+
+- A pull request that adds or changes an endpoint changes its contract first, in the same pull request.
+- Operations reference shared building blocks instead of copying them, for example `$ref: components.yaml#/responses/Unauthorized`.
+- [Spectral](https://docs.stoplight.io/docs/spectral) lints both contracts ([`.spectral.yaml`](.spectral.yaml)): the standard OpenAPI rules, plus paths under `/v1` or `/internal` with snake_case segments, snake_case properties, and error responses (`4xx`, `5xx`) only as `application/problem+json`. Warnings fail the lint.
+
+```bash
+just lint-api
+```
+
 ### API security
 
 Every request passes through [Spring Security](https://docs.spring.io/spring-security/reference/) before any controller runs, configured in one place: [`SecurityConfiguration`](services/core/src/main/java/dev/finaxis/core/access/SecurityConfiguration.java) in the `access` module.
@@ -180,6 +198,7 @@ GitHub Actions runs these checks on every pull request and on `main` ([`.github/
 | Workflow | Check |
 |---|---|
 | Core | `./gradlew build` in `services/core`: every [code quality gate](#code-quality-gates) and the tests; test reports are kept as an artifact when it fails |
+| API contracts | Spectral lints the [API contracts](#api-contracts) |
 | Gitleaks | Scans the full git history for secrets |
 | CodeQL | Static analysis (SAST) of workflows and Java code; findings appear under **Security → Code scanning** |
 
