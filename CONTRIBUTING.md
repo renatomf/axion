@@ -43,7 +43,7 @@ cd services/core
 ./gradlew test       # run the tests only
 ```
 
-Tests use JUnit Jupiter and AssertJ, from Spring Boot's test starter. Tests that start the application run against a real PostgreSQL in Docker, started by [Testcontainers](https://testcontainers.com) ([`PostgresTestConfiguration`](services/core/src/test/java/dev/finaxis/core/PostgresTestConfiguration.java)), so Docker must be running; `just up` is not needed. Test reports are written to `build/reports/tests/test/index.html`.
+Tests use JUnit Jupiter and AssertJ, from Spring Boot's test starter. Rules that must hold for every input, such as `Money` arithmetic, are also checked with property-based tests in [jqwik](https://jqwik.net): each `@Property` runs against generated inputs and, on failure, reports the smallest input that breaks it and the seed that reproduces the run. Tests that start the application run against a real PostgreSQL in Docker, started by [Testcontainers](https://testcontainers.com) ([`PostgresTestConfiguration`](services/core/src/test/java/dev/finaxis/core/PostgresTestConfiguration.java)), so Docker must be running; `just up` is not needed. Test reports are written to `build/reports/tests/test/index.html`.
 
 The service is a Spring Boot application; its entry point is [`Application`](services/core/src/main/java/dev/finaxis/core/Application.java). Spring Boot's own versions come from its bill of materials, imported as a Gradle platform, so libraries it manages are declared in the catalog without a version.
 
