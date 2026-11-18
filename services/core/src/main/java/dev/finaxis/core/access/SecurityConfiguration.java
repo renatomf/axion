@@ -1,6 +1,7 @@
 package dev.finaxis.core.access;
 
 import jakarta.servlet.DispatcherType;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
 import org.springframework.context.annotation.Bean;
@@ -8,6 +9,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.servlet.HandlerExceptionResolver;
 
 /**
  * The HTTP security of the core: which requests are allowed, before any controller runs.
@@ -23,8 +25,13 @@ import org.springframework.security.web.SecurityFilterChain;
 @Configuration(proxyBeanMethods = false)
 class SecurityConfiguration {
 
+    /**
+     * @param resolver Spring MVC's exception resolver, which applies the {@code web} module's error
+     *     format; the qualifier picks it out of the several resolvers in the context
+     */
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) {
+    SecurityFilterChain securityFilterChain(
+            HttpSecurity http, @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver) {
         http.authorizeHttpRequests(requests -> requests
                 // /actuator/health and its probes, wherever the management base path is.
                 .requestMatchers(EndpointRequest.to(HealthEndpoint.class))
@@ -35,6 +42,11 @@ class SecurityConfiguration {
                 .permitAll()
                 .anyRequest()
                 .denyAll());
+
+        // Rejected requests get the same Problem Details as every other error.
+        ProblemDetailsSecurityHandler rejections = new ProblemDetailsSecurityHandler(resolver);
+        http.exceptionHandling(
+                exceptions -> exceptions.authenticationEntryPoint(rejections).accessDeniedHandler(rejections));
 
         // Clients authenticate on every request (API keys and service tokens arrive in phase 1),
         // so the core never creates an HTTP session.
