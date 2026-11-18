@@ -6,6 +6,7 @@
 java = "25"
 spring-boot = "4.1.2"
 spring-modulith = "2.1.2"
+archunit = "1.5.1"
 spotless = "8.11.0"
 palantir-java-format = "2.103.0"
 errorprone-plugin = "5.2.0"
@@ -34,6 +35,8 @@ spring-modulith-bom = { module = "org.springframework.modulith:spring-modulith-b
 spring-modulith-api = { module = "org.springframework.modulith:spring-modulith-api" }
 # Verifies module boundaries in tests and tests modules in isolation.
 spring-modulith-starter-test = { module = "org.springframework.modulith:spring-modulith-starter-test" }
+# Architecture rules written as unit tests; Spring Modulith is built on it.
+archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
 # Nullness annotations (@NullMarked, @Nullable), the standard Spring itself uses.
 jspecify = { module = "org.jspecify:jspecify" }
 # Test toolkit: JUnit Jupiter (JUnit 6), AssertJ, Mockito and Spring's test support.
