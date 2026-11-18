@@ -1,7 +1,7 @@
 {
   "name": "finaxis",
   "private": true,
-  "description": "Repository-level development tooling (git hooks, commit linting).",
+  "description": "Repository-level development tooling (git hooks, commit linting, API contract linting).",
   "license": "Apache-2.0",
   "packageManager": "pnpm@12.21.0",
   "engines": {
@@ -13,6 +13,7 @@
   "devDependencies": {
     "@commitlint/cli": "21.2.4",
     "@commitlint/config-conventional": "21.2.4",
+    "@stoplight/spectral-cli": "6.17.0",
     "lefthook": "2.2.2"
   }
 }

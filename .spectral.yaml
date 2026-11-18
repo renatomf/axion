@@ -1,0 +1,6 @@
+# Lint rules for the OpenAPI contracts in services/core/openapi/.
+# https://docs.stoplight.io/docs/spectral
+#
+# `spectral:oas` checks that a document is valid OpenAPI and follows common
+# good practice.
+extends: ["spectral:oas"]
