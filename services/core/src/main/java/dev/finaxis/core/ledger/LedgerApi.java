@@ -23,12 +23,16 @@ public interface LedgerApi {
      * Posts a balanced entry, or returns the one its source already produced: posting the same
      * request twice has one effect, for example when the caller retries after a timeout.
      *
+     * <p>The entry updates the balance of every account it touches, except hot ones, in the same
+     * transaction. If a balance that may not go negative would, nothing is posted and the caller's
+     * own work in the transaction is kept: the caller decides what to do.
+     *
      * <p>The ledger checks that the entry balances again when the transaction commits; if it does
-     * not, the whole transaction rolls back. Balances are not updated yet: that comes with the
-     * overdraft check (roadmap, PR 1.11).
+     * not, the whole transaction rolls back.
      *
      * @return {@link PostResult.Posted} if this call posted the entry, {@link
-     *     PostResult.AlreadyPosted} if the source had already been posted with the same postings
+     *     PostResult.AlreadyPosted} if the source had already been posted with the same postings,
+     *     {@link PostResult.InsufficientFunds} if a guarded balance was short
      * @throws IllegalArgumentException if the request breaks the ledger's rules (fewer than two or
      *     more than 32 postings, unbalanced, an amount that is not positive, an unknown account, or
      *     a currency other than the account's), which is a bug in the caller

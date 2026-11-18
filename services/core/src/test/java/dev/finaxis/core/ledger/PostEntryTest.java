@@ -20,6 +20,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * {@link LedgerApi#post} against a real PostgreSQL. Each call commits its own transaction, so the
@@ -34,15 +36,17 @@ class PostEntryTest {
 
     private final LedgerApi ledger;
     private final JdbcClient jdbc;
+    private final TransactionTemplate transaction;
 
     private UUID tenant;
     private AccountId settlement;
     private AccountId available;
 
     @Autowired
-    PostEntryTest(LedgerApi ledger, JdbcClient jdbc) {
+    PostEntryTest(LedgerApi ledger, JdbcClient jdbc, PlatformTransactionManager transactions) {
         this.ledger = ledger;
         this.jdbc = jdbc;
+        this.transaction = new TransactionTemplate(transactions);
     }
 
     @BeforeEach
@@ -63,6 +67,64 @@ class PostEntryTest {
     }
 
     @Test
+    void updatesTheBalanceOfEachAccount() {
+        ledger.post(settle(newSource(), TEN));
+
+        // A debit raises an asset and a credit raises a liability (ledger design, section 3.2).
+        assertThat(balanceOf(settlement)).isEqualTo(1_000);
+        assertThat(balanceOf(available)).isEqualTo(1_000);
+    }
+
+    @Test
+    void refusesAnEntryThatWouldOverdrawAGuardedAccount() {
+        ledger.post(settle(newSource(), TEN));
+        var payout = payOut(newSource(), Money.ofMinor(1_001, BRL));
+
+        var result = ledger.post(payout);
+
+        assertThat(result).isEqualTo(new PostResult.InsufficientFunds(available));
+        assertThat(entriesOf(payout.source())).isZero();
+        // The settlement account was changed first, then rolled back with the rest.
+        assertThat(balanceOf(settlement)).isEqualTo(1_000);
+        assertThat(balanceOf(available)).isEqualTo(1_000);
+    }
+
+    @Test
+    void postsARefusedSourceOnceTheFundsAreThere() {
+        var payout = payOut(newSource(), TEN);
+        ledger.post(payout);
+        ledger.post(settle(newSource(), TEN));
+
+        var result = ledger.post(payout);
+
+        assertThat(result).isInstanceOf(PostResult.Posted.class);
+        assertThat(balanceOf(available)).isZero();
+    }
+
+    @Test
+    void keepsTheCallersWorkWhenFundsAreShort() {
+        var callersAccount = transaction.execute(status -> {
+            var opened = ledger.openAccount(
+                    new AccountRequest(tenant, "tenant:held", AccountType.LIABILITY, BRL, false, false));
+            assertThat(ledger.post(payOut(newSource(), TEN))).isInstanceOf(PostResult.InsufficientFunds.class);
+            return opened;
+        });
+
+        assertThat(balanceOf(callersAccount)).isZero();
+    }
+
+    @Test
+    void leavesTheBalanceOfAHotAccountToTheFoldingJob() {
+        var hot = ledger.openAccount(new AccountRequest(tenant, "platform:fees", AccountType.ASSET, BRL, true, true));
+
+        ledger.post(
+                request(newSource(), List.of(PostingRequest.debit(hot, TEN), PostingRequest.credit(available, TEN))));
+
+        assertThat(balanceOf(hot)).isZero();
+        assertThat(balanceOf(available)).isEqualTo(1_000);
+    }
+
+    @Test
     void returnsTheSameEntryWhenPostedTwice() {
         var request = settle(newSource(), TEN);
         var first = ledger.post(request);
@@ -71,6 +133,7 @@ class PostEntryTest {
 
         assertThat(second).isEqualTo(new PostResult.AlreadyPosted(entryOf(first)));
         assertThat(postingsOf(entryOf(first))).isEqualTo(2);
+        assertThat(balanceOf(available)).isEqualTo(1_000);
     }
 
     @Test
@@ -151,6 +214,15 @@ class PostEntryTest {
                 source, List.of(PostingRequest.debit(settlement, amount), PostingRequest.credit(available, amount)));
     }
 
+    /**
+     * A payout: the tenant's balance goes down and the platform pays the amount out. The settlement
+     * leg comes first, so its balance is changed before the tenant's is checked.
+     */
+    private EntryRequest payOut(EntrySource source, Money amount) {
+        return request(
+                source, List.of(PostingRequest.credit(settlement, amount), PostingRequest.debit(available, amount)));
+    }
+
     private EntryRequest request(EntrySource source, List<PostingRequest> postings) {
         return new EntryRequest(tenant, source, LocalDate.of(2026, 11, 18), "corr-1", postings);
     }
@@ -166,6 +238,13 @@ class PostEntryTest {
             case PostResult.AlreadyPosted already -> already.entry();
             case PostResult.InsufficientFunds insufficient -> throw new AssertionError("Unexpected " + insufficient);
         };
+    }
+
+    private long balanceOf(AccountId account) {
+        return jdbc.sql("SELECT balance FROM ledger.balances WHERE account_id = ?")
+                .param(account.value())
+                .query(Long.class)
+                .single();
     }
 
     private long postingsOf(EntryId entry) {
