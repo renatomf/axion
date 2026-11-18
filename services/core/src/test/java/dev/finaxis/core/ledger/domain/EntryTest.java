@@ -148,6 +148,6 @@ class EntryTest {
     }
 
     private static Account account(String code, AccountType type, Currency currency) {
-        return new Account(new AccountId(UUID.randomUUID()), code, type, currency);
+        return new Account(new AccountId(UUID.randomUUID()), UUID.randomUUID(), code, type, currency, false, false);
     }
 }

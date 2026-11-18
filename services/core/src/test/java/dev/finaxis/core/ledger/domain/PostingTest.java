@@ -64,6 +64,6 @@ class PostingTest {
     }
 
     private static Account account(String code, AccountType type) {
-        return new Account(new AccountId(UUID.randomUUID()), code, type, BRL);
+        return new Account(new AccountId(UUID.randomUUID()), UUID.randomUUID(), code, type, BRL, false, false);
     }
 }
