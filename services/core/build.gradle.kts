@@ -65,6 +65,7 @@ dependencies {
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.spring.modulith.starter.test)
     testImplementation(libs.archunit.junit5)
+    testImplementation(libs.jqwik)
     testRuntimeOnly(libs.junit.platform.launcher)
 
     // Error Prone itself: on its own configuration, used only by the compiler.

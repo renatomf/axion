@@ -12,6 +12,7 @@ palantir-java-format = "2.103.0"
 errorprone-plugin = "5.2.0"
 errorprone = "2.52.0"
 nullaway = "0.14.4"
+jqwik = "1.10.2"
 
 [libraries]
 # Bill of materials: the versions Spring Boot has tested together. Libraries
@@ -52,6 +53,10 @@ spring-boot-starter-security-test = { module = "org.springframework.boot:spring-
 spring-boot-testcontainers = { module = "org.springframework.boot:spring-boot-testcontainers" }
 # Throwaway PostgreSQL containers for tests, started through Docker.
 testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgresql" }
+# Property-based testing: generates hundreds of inputs per test and shrinks a
+# failure to the smallest input that still breaks the property. A JUnit Platform
+# engine, so its tests run next to the JUnit Jupiter ones.
+jqwik = { module = "net.jqwik:jqwik", version.ref = "jqwik" }
 # Lets Gradle launch JUnit tests; Gradle 9 requires it on the test runtime classpath.
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 # Static analysis that runs inside javac and reports common Java bug patterns.
