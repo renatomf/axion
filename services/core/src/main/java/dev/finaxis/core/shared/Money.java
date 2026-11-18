@@ -159,15 +159,16 @@ public record Money(long minorUnits, Currency currency) {
             throw new IllegalArgumentException("At least one ratio must be positive");
         }
 
-        // BigInteger: amount × ratio may not fit in a long, even when each share does.
+        // BigInteger: amount × ratio may not fit in a long, even when each share does, and neither
+        // does the absolute value of Long.MIN_VALUE.
         BigInteger amount = BigInteger.valueOf(minorUnits).abs();
-        long[] shares = new long[ratios.length];
+        BigInteger[] shares = new BigInteger[ratios.length];
         BigInteger[] remainders = new BigInteger[ratios.length];
         BigInteger allocated = BigInteger.ZERO;
         for (int i = 0; i < ratios.length; i++) {
             BigInteger[] division =
                     amount.multiply(BigInteger.valueOf(ratios[i])).divideAndRemainder(ratioTotal);
-            shares[i] = division[0].longValueExact();
+            shares[i] = division[0];
             remainders[i] = division[1];
             allocated = allocated.add(division[0]);
         }
@@ -179,12 +180,13 @@ public record Money(long minorUnits, Currency currency) {
                 .sorted(Comparator.comparing((Integer i) -> remainders[i]).reversed())
                 .toList();
         for (int i : byLargestRemainder.subList(0, leftOver)) {
-            shares[i]++;
+            shares[i] = shares[i].add(BigInteger.ONE);
         }
 
-        int sign = minorUnits < 0 ? -1 : 1;
+        // The sign goes back before leaving BigInteger: a share of -2^63 fits a long, +2^63 does not.
+        BigInteger sign = BigInteger.valueOf(Long.signum(minorUnits));
         return Arrays.stream(shares)
-                .mapToObj(share -> new Money(sign * share, currency))
+                .map(share -> new Money(share.multiply(sign).longValueExact(), currency))
                 .toList();
     }
 

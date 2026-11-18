@@ -151,6 +151,14 @@ class MoneyTest {
                 .containsExactly(Money.ofMinor(-34, BRL), Money.ofMinor(-33, BRL), Money.ofMinor(-33, BRL));
     }
 
+    /** Found by a property test: the absolute value of the most negative long does not fit a long. */
+    @Test
+    void allocatesTheMostNegativeAmount() {
+        Money min = Money.ofMinor(Long.MIN_VALUE, BRL);
+
+        assertThat(min.allocate(1)).containsExactly(min);
+    }
+
     @Test
     void givesNothingToAZeroRatio() {
         assertThat(Money.ofMinor(100, BRL).allocate(1, 0, 1))
