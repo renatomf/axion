@@ -59,7 +59,7 @@ class PostEntryTest {
         var result = ledger.post(settle(newSource(), TEN));
 
         assertThat(result).isInstanceOf(PostResult.Posted.class);
-        assertThat(postingsOf(result.entry())).isEqualTo(2);
+        assertThat(postingsOf(entryOf(result))).isEqualTo(2);
     }
 
     @Test
@@ -69,8 +69,8 @@ class PostEntryTest {
 
         var second = ledger.post(request);
 
-        assertThat(second).isEqualTo(new PostResult.AlreadyPosted(first.entry()));
-        assertThat(postingsOf(first.entry())).isEqualTo(2);
+        assertThat(second).isEqualTo(new PostResult.AlreadyPosted(entryOf(first)));
+        assertThat(postingsOf(entryOf(first))).isEqualTo(2);
     }
 
     @Test
@@ -132,9 +132,9 @@ class PostEntryTest {
         try (var threads = Executors.newFixedThreadPool(50)) {
             var results = threads.invokeAll(Collections.nCopies(50, post));
             var posted = 0;
-            var entry = results.getFirst().get().entry();
+            var entry = entryOf(results.getFirst().get());
             for (Future<PostResult> result : results) {
-                assertThat(result.get().entry()).isEqualTo(entry);
+                assertThat(entryOf(result.get())).isEqualTo(entry);
                 if (result.get() instanceof PostResult.Posted) {
                     posted++;
                 }
@@ -157,6 +157,15 @@ class PostEntryTest {
 
     private static EntrySource newSource() {
         return new EntrySource("charge", "ch_" + UUID.randomUUID(), "settlement");
+    }
+
+    /** The entry a successful post produced; any other result fails the test. */
+    private static EntryId entryOf(PostResult result) {
+        return switch (result) {
+            case PostResult.Posted posted -> posted.entry();
+            case PostResult.AlreadyPosted already -> already.entry();
+            case PostResult.InsufficientFunds insufficient -> throw new AssertionError("Unexpected " + insufficient);
+        };
     }
 
     private long postingsOf(EntryId entry) {
