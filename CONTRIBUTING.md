@@ -72,6 +72,17 @@ The service is a Spring Boot application; its entry point is [`Application`](ser
 
 Types are non-null by default: every package carries `@NullMarked` in its `package-info.java`, and a reference that may be null is annotated `@Nullable` (`org.jspecify.annotations`). Suppressing a check (`@SuppressWarnings`) needs a comment explaining why.
 
+### Module boundaries
+
+The core is a modular monolith ([ADR-0002](docs/adr/0002-modular-monolith.md)): each direct subpackage of `dev.finaxis.core` is a module, such as `shared` (the shared kernel) or `observability`. Two tests fail the build when the structure is broken; neither starts the application:
+
+| Test | Tool | Fails on |
+|---|---|---|
+| [`ModuleStructureTest`](services/core/src/test/java/dev/finaxis/core/ModuleStructureTest.java) | [Spring Modulith](https://spring.io/projects/spring-modulith) | A dependency cycle between modules; a module using a type another module does not expose |
+| [`ArchitectureTest`](services/core/src/test/java/dev/finaxis/core/ArchitectureTest.java) | [ArchUnit](https://www.archunit.org) | Field injection; Spring or persistence types in a `domain` package; reading the system clock instead of an injected `Clock` |
+
+A module exposes only the types in its own package; its subpackages are internal. The `shared` module is open: all of its types are visible to every module. A new module is a new subpackage with a `package-info.java`.
+
 ### Core service configuration
 
 Configuration lives in [`src/main/resources`](services/core/src/main/resources). [`application.yml`](services/core/src/main/resources/application.yml) holds safe defaults for every environment; a profile file `application-<profile>.yml` overrides them when that profile is active.
