@@ -2,5 +2,46 @@
 # https://docs.stoplight.io/docs/spectral
 #
 # `spectral:oas` checks that a document is valid OpenAPI and follows common
-# good practice.
+# good practice. The `finaxis-*` rules add the project's API conventions
+# (overview design, section 19.2). Rules see the document with every `$ref`
+# resolved, so they also check what operations take from components.yaml.
 extends: ["spectral:oas"]
+
+rules:
+  finaxis-paths:
+    description: Paths start with /v1 or /internal and their segments are snake_case.
+    message: "{{property}} must start with /v1 or /internal and use snake_case segments."
+    severity: error
+    given: $.paths
+    then:
+      field: "@key"
+      function: pattern
+      functionOptions:
+        match: "^/(v1|internal)(/([a-z0-9]+(_[a-z0-9]+)*|\\{[a-z0-9]+(_[a-z0-9]+)*\\}))+$"
+
+  finaxis-properties-snake-case:
+    description: JSON properties are snake_case.
+    message: "Property {{property}} must be snake_case."
+    severity: error
+    given: $..properties
+    then:
+      field: "@key"
+      function: pattern
+      functionOptions:
+        match: "^[a-z][a-z0-9]*(_[a-z0-9]+)*$"
+
+  finaxis-errors-are-problems:
+    description: Error responses are RFC 9457 Problem Details and nothing else.
+    message: "{{path}}: error responses must use only application/problem+json."
+    severity: error
+    given: $.paths[*][*].responses[?(@property.match(/^[45]/))]
+    then:
+      field: content
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: ["application/problem+json"]
+          additionalProperties: false
+          properties:
+            application/problem+json: {}
