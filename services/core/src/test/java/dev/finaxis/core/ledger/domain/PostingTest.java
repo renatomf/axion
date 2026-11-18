@@ -3,6 +3,8 @@ package dev.finaxis.core.ledger.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.finaxis.core.ledger.AccountId;
+import dev.finaxis.core.ledger.AccountType;
 import dev.finaxis.core.shared.Money;
 import java.util.Currency;
 import java.util.UUID;

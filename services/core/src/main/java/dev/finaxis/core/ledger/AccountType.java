@@ -1,4 +1,4 @@
-package dev.finaxis.core.ledger.domain;
+package dev.finaxis.core.ledger;
 
 /**
  * The accounting nature of an account, which fixes its normal balance: the direction in which its

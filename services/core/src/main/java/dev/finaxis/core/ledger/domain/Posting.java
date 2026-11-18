@@ -1,5 +1,6 @@
 package dev.finaxis.core.ledger.domain;
 
+import dev.finaxis.core.ledger.Direction;
 import dev.finaxis.core.shared.Money;
 
 /**

@@ -1,5 +1,7 @@
 package dev.finaxis.core.ledger.domain;
 
+import dev.finaxis.core.ledger.AccountId;
+import dev.finaxis.core.ledger.AccountType;
 import java.util.Currency;
 
 /**
