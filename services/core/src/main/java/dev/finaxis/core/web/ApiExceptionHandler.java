@@ -47,7 +47,9 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
      */
     @ExceptionHandler(Exception.class)
     public @Nullable ResponseEntity<Object> handleUnexpected(Exception ex, WebRequest request) {
-        LOG.error("Unexpected error while handling {}", request.getDescription(false), ex);
+        // Nothing from the request is logged: the path is chosen by the caller and could forge log
+        // lines. The correlation ID on the log line identifies the request.
+        LOG.error("Unexpected error while handling a request", ex);
         HttpStatus status = HttpStatus.INTERNAL_SERVER_ERROR;
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, "An unexpected error occurred.");
         return handleExceptionInternal(ex, problem, new HttpHeaders(), status, request);
