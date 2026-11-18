@@ -38,6 +38,8 @@ dependencies {
     implementation(libs.spring.boot.starter.webmvc)
     // Operational endpoints under /actuator, starting with health.
     implementation(libs.spring.boot.starter.actuator)
+    // Annotations that state, in the code, which references may be null.
+    implementation(libs.jspecify)
 
     // Test-only libraries: on the test classpath, never in the packaged JAR.
     testImplementation(libs.spring.boot.starter.test)
