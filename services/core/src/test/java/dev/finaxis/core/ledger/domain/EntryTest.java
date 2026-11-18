@@ -103,6 +103,31 @@ class EntryTest {
         assertThat(entry.postings()).hasSize(2);
     }
 
+    @Test
+    void reversalPostsEveryLegInTheOppositeDirectionAndLinksTheOriginal() {
+        Entry original = entry(Posting.debit(SETTLEMENT, brl(10000)), Posting.credit(AVAILABLE, brl(10000)));
+        EntryId reversalId = newId();
+
+        Entry reversal = original.reversal(reversalId);
+
+        assertThat(original.reverses()).isEmpty();
+        assertThat(reversal.id()).isEqualTo(reversalId);
+        assertThat(reversal.reverses()).contains(original.id());
+        assertThat(reversal.postings())
+                .containsExactly(Posting.credit(SETTLEMENT, brl(10000)), Posting.debit(AVAILABLE, brl(10000)));
+        assertThat(reversal.balanceChanges())
+                .containsExactly(change(SETTLEMENT.id(), brl(-10000)), change(AVAILABLE.id(), brl(-10000)));
+    }
+
+    @Test
+    void rejectsAnEntryThatReversesItself() {
+        Entry original = entry(Posting.debit(SETTLEMENT, brl(100)), Posting.credit(AVAILABLE, brl(100)));
+
+        assertThatThrownBy(() -> original.reversal(original.id()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("itself");
+    }
+
     private static Entry entry(Posting... postings) {
         return new Entry(newId(), List.of(postings));
     }
