@@ -74,14 +74,14 @@ Types are non-null by default: every package carries `@NullMarked` in its `packa
 
 ### Module boundaries
 
-The core is a modular monolith ([ADR-0002](docs/adr/0002-modular-monolith.md)): each direct subpackage of `dev.finaxis.core` is a module, such as `shared` (the shared kernel), `observability`, `web` (HTTP API conventions) or `access` (who may call the core). Two tests fail the build when the structure is broken; neither starts the application:
+The core is a modular monolith ([ADR-0002](docs/adr/0002-modular-monolith.md)): each direct subpackage of `dev.finaxis.core` is a module, such as `shared` (the shared kernel), `observability`, `web` (HTTP API conventions), `access` (who may call the core) or `ledger` (the double-entry record of money movements). Two tests fail the build when the structure is broken; neither starts the application:
 
 | Test | Tool | Fails on |
 |---|---|---|
 | [`ModuleStructureTest`](services/core/src/test/java/dev/finaxis/core/ModuleStructureTest.java) | [Spring Modulith](https://spring.io/projects/spring-modulith) | A dependency cycle between modules; a module using a type another module does not expose |
 | [`ArchitectureTest`](services/core/src/test/java/dev/finaxis/core/ArchitectureTest.java) | [ArchUnit](https://www.archunit.org) | Field injection; Spring or persistence types in a `domain` package; reading the system clock instead of an injected `Clock` |
 
-A module exposes only the types in its own package; its subpackages are internal. The `shared` module is open: all of its types are visible to every module. A new module is a new subpackage with a `package-info.java`.
+A module exposes only the types in its own package; its subpackages are internal. A module with business logic keeps its public interface and the types it takes and returns in its own package, and splits the rest into `domain` (plain Java model and rules), `application` (the interface's implementation, which owns the transactions) and `persistence` (the SQL), as `ledger` does. The `shared` module is open: all of its types are visible to every module. A new module is a new subpackage with a `package-info.java`.
 
 ### Core service configuration
 
