@@ -23,7 +23,6 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
@@ -86,25 +85,31 @@ public class LedgerService implements LedgerApi {
      * source key; update the balances; then insert its postings. The claim is what makes a repeat
      * safe: a concurrent call with the same source waits at the claim until this transaction ends.
      *
-     * <p>{@code Propagation.NESTED} opens a savepoint when the caller already has a transaction,
-     * and starts one when it has none. Marking it rollback-only undoes this call's writes, back to
-     * the savepoint, and keeps the caller's own work; with no caller transaction, it rolls back the
-     * transaction this call started.
+     * <p>The call joins the caller's transaction, or starts one. A short balance is an expected
+     * outcome: it rolls back to a savepoint taken before the claim, undoing only this call's writes,
+     * so the caller's own work is kept. An exception is a bug: it marks the whole transaction for
+     * rollback, so the caller's change cannot commit without its entry, even if the caller catches
+     * the exception. The ledger fails closed.
      */
     @Override
-    @Transactional(propagation = Propagation.NESTED)
+    @Transactional
     public PostResult post(EntryRequest request) {
         var entry = entryOf(new EntryId(ids.next()), request);
+        var transaction = TransactionAspectSupport.currentTransactionStatus();
+        var savepoint = transaction.createSavepoint();
         if (entries.claim(entry.id(), request)) {
             var shortAccount = updateBalances(entry);
             if (shortAccount.isPresent()) {
                 // Undoes the claim and any balance already changed, so the source can be posted later.
-                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+                transaction.rollbackToSavepoint(savepoint);
+                transaction.releaseSavepoint(savepoint);
                 return new PostResult.InsufficientFunds(shortAccount.get());
             }
             entries.insertPostings(entry, ids);
+            transaction.releaseSavepoint(savepoint);
             return new PostResult.Posted(entry.id());
         }
+        transaction.releaseSavepoint(savepoint);
         // The source was posted before. Entries are never deleted, so it is there to read.
         var existing = entries.findBySource(request.source()).orElseThrow();
         // A source fact belongs to one tenant, so the same source for another tenant is a bug.

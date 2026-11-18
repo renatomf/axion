@@ -21,6 +21,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -128,6 +129,26 @@ class PostEntryTest {
         });
 
         assertThat(balanceOf(callersAccount)).isZero();
+    }
+
+    @Test
+    void rollsTheCallerBackWhenPostingThrows() {
+        var source = newSource();
+        ledger.post(settle(source, TEN));
+
+        // The caller swallows the ledger's exception and tries to commit its own work anyway.
+        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
+                    ledger.openAccount(
+                            new AccountRequest(tenant, "tenant:held", AccountType.LIABILITY, BRL, false, false));
+                    try {
+                        ledger.post(settle(source, Money.ofMinor(2_000, BRL)));
+                    } catch (IllegalStateException swallowed) {
+                        // A bug in the caller: the ledger must still fail closed.
+                    }
+                }))
+                .isInstanceOf(UnexpectedRollbackException.class);
+
+        assertThat(accountsWithCode("tenant:held")).isZero();
     }
 
     @Test
@@ -260,6 +281,13 @@ class PostEntryTest {
     private long balanceOf(AccountId account) {
         return jdbc.sql("SELECT balance FROM ledger.balances WHERE account_id = ?")
                 .param(account.value())
+                .query(Long.class)
+                .single();
+    }
+
+    private long accountsWithCode(String code) {
+        return jdbc.sql("SELECT count(*) FROM ledger.accounts WHERE tenant_id = ? AND code = ?")
+                .params(tenant, code)
                 .query(Long.class)
                 .single();
     }
