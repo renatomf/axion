@@ -29,6 +29,6 @@ class ModuleStructureTest {
     @Test
     void detectsEveryModule() {
         assertThat(modules.stream().map(ApplicationModule::getIdentifier).map(Object::toString))
-                .contains("shared", "observability");
+                .contains("shared", "observability", "web");
     }
 }
