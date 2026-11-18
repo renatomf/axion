@@ -1,4 +1,4 @@
-package dev.finaxis.core.ledger.domain;
+package dev.finaxis.core.ledger;
 
 import java.util.UUID;
 

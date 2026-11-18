@@ -1,4 +1,4 @@
-package dev.finaxis.core.ledger.domain;
+package dev.finaxis.core.ledger;
 
 /**
  * The side of a posting: a debit or a credit. Amounts are always positive; the direction carries

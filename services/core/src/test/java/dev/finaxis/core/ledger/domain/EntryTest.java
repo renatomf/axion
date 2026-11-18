@@ -3,6 +3,9 @@ package dev.finaxis.core.ledger.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.finaxis.core.ledger.AccountId;
+import dev.finaxis.core.ledger.AccountType;
+import dev.finaxis.core.ledger.EntryId;
 import dev.finaxis.core.shared.Money;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -145,6 +148,6 @@ class EntryTest {
     }
 
     private static Account account(String code, AccountType type, Currency currency) {
-        return new Account(new AccountId(UUID.randomUUID()), code, type, currency);
+        return new Account(new AccountId(UUID.randomUUID()), UUID.randomUUID(), code, type, currency, false, false);
     }
 }
