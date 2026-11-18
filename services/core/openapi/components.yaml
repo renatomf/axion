@@ -1,0 +1,57 @@
+# Building blocks shared by the /v1 and /internal contracts. This file is a
+# fragment, not an OpenAPI document: operations reference its entries, for
+# example `$ref: components.yaml#/responses/Unauthorized`.
+schemas:
+  Problem:
+    description: >-
+      An RFC 9457 Problem Details document. Every error response uses it, with
+      the media type `application/problem+json`. `type` is omitted, which
+      RFC 9457 reads as `about:blank`.
+    type: object
+    required: [title, status, code]
+    properties:
+      title:
+        description: Short summary of the problem type, for humans; may change.
+        type: string
+      status:
+        description: The HTTP status code.
+        type: integer
+        minimum: 400
+        maximum: 599
+      detail:
+        description: Explanation of this occurrence, for humans; may change.
+        type: string
+      instance:
+        description: The request path.
+        type: string
+      code:
+        description: >-
+          Stable, snake_case identifier of the problem. Clients branch on it,
+          never on `title` or `detail`.
+        type: string
+        pattern: "^[a-z][a-z0-9]*(_[a-z0-9]+)*$"
+    examples:
+      - title: Unauthorized
+        status: 401
+        detail: Authentication is required.
+        instance: /v1/charges
+        code: unauthorized
+responses:
+  Unauthorized:
+    description: The request carries no valid credential.
+    content:
+      application/problem+json:
+        schema:
+          $ref: "#/schemas/Problem"
+  Forbidden:
+    description: The credential is valid but does not allow this request.
+    content:
+      application/problem+json:
+        schema:
+          $ref: "#/schemas/Problem"
+  InternalServerError:
+    description: An unexpected error; the detail is always generic.
+    content:
+      application/problem+json:
+        schema:
+          $ref: "#/schemas/Problem"

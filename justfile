@@ -19,3 +19,7 @@ down:
 # Create infra/compose/.env from the example on first use
 _env:
     @[ -f infra/compose/.env ] || { cp infra/compose/.env.example infra/compose/.env; echo "Created infra/compose/.env from .env.example"; }
+
+# Lint the OpenAPI contracts of the core
+lint-api:
+    pnpm run lint:api

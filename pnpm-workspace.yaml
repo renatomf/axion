@@ -1,2 +1,4 @@
 allowBuilds:
+  # Install-time telemetry pulled in by @stoplight/spectral-cli; never run it.
+  "@scarf/scarf": false
   lefthook: false
