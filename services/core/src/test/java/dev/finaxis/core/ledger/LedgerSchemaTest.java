@@ -42,6 +42,7 @@ class LedgerSchemaTest {
         var entry = UUID.randomUUID();
 
         transaction.executeWithoutResult(status -> {
+            actAsTheLedgerRole();
             var settlement = insertAccount(tenant, "ASSET", "DEBIT", "BRL");
             var available = insertAccount(tenant, "LIABILITY", "CREDIT", "BRL");
             insertEntry(entry, tenant);
@@ -59,6 +60,7 @@ class LedgerSchemaTest {
 
         // Each insert succeeds; the commit fails and rolls everything back.
         assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
+                    actAsTheLedgerRole();
                     var settlement = insertAccount(tenant, "ASSET", "DEBIT", "BRL");
                     var available = insertAccount(tenant, "LIABILITY", "CREDIT", "BRL");
                     insertEntry(entry, tenant);
@@ -74,7 +76,10 @@ class LedgerSchemaTest {
     void rejectsAnEntryWithoutPostingsAtCommit() {
         var entry = UUID.randomUUID();
 
-        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> insertEntry(entry, UUID.randomUUID())))
+        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
+                    actAsTheLedgerRole();
+                    insertEntry(entry, UUID.randomUUID());
+                }))
                 .rootCause()
                 .hasMessageContaining("fewer than two postings");
         assertThat(entryExists(entry)).isFalse();
@@ -137,6 +142,83 @@ class LedgerSchemaTest {
     @Transactional
     void rejectsTruncatingPostings() {
         assertThatThrownBy(() -> jdbc.sql("TRUNCATE ledger.postings").update()).hasMessageContaining("append-only");
+    }
+
+    @Test
+    @Transactional
+    void deniesTheLedgerRoleUpdatingPostings() {
+        var entry = insertEntryWithOnePosting();
+        actAsTheLedgerRole();
+
+        // Denied by privileges, before any trigger runs.
+        assertThatThrownBy(() -> jdbc.sql("UPDATE ledger.postings SET amount = 1 WHERE entry_id = ?")
+                        .param(entry)
+                        .update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    @Transactional
+    void deniesTheLedgerRoleDeletingEntries() {
+        var entry = insertEntryWithOnePosting();
+        actAsTheLedgerRole();
+
+        assertThatThrownBy(() -> jdbc.sql("DELETE FROM ledger.entries WHERE id = ?")
+                        .param(entry)
+                        .update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    @Transactional
+    void deniesTheLedgerRoleUpdatingAccounts() {
+        var account = insertAccount(UUID.randomUUID(), "LIABILITY", "CREDIT", "BRL");
+        actAsTheLedgerRole();
+
+        assertThatThrownBy(() -> jdbc.sql("UPDATE ledger.accounts SET allow_negative = true WHERE id = ?")
+                        .param(account)
+                        .update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    @Transactional
+    void letsTheLedgerRoleUpdateBalances() {
+        var account = insertAccount(UUID.randomUUID(), "LIABILITY", "CREDIT", "BRL");
+        jdbc.sql("INSERT INTO ledger.balances (account_id) VALUES (?)")
+                .param(account)
+                .update();
+        actAsTheLedgerRole();
+
+        var updated = jdbc.sql("UPDATE ledger.balances SET balance = balance + 100 WHERE account_id = ?")
+                .param(account)
+                .update();
+
+        assertThat(updated).isOne();
+    }
+
+    @Test
+    void limitsHowLongTheLedgerRoleWaits() {
+        var settings = jdbc.sql("""
+                        SELECT unnest(setconfig)
+                          FROM pg_db_role_setting
+                         WHERE setrole = 'finaxis_ledger'::regrole
+                        """).query(String.class).list();
+
+        assertThat(settings)
+                .containsExactlyInAnyOrder("lock_timeout=2s", "statement_timeout=5s", "transaction_timeout=30s");
+    }
+
+    /**
+     * Switches the current transaction to the ledger role, as if the service had connected as it.
+     * {@code SET LOCAL} lasts until the transaction ends, so the pooled connection returns to the
+     * owner role afterwards.
+     */
+    private void actAsTheLedgerRole() {
+        jdbc.sql("SET LOCAL ROLE finaxis_ledger").update();
     }
 
     private UUID insertEntryWithOnePosting() {
