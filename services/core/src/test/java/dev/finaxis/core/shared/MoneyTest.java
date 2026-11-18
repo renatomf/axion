@@ -126,4 +126,51 @@ class MoneyTest {
         assertThatThrownBy(() -> Money.ofMinor(Long.MAX_VALUE, BRL).times(new BigDecimal("2")))
                 .isInstanceOf(ArithmeticException.class);
     }
+
+    @Test
+    void allocatesExactlyWhenTheRatiosDivideTheAmount() {
+        assertThat(Money.ofMinor(10000, BRL).allocate(70, 27, 3))
+                .containsExactly(Money.ofMinor(7000, BRL), Money.ofMinor(2700, BRL), Money.ofMinor(300, BRL));
+    }
+
+    @Test
+    void givesLeftOverMinorUnitsToTheLargestRemainders() {
+        // R$ 1.00 in thirds: 33.33… each, one centavo left over, the tie goes to the first part.
+        assertThat(Money.ofMinor(100, BRL).allocate(1, 1, 1))
+                .containsExactly(Money.ofMinor(34, BRL), Money.ofMinor(33, BRL), Money.ofMinor(33, BRL));
+        // R$ 0.05 as 30/70: exact shares 1.5 and 3.5, a tie on the fraction, so the first part wins.
+        assertThat(Money.ofMinor(5, BRL).allocate(30, 70))
+                .containsExactly(Money.ofMinor(2, BRL), Money.ofMinor(3, BRL));
+        // R$ 0.05 as 2/1: exact shares 3.33… and 1.66…, so the second part has the larger fraction.
+        assertThat(Money.ofMinor(5, BRL).allocate(2, 1)).containsExactly(Money.ofMinor(3, BRL), Money.ofMinor(2, BRL));
+    }
+
+    @Test
+    void allocatesNegativeAmountsAsTheMirrorOfPositiveOnes() {
+        assertThat(Money.ofMinor(-100, BRL).allocate(1, 1, 1))
+                .containsExactly(Money.ofMinor(-34, BRL), Money.ofMinor(-33, BRL), Money.ofMinor(-33, BRL));
+    }
+
+    /** Found by a property test: the absolute value of the most negative long does not fit a long. */
+    @Test
+    void allocatesTheMostNegativeAmount() {
+        Money min = Money.ofMinor(Long.MIN_VALUE, BRL);
+
+        assertThat(min.allocate(1)).containsExactly(min);
+    }
+
+    @Test
+    void givesNothingToAZeroRatio() {
+        assertThat(Money.ofMinor(100, BRL).allocate(1, 0, 1))
+                .containsExactly(Money.ofMinor(50, BRL), Money.zero(BRL), Money.ofMinor(50, BRL));
+    }
+
+    @Test
+    void rejectsInvalidRatios() {
+        Money money = Money.ofMinor(100, BRL);
+
+        assertThatThrownBy(money::allocate).hasMessage("At least one ratio is required");
+        assertThatThrownBy(() -> money.allocate(1, -1)).hasMessage("Ratios must not be negative: -1");
+        assertThatThrownBy(() -> money.allocate(0, 0)).hasMessage("At least one ratio must be positive");
+    }
 }
