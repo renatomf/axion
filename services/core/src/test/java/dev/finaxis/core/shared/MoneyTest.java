@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import java.util.Currency;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class MoneyTest {
@@ -93,5 +94,36 @@ class MoneyTest {
         assertThatThrownBy(() -> max.plus(Money.ofMinor(1, BRL))).isInstanceOf(ArithmeticException.class);
         assertThatThrownBy(() -> min.minus(Money.ofMinor(1, BRL))).isInstanceOf(ArithmeticException.class);
         assertThatThrownBy(min::negate).isInstanceOf(ArithmeticException.class);
+    }
+
+    @Test
+    void multipliesByARateWithoutRoundingWhenExact() {
+        Money hundred = Money.ofMinor(10000, BRL);
+
+        assertThat(hundred.times(new BigDecimal("0.0299"))).isEqualTo(Money.ofMinor(299, BRL));
+        assertThat(hundred.times(new BigDecimal("0.7"))).isEqualTo(Money.ofMinor(7000, BRL));
+    }
+
+    /** 5% of each amount gives an exact half centavo in most rows: halves go to the even neighbor. */
+    @ParameterizedTest
+    @CsvSource({
+        "10, 0", // 0.5 → 0
+        "30, 2", // 1.5 → 2
+        "50, 2", // 2.5 → 2
+        "70, 4", // 3.5 → 4
+        "-30, -2", // -1.5 → -2: the rule is symmetric around zero
+        "31, 2", // 1.55 → 2: not a half, rounds to the nearest
+        "29, 1", // 1.45 → 1
+    })
+    void roundsHalvesToTheEvenNeighbor(long minorUnits, long expected) {
+        Money result = Money.ofMinor(minorUnits, BRL).times(new BigDecimal("0.05"));
+
+        assertThat(result).isEqualTo(Money.ofMinor(expected, BRL));
+    }
+
+    @Test
+    void failsInsteadOfOverflowingWhenMultiplying() {
+        assertThatThrownBy(() -> Money.ofMinor(Long.MAX_VALUE, BRL).times(new BigDecimal("2")))
+                .isInstanceOf(ArithmeticException.class);
     }
 }

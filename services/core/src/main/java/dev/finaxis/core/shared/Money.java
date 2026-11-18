@@ -1,6 +1,7 @@
 package dev.finaxis.core.shared;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.Currency;
 
 /**
@@ -102,6 +103,23 @@ public record Money(long minorUnits, Currency currency) {
      */
     public Money negate() {
         return new Money(Math.negateExact(minorUnits), currency);
+    }
+
+    /**
+     * This amount multiplied by a rate, such as a 2.99% fee ({@code 0.0299}), rounded to whole minor
+     * units with {@link RoundingMode#HALF_EVEN}.
+     *
+     * <p>This is the only operation that rounds. Rates are {@code BigDecimal}, never {@code double},
+     * so {@code 0.0299} is exactly that number. HALF_EVEN (banker's rounding) sends an exact half to
+     * the nearest even number: 0.5 and 2.5 centavos round down, 1.5 rounds up. Over many operations
+     * the halves rounded up and down balance out, while HALF_UP would always round them up and
+     * drift in one direction.
+     *
+     * @throws ArithmeticException if the result does not fit in a {@code long}
+     */
+    public Money times(BigDecimal rate) {
+        BigDecimal exact = BigDecimal.valueOf(minorUnits).multiply(rate);
+        return new Money(exact.setScale(0, RoundingMode.HALF_EVEN).longValueExact(), currency);
     }
 
     /**
