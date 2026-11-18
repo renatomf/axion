@@ -20,6 +20,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.UnexpectedRollbackException;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * {@link LedgerApi#post} against a real PostgreSQL. Each call commits its own transaction, so the
@@ -34,15 +37,17 @@ class PostEntryTest {
 
     private final LedgerApi ledger;
     private final JdbcClient jdbc;
+    private final TransactionTemplate transaction;
 
     private UUID tenant;
     private AccountId settlement;
     private AccountId available;
 
     @Autowired
-    PostEntryTest(LedgerApi ledger, JdbcClient jdbc) {
+    PostEntryTest(LedgerApi ledger, JdbcClient jdbc, PlatformTransactionManager transactions) {
         this.ledger = ledger;
         this.jdbc = jdbc;
+        this.transaction = new TransactionTemplate(transactions);
     }
 
     @BeforeEach
@@ -59,7 +64,102 @@ class PostEntryTest {
         var result = ledger.post(settle(newSource(), TEN));
 
         assertThat(result).isInstanceOf(PostResult.Posted.class);
-        assertThat(postingsOf(result.entry())).isEqualTo(2);
+        assertThat(postingsOf(entryOf(result))).isEqualTo(2);
+    }
+
+    @Test
+    void updatesTheBalanceOfEachAccount() {
+        ledger.post(settle(newSource(), TEN));
+
+        // A debit raises an asset and a credit raises a liability (ledger design, section 3.2).
+        assertThat(balanceOf(settlement)).isEqualTo(1_000);
+        assertThat(balanceOf(available)).isEqualTo(1_000);
+    }
+
+    @Test
+    void refusesAnEntryThatWouldOverdrawAGuardedAccount() {
+        ledger.post(settle(newSource(), TEN));
+        var payout = payOut(newSource(), Money.ofMinor(1_001, BRL));
+
+        var result = ledger.post(payout);
+
+        assertThat(result).isEqualTo(new PostResult.InsufficientFunds(available));
+        assertThat(entriesOf(payout.source())).isZero();
+        // The settlement account was changed first, then rolled back with the rest.
+        assertThat(balanceOf(settlement)).isEqualTo(1_000);
+        assertThat(balanceOf(available)).isEqualTo(1_000);
+    }
+
+    @Test
+    void checksBalancesInAccountIdOrder() {
+        var held =
+                ledger.openAccount(new AccountRequest(tenant, "tenant:held", AccountType.LIABILITY, BRL, false, false));
+        var first = available.value().compareTo(held.value()) < 0 ? available : held;
+        var second = first.equals(available) ? held : available;
+        // Both tenant balances are zero, so both are short; the postings list the later one first.
+        var request = request(
+                newSource(),
+                List.of(
+                        PostingRequest.debit(second, TEN),
+                        PostingRequest.debit(first, TEN),
+                        PostingRequest.credit(settlement, Money.ofMinor(2_000, BRL))));
+
+        assertThat(ledger.post(request)).isEqualTo(new PostResult.InsufficientFunds(first));
+    }
+
+    @Test
+    void postsARefusedSourceOnceTheFundsAreThere() {
+        var payout = payOut(newSource(), TEN);
+        ledger.post(payout);
+        ledger.post(settle(newSource(), TEN));
+
+        var result = ledger.post(payout);
+
+        assertThat(result).isInstanceOf(PostResult.Posted.class);
+        assertThat(balanceOf(available)).isZero();
+    }
+
+    @Test
+    void keepsTheCallersWorkWhenFundsAreShort() {
+        var callersAccount = transaction.execute(status -> {
+            var opened = ledger.openAccount(
+                    new AccountRequest(tenant, "tenant:held", AccountType.LIABILITY, BRL, false, false));
+            assertThat(ledger.post(payOut(newSource(), TEN))).isInstanceOf(PostResult.InsufficientFunds.class);
+            return opened;
+        });
+
+        assertThat(balanceOf(callersAccount)).isZero();
+    }
+
+    @Test
+    void rollsTheCallerBackWhenPostingThrows() {
+        var source = newSource();
+        ledger.post(settle(source, TEN));
+
+        // The caller swallows the ledger's exception and tries to commit its own work anyway.
+        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
+                    ledger.openAccount(
+                            new AccountRequest(tenant, "tenant:held", AccountType.LIABILITY, BRL, false, false));
+                    try {
+                        ledger.post(settle(source, Money.ofMinor(2_000, BRL)));
+                    } catch (IllegalStateException swallowed) {
+                        // A bug in the caller: the ledger must still fail closed.
+                    }
+                }))
+                .isInstanceOf(UnexpectedRollbackException.class);
+
+        assertThat(accountsWithCode("tenant:held")).isZero();
+    }
+
+    @Test
+    void leavesTheBalanceOfAHotAccountToTheFoldingJob() {
+        var hot = ledger.openAccount(new AccountRequest(tenant, "platform:fees", AccountType.ASSET, BRL, true, true));
+
+        ledger.post(
+                request(newSource(), List.of(PostingRequest.debit(hot, TEN), PostingRequest.credit(available, TEN))));
+
+        assertThat(balanceOf(hot)).isZero();
+        assertThat(balanceOf(available)).isEqualTo(1_000);
     }
 
     @Test
@@ -69,8 +169,9 @@ class PostEntryTest {
 
         var second = ledger.post(request);
 
-        assertThat(second).isEqualTo(new PostResult.AlreadyPosted(first.entry()));
-        assertThat(postingsOf(first.entry())).isEqualTo(2);
+        assertThat(second).isEqualTo(new PostResult.AlreadyPosted(entryOf(first)));
+        assertThat(postingsOf(entryOf(first))).isEqualTo(2);
+        assertThat(balanceOf(available)).isEqualTo(1_000);
     }
 
     @Test
@@ -132,9 +233,9 @@ class PostEntryTest {
         try (var threads = Executors.newFixedThreadPool(50)) {
             var results = threads.invokeAll(Collections.nCopies(50, post));
             var posted = 0;
-            var entry = results.getFirst().get().entry();
+            var entry = entryOf(results.getFirst().get());
             for (Future<PostResult> result : results) {
-                assertThat(result.get().entry()).isEqualTo(entry);
+                assertThat(entryOf(result.get())).isEqualTo(entry);
                 if (result.get() instanceof PostResult.Posted) {
                     posted++;
                 }
@@ -151,12 +252,44 @@ class PostEntryTest {
                 source, List.of(PostingRequest.debit(settlement, amount), PostingRequest.credit(available, amount)));
     }
 
+    /**
+     * A payout: the tenant's balance goes down and the platform pays the amount out. The settlement
+     * leg comes first, so its balance is changed before the tenant's is checked.
+     */
+    private EntryRequest payOut(EntrySource source, Money amount) {
+        return request(
+                source, List.of(PostingRequest.credit(settlement, amount), PostingRequest.debit(available, amount)));
+    }
+
     private EntryRequest request(EntrySource source, List<PostingRequest> postings) {
         return new EntryRequest(tenant, source, LocalDate.of(2026, 11, 18), "corr-1", postings);
     }
 
     private static EntrySource newSource() {
         return new EntrySource("charge", "ch_" + UUID.randomUUID(), "settlement");
+    }
+
+    /** The entry a successful post produced; any other result fails the test. */
+    private static EntryId entryOf(PostResult result) {
+        return switch (result) {
+            case PostResult.Posted posted -> posted.entry();
+            case PostResult.AlreadyPosted already -> already.entry();
+            case PostResult.InsufficientFunds insufficient -> throw new AssertionError("Unexpected " + insufficient);
+        };
+    }
+
+    private long balanceOf(AccountId account) {
+        return jdbc.sql("SELECT balance FROM ledger.balances WHERE account_id = ?")
+                .param(account.value())
+                .query(Long.class)
+                .single();
+    }
+
+    private long accountsWithCode(String code) {
+        return jdbc.sql("SELECT count(*) FROM ledger.accounts WHERE tenant_id = ? AND code = ?")
+                .params(tenant, code)
+                .query(Long.class)
+                .single();
     }
 
     private long postingsOf(EntryId entry) {
