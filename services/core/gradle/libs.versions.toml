@@ -5,6 +5,11 @@
 [versions]
 java = "25"
 spring-boot = "4.1.2"
+spotless = "8.11.0"
+palantir-java-format = "2.103.0"
+errorprone-plugin = "5.2.0"
+errorprone = "2.52.0"
+nullaway = "0.14.4"
 
 [libraries]
 # Bill of materials: the versions Spring Boot has tested together. Libraries
@@ -14,12 +19,22 @@ spring-boot-dependencies = { module = "org.springframework.boot:spring-boot-depe
 spring-boot-starter-webmvc = { module = "org.springframework.boot:spring-boot-starter-webmvc" }
 # Production-ready endpoints (health, info, metrics) under /actuator.
 spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
+# Nullness annotations (@NullMarked, @Nullable), the standard Spring itself uses.
+jspecify = { module = "org.jspecify:jspecify" }
 # Test toolkit: JUnit Jupiter (JUnit 6), AssertJ, Mockito and Spring's test support.
 spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
 # MockMvc support for testing Spring MVC endpoints without a real server.
 spring-boot-starter-webmvc-test = { module = "org.springframework.boot:spring-boot-starter-webmvc-test" }
 # Lets Gradle launch JUnit tests; Gradle 9 requires it on the test runtime classpath.
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+# Static analysis that runs inside javac and reports common Java bug patterns.
+errorprone-core = { module = "com.google.errorprone:error_prone_core", version.ref = "errorprone" }
+# Error Prone check that proves, at compile time, that no null is dereferenced.
+nullaway = { module = "com.uber.nullaway:nullaway", version.ref = "nullaway" }
 
 [plugins]
+# Code formatter: `spotlessCheck` fails the build on unformatted code, `spotlessApply` fixes it.
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+# Plugs Error Prone into every Java compile task.
+errorprone = { id = "net.ltgt.errorprone", version.ref = "errorprone-plugin" }
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
