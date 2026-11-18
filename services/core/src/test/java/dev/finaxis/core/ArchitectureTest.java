@@ -32,8 +32,7 @@ class ArchitectureTest {
 
     /**
      * Domain code is plain Java: it knows nothing about Spring, persistence or transactions, so the
-     * business rules can be read and tested on their own. No module has a domain package yet, so the
-     * rule is allowed to match no class.
+     * business rules can be read and tested on their own.
      */
     @ArchTest
     static final ArchRule domainIsPlainJava = noClasses()
@@ -42,8 +41,7 @@ class ArchitectureTest {
             .should()
             .dependOnClassesThat()
             .resideInAnyPackage(
-                    "org.springframework..", "jakarta.persistence..", "jakarta.transaction..", "org.hibernate..")
-            .allowEmptyShould(true);
+                    "org.springframework..", "jakarta.persistence..", "jakarta.transaction..", "org.hibernate..");
 
     /**
      * The current time comes from an injected {@link Clock}, so tests can fix it. This forbids the
