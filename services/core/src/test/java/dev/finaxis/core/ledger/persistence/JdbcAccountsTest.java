@@ -1,12 +1,14 @@
 package dev.finaxis.core.ledger.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.ledger.AccountId;
 import dev.finaxis.core.ledger.AccountType;
 import dev.finaxis.core.ledger.domain.Account;
 import java.util.Currency;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -67,6 +69,18 @@ class JdbcAccountsTest {
     void findsNoAccountForAnUnknownCode() {
         assertThat(accounts.findByCode(UUID.randomUUID(), "tenant:unknown:available"))
                 .isEmpty();
+    }
+
+    @Test
+    void findsAccountsByIdAndLeavesOutUnknownOnes() {
+        var first = available(UUID.randomUUID());
+        var second = available(UUID.randomUUID());
+        accounts.insertIfAbsent(first);
+        accounts.insertIfAbsent(second);
+        var unknown = new AccountId(UUID.randomUUID());
+
+        assertThat(accounts.findAllById(List.of(first.id(), second.id(), unknown)))
+                .containsOnly(entry(first.id(), first), entry(second.id(), second));
     }
 
     private static Account available(UUID tenant) {

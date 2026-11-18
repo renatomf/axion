@@ -3,9 +3,15 @@ package dev.finaxis.core.ledger.persistence;
 import dev.finaxis.core.ledger.AccountId;
 import dev.finaxis.core.ledger.AccountType;
 import dev.finaxis.core.ledger.domain.Account;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.Collection;
 import java.util.Currency;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -69,14 +75,40 @@ public class JdbcAccounts {
                         """)
                 .param("tenantId", tenantId)
                 .param("code", code)
-                .query((row, rowNumber) -> new Account(
-                        new AccountId(row.getObject("id", UUID.class)),
-                        row.getObject("tenant_id", UUID.class),
-                        row.getString("code"),
-                        AccountType.valueOf(row.getString("type")),
-                        Currency.getInstance(row.getString("currency")),
-                        row.getBoolean("allow_negative"),
-                        row.getBoolean("is_hot")))
+                .query(JdbcAccounts::account)
                 .optional();
+    }
+
+    /**
+     * The accounts with the given IDs, keyed by ID. An ID with no account is absent from the map,
+     * so the caller can tell which ones are missing.
+     */
+    public Map<AccountId, Account> findAllById(Collection<AccountId> ids) {
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        // JdbcClient expands a collection parameter into a list of placeholders: IN (?, ?, ...).
+        return jdbc
+                .sql("""
+                        SELECT id, tenant_id, code, type, currency, allow_negative, is_hot
+                          FROM ledger.accounts
+                         WHERE id IN (:ids)
+                        """)
+                .param("ids", ids.stream().map(AccountId::value).toList())
+                .query(JdbcAccounts::account)
+                .list()
+                .stream()
+                .collect(Collectors.toMap(Account::id, Function.identity()));
+    }
+
+    private static Account account(ResultSet row, int rowNumber) throws SQLException {
+        return new Account(
+                new AccountId(row.getObject("id", UUID.class)),
+                row.getObject("tenant_id", UUID.class),
+                row.getString("code"),
+                AccountType.valueOf(row.getString("type")),
+                Currency.getInstance(row.getString("currency")),
+                row.getBoolean("allow_negative"),
+                row.getBoolean("is_hot"));
     }
 }
