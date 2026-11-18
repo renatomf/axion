@@ -7,6 +7,13 @@ spring:
   application:
     # Identifies the service in logs and, later, in metrics and traces.
     name: finaxis-core
+  autoconfigure:
+    exclude:
+      # Without a user store of its own, Spring Boot creates an in-memory
+      # user with a generated password and logs it. Nothing in the core
+      # authenticates with a username and password, so that user is only a
+      # credential to leak.
+      - org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
   flyway:
     # Fail on a file in db/migration whose name Flyway cannot parse, instead
     # of silently skipping it.
