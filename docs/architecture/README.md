@@ -2,8 +2,12 @@
 
 How the system is structured and the standards it is built to.
 
-- **C4 diagrams:** system context, containers and, where useful, components.
-- **Engineering standards:** the enforced coding, database and frontend standards (`engineering-standards.md`, PR 0.22).
-- **Demo script:** the scenario phase 1 must demonstrate (`demo-script.md`, PR 1.01).
+| Document | Contents |
+|---|---|
+| [C4 system context](c4-context.md) | The people who use Finaxis and the external systems it talks to |
+| [Engineering standards](engineering-standards.md) | The coding, database and frontend standards, and the tool that enforces each one |
+| Demo script (`demo-script.md`, PR 1.01) | The scenario phase 1 must demonstrate |
 
-Diagrams are kept as text (e.g. Mermaid) so they are reviewed in pull requests like code.
+The containers inside the system are described in section 3 of the [platform overview](../design-docs/2026-11-17-platform-overview.md#3-architecture); C4 container and component diagrams are added here when a container's structure needs more than that section.
+
+Diagrams are kept as text (Mermaid) so they are reviewed in pull requests like code.
