@@ -74,7 +74,7 @@ Types are non-null by default: every package carries `@NullMarked` in its `packa
 
 ### Module boundaries
 
-The core is a modular monolith ([ADR-0002](docs/adr/0002-modular-monolith.md)): each direct subpackage of `dev.finaxis.core` is a module, such as `shared` (the shared kernel), `observability` or `web` (HTTP API conventions). Two tests fail the build when the structure is broken; neither starts the application:
+The core is a modular monolith ([ADR-0002](docs/adr/0002-modular-monolith.md)): each direct subpackage of `dev.finaxis.core` is a module, such as `shared` (the shared kernel), `observability`, `web` (HTTP API conventions) or `access` (who may call the core). Two tests fail the build when the structure is broken; neither starts the application:
 
 | Test | Tool | Fails on |
 |---|---|---|
@@ -134,15 +134,24 @@ Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) Pr
 
 ```bash
 curl -i localhost:8080/v1/charges
-# HTTP/1.1 404
+# HTTP/1.1 401
 # Content-Type: application/problem+json
-# {"detail":"No static resource v1/charges.","instance":"/v1/charges","status":404,"title":"Not Found","code":"not_found"}
+# {"detail":"Authentication is required.","instance":"/v1/charges","status":401,"title":"Unauthorized","code":"unauthorized"}
 ```
 
 - `code` is stable and snake_case; clients branch on it, never on `title` or `detail`, which are for humans and may change. A handler may set a specific code (such as `idempotency_key_reused`); otherwise it is the HTTP status name (`not_found`, `method_not_allowed`).
 - `type` is omitted, which RFC 9457 reads as `about:blank`.
 - An exception no handler knows is a bug or an infrastructure failure: it becomes a `500` with the detail `An unexpected error occurred.` and code `internal_server_error`. The exception is logged with the correlation ID; its message and stack trace never reach the response.
 - Expected business outcomes are values, not exceptions (overview design, section 19.1); the endpoint maps them to a problem with a specific code.
+
+### API security
+
+Every request passes through [Spring Security](https://docs.spring.io/spring-security/reference/) before any controller runs, configured in one place: [`SecurityConfiguration`](services/core/src/main/java/dev/finaxis/core/access/SecurityConfiguration.java) in the `access` module.
+
+- **Deny by default.** A request is allowed only if a rule opens it. Today the only rule opens the health endpoint (`/actuator/health` and its probes). A new endpoint answers `401` until its pull request adds an explicit rule, and that rule is reviewed like any other code.
+- An unauthenticated request gets a `401` (code `unauthorized`); an authenticated one without a matching rule, a `403` (code `forbidden`). Both are Problem Details, and their detail never says why, so a missing path and a closed one look the same.
+- **Stateless:** no HTTP session, no cookies, no login form, HTTP Basic or `/logout`. Callers will authenticate on every request with API keys or service tokens (phase 1). Without cookies there is nothing for CSRF to abuse, so CSRF protection is off; the BFF, which uses cookies, has its own.
+- Every response, errors included, carries `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Cache-Control: no-store`. `Strict-Transport-Security` is sent on HTTPS requests only; TLS ends at the reverse proxy (overview design, section 4.2).
 
 ### Local infrastructure
 
