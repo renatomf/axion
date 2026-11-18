@@ -23,3 +23,7 @@ _env:
 # Lint the OpenAPI contracts of the core
 lint-api:
     pnpm run lint:api
+
+# Build the container image of the core service
+image:
+    docker build --tag finaxis-core:dev services/core

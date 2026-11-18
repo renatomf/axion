@@ -48,3 +48,14 @@ updates:
     ignore:
       - dependency-name: postgres
         update-types: ["version-update:semver-major"]
+
+  # Base images of the core's Dockerfile; tag and digest are bumped together.
+  - package-ecosystem: docker
+    directory: /services/core
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    groups:
+      core-images:
+        patterns: ["*"]

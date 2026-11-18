@@ -1,0 +1,55 @@
+# Builds the container image of the core service and scans it with Trivy on
+# every push and pull request, and weekly, because new vulnerabilities are
+# published against images that have not changed.
+name: Core image
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "37 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Build and scan image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TRIVY_VERSION: 0.76.1
+      # SHA-256 of trivy_<version>_Linux-64bit.tar.gz, from the release's checksums file.
+      TRIVY_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build image
+        run: docker build --tag finaxis-core:ci services/core
+
+      # The binary is downloaded and verified rather than run through a
+      # third-party action, so nothing unpinned executes in this job.
+      - name: Install Trivy
+        run: |
+          archive="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl -fsSL -o "$archive" \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${archive}"
+          echo "${TRIVY_SHA256}  ${archive}" | sha256sum --check --strict
+          tar -xzf "$archive" trivy
+          sudo install trivy /usr/local/bin/trivy
+
+      # Misconfigurations in the Dockerfile, such as running as root.
+      - name: Scan Dockerfile
+        run: trivy config --exit-code 1 --severity HIGH,CRITICAL services/core/Dockerfile
+
+      # Known vulnerabilities in the operating system packages and the Java
+      # libraries inside the image. Only vulnerabilities with a fix fail the
+      # build: a fix is the action this gate can ask for.
+      - name: Scan image
+        run: >-
+          trivy image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed
+          --no-progress finaxis-core:ci

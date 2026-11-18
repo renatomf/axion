@@ -191,6 +191,20 @@ Settings come from `infra/compose/.env`, which is git-ignored. `just up` creates
 - The `finaxis` user is the database owner, for local administration only. The service will connect with least-privilege roles, introduced with its first schemas.
 - To start from an empty database, remove the volume: `docker compose --file infra/compose/compose.yaml --profile core down --volumes`.
 
+### Container image
+
+The core ships as a container image built from [`services/core/Dockerfile`](services/core/Dockerfile):
+
+```bash
+just image   # builds finaxis-core:dev
+```
+
+- **Multi-stage:** a JDK stage packages the JAR with Gradle; the final stage holds only the Java runtime and the application. Tests are not run in the image build; CI runs them in the Core workflow.
+- **Distroless runtime** (`gcr.io/distroless/java25-debian13:nonroot`): no shell, no package manager, and the process runs as user `65532`, never root. To inspect a running container, use `docker logs` and the health endpoint; `docker exec` has nothing to run.
+- **Layers by change frequency:** libraries, Spring Boot's loader and the service's code are separate layers, so a code change rebuilds only the last one.
+- Base images are pinned by digest; Dependabot bumps tag and digest together.
+- The image runs with the default profile: give it the database through `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME` and `SPRING_DATASOURCE_PASSWORD`. The image has no `HEALTHCHECK` (there is no shell or `curl` inside); orchestrators probe `/actuator/health/liveness` and `/actuator/health/readiness` over HTTP.
+
 ## Continuous integration
 
 GitHub Actions runs these checks on every pull request and on `main` ([`.github/workflows/`](.github/workflows)):
@@ -199,12 +213,13 @@ GitHub Actions runs these checks on every pull request and on `main` ([`.github/
 |---|---|
 | Core | `./gradlew build` in `services/core`: every [code quality gate](#code-quality-gates) and the tests; test reports are kept as an artifact when it fails |
 | API contracts | Spectral lints the [API contracts](#api-contracts) |
+| Core image | Builds the [container image](#container-image) and scans it with Trivy, also weekly: high or critical Dockerfile misconfigurations, and high or critical vulnerabilities that have a fix |
 | Gitleaks | Scans the full git history for secrets |
 | CodeQL | Static analysis (SAST) of workflows and Java code; findings appear under **Security → Code scanning** |
 
 The Core workflow validates the Gradle wrapper JAR against known checksums and caches Gradle dependencies; only `main` writes the cache.
 
-Dependabot ([`.github/dependabot.yml`](.github/dependabot.yml)) opens weekly, grouped update PRs for GitHub Actions, the root pnpm tooling, the core Gradle build and the local infrastructure images.
+Dependabot ([`.github/dependabot.yml`](.github/dependabot.yml)) opens weekly, grouped update PRs for GitHub Actions, the root pnpm tooling, the core Gradle build, the core's base images and the local infrastructure images.
 
 Workflow rules:
 
