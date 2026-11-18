@@ -55,6 +55,23 @@ The service is a Spring Boot application; its entry point is [`Application`](ser
 | [`build.gradle.kts`](services/core/build.gradle.kts) | Plugins, the Java toolchain and dependencies |
 | [`gradle.properties`](services/core/gradle.properties) | Gradle options (configuration and build caches) |
 
+### Code quality gates
+
+`./gradlew build` fails on any of these; there is no separate step to remember:
+
+| Gate | Tool | Fails the build on |
+|---|---|---|
+| Formatting | [Spotless](https://github.com/diffplug/spotless) with [Palantir Java Format](https://github.com/palantir/palantir-java-format) | Unformatted code or unused imports |
+| Bug patterns | [Error Prone](https://errorprone.info) | Common Java mistakes, checked while compiling main and test code |
+| Null safety | [NullAway](https://github.com/uber/NullAway) with [JSpecify](https://jspecify.dev) annotations | A possible null dereference anywhere under `dev.finaxis` |
+| Zero warnings | `javac -Xlint:all -Werror` | Any javac or Error Prone warning |
+
+```bash
+./gradlew spotlessApply    # format the code before committing
+```
+
+Types are non-null by default: every package carries `@NullMarked` in its `package-info.java`, and a reference that may be null is annotated `@Nullable` (`org.jspecify.annotations`). Suppressing a check (`@SuppressWarnings`) needs a comment explaining why.
+
 ### Core service configuration
 
 Configuration lives in [`src/main/resources`](services/core/src/main/resources). [`application.yml`](services/core/src/main/resources/application.yml) holds safe defaults for every environment; a profile file `application-<profile>.yml` overrides them when that profile is active.
