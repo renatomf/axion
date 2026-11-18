@@ -12,6 +12,16 @@ spring:
     # of silently skipping it.
     validate-migration-naming: true
 
+logging:
+  structured:
+    format:
+      # Write console logs as one JSON object per line, in the Elastic Common
+      # Schema (ECS) format, so log tools can parse and search them field by
+      # field. Values in the logging MDC (such as correlation_id) become JSON
+      # fields. Reference:
+      # https://docs.spring.io/spring-boot/reference/features/logging.html#features.logging.structured
+      console: ecs
+
 management:
   endpoints:
     web:

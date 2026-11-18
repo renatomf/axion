@@ -79,7 +79,7 @@ Configuration lives in [`src/main/resources`](services/core/src/main/resources).
 | Profile | Active when | Differences |
 |---|---|---|
 | default | No profile is set (e.g. `java -jar build/libs/finaxis-core.jar`) | Safe defaults; the database is set with `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME` and `SPRING_DATASOURCE_PASSWORD` |
-| `local` | `./gradlew bootRun`, or `SPRING_PROFILES_ACTIVE=local` | Connects to the PostgreSQL started by `just up`, with the settings in `infra/compose/.env`; health shows component details |
+| `local` | `./gradlew bootRun`, or `SPRING_PROFILES_ACTIVE=local` | Connects to the PostgreSQL started by `just up`, with the settings in `infra/compose/.env`; health shows component details; logs are plain text |
 
 The service listens on port 8080. Only the Actuator health endpoint is exposed:
 
@@ -101,6 +101,21 @@ The schema is managed by [Flyway](https://documentation.red-gate.com/flyway). Mi
 - Migrations are forward-only: an applied migration is never edited or deleted. A change is a new migration.
 - Breaking changes follow expand/contract: add the new structure, migrate the code, then remove the old structure in a later migration.
 - Each module creates its own schema and database role in its own migrations; the `public` schema is closed to every role but the owner.
+
+### Logging
+
+The service writes console logs as JSON, one object per line, in Spring Boot's [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html) format. The `local` profile writes plain text instead.
+
+Every HTTP request has a correlation ID, set by [`CorrelationIdFilter`](services/core/src/main/java/dev/finaxis/core/observability/CorrelationIdFilter.java):
+
+- A caller may send `X-Correlation-Id`; it is reused if it is 1–64 characters of letters, digits, `.`, `_` or `-`. Otherwise the service generates a UUID.
+- The ID is returned in the `X-Correlation-Id` response header and added as `correlation_id` to every log line written while the request is handled.
+
+```bash
+curl -i -H 'X-Correlation-Id: my-request-1' localhost:8080/actuator/health
+```
+
+Log through SLF4J (`LoggerFactory.getLogger(...)`), never `System.out`. Never log secrets, credentials or personal data (CPF, CNPJ, names, Pix keys), even though all data in this project is synthetic.
 
 ### Local infrastructure
 

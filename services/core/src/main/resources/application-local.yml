@@ -22,3 +22,10 @@ management:
       # Show each health component (disk space, ping and the database) to
       # help diagnose problems locally.
       show-details: always
+
+logging:
+  structured:
+    format:
+      # Plain text on a developer's console: easier to read than JSON. An
+      # empty value turns structured logging off.
+      console: ""
