@@ -93,6 +93,26 @@ Exposing another Actuator endpoint is a security decision: it needs a reason in 
 
 Versions are declared only in the version catalog. To upgrade Gradle, run `./gradlew wrapper --gradle-version <version> --gradle-distribution-sha256-sum <checksum>` with the checksum published at [gradle.org/release-checksums](https://gradle.org/release-checksums/), then run the same command a second time so the wrapper JAR and scripts are updated too.
 
+### Local infrastructure
+
+Local services run in Docker Compose ([`infra/compose/compose.yaml`](infra/compose/compose.yaml)). The root [`justfile`](justfile) is the entry point; run `just` to list every recipe.
+
+```bash
+just up      # start the core profile and wait until it is healthy
+just down    # stop it; data is kept in the postgres-data volume
+```
+
+| Profile | Services | Reachable at |
+|---|---|---|
+| `core` | PostgreSQL 17 (database and user `finaxis`) | `127.0.0.1:5432` |
+
+Settings come from `infra/compose/.env`, which is git-ignored. `just up` creates it from [`.env.example`](infra/compose/.env.example) on first use; edit it to change the password or, if port 5432 is already taken on your machine, `FINAXIS_DB_PORT`.
+
+- Ports are bound to `127.0.0.1`, so the services are not reachable from the network.
+- Images are pinned by digest (`image: name:tag@sha256:...`).
+- The `finaxis` user is the database owner, for local administration only. The service will connect with least-privilege roles, introduced with its first schemas.
+- To start from an empty database, remove the volume: `docker compose --file infra/compose/compose.yaml --profile core down --volumes`.
+
 ## Continuous integration
 
 GitHub Actions runs these checks on every pull request and on `main` ([`.github/workflows/`](.github/workflows)):
@@ -105,7 +125,7 @@ GitHub Actions runs these checks on every pull request and on `main` ([`.github/
 
 The Core workflow validates the Gradle wrapper JAR against known checksums and caches Gradle dependencies; only `main` writes the cache.
 
-Dependabot ([`.github/dependabot.yml`](.github/dependabot.yml)) opens weekly, grouped update PRs for GitHub Actions, the root pnpm tooling and the core Gradle build.
+Dependabot ([`.github/dependabot.yml`](.github/dependabot.yml)) opens weekly, grouped update PRs for GitHub Actions, the root pnpm tooling, the core Gradle build and the local infrastructure images.
 
 Workflow rules:
 
