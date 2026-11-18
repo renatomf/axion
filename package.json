@@ -8,7 +8,8 @@
     "node": ">=24"
   },
   "scripts": {
-    "prepare": "lefthook install"
+    "prepare": "lefthook install",
+    "lint:api": "spectral lint --fail-severity warn services/core/openapi/v1.yaml"
   },
   "devDependencies": {
     "@commitlint/cli": "21.2.4",
