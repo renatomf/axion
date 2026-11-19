@@ -1,4 +1,4 @@
-package dev.finaxis.core.access;
+package dev.finaxis.core.access.security;
 
 import java.time.Clock;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;

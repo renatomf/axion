@@ -1,4 +1,4 @@
-package dev.finaxis.core.access;
+package dev.finaxis.core.access.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -9,6 +9,7 @@ import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jwt.SignedJWT;
 import dev.finaxis.core.KeycloakRealm;
 import dev.finaxis.core.KeycloakTestConfiguration;
+import dev.finaxis.core.OpenApiContract;
 import dev.finaxis.core.PostgresTestConfiguration;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -21,15 +22,16 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
+import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
 
 /**
  * Members' access tokens on {@code /internal}, against a real Keycloak running the {@code finaxis}
  * realm (tenancy and access design, sections 4.1 and 8).
  *
- * <p>No endpoint exists under {@code /internal} yet, so an accepted token is seen as a {@code 404}:
- * the request passed authentication and reached Spring MVC, which found no handler. A rejected
- * token never gets that far and is a {@code 401}.
+ * <p>The requests go to {@code /internal/me}: an accepted token reaches the endpoint and gets a
+ * {@code 200}; a rejected one never gets that far and is a {@code 401}. What the endpoint answers is
+ * tested in {@code CurrentMemberControllerTest}.
  */
 @SpringBootTest
 @Import({PostgresTestConfiguration.class, KeycloakTestConfiguration.class})
@@ -47,8 +49,14 @@ class MemberAuthenticationTest {
         this.realm = realm;
     }
 
+    /** Every response, accepted or rejected, must also be one the contract documents. */
     private MvcTestResultAssert internalWith(String token) {
-        return assertThat(mvc.get().uri(INTERNAL_PATH).header("Authorization", "Bearer " + token));
+        MvcTestResult result = mvc.get()
+                .uri(INTERNAL_PATH)
+                .header("Authorization", "Bearer " + token)
+                .exchange();
+        OpenApiContract.internal().assertConforms(result);
+        return assertThat(result);
     }
 
     private static void isUnauthorized(MvcTestResultAssert response) {
@@ -59,7 +67,7 @@ class MemberAuthenticationTest {
 
     @Test
     void acceptsAnAccessTokenOfTheRealm() {
-        internalWith(realm.login(KeycloakRealm.TEST_CLIENT).accessToken()).hasStatus(HttpStatus.NOT_FOUND);
+        internalWith(realm.login(KeycloakRealm.TEST_CLIENT).accessToken()).hasStatus(HttpStatus.OK);
     }
 
     @Test

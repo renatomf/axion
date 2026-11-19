@@ -1,4 +1,4 @@
-package dev.finaxis.core.access;
+package dev.finaxis.core.access.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -74,6 +74,14 @@ class MemberTokenValidationTest {
     void rejectsATokenWithoutAnAuthorizedParty() {
         assertThat(accepts(token -> token.claims(claims -> claims.remove("azp"))))
                 .isFalse();
+    }
+
+    /** Without a subject, the core cannot tell who the member is. */
+    @Test
+    void rejectsATokenWithoutASubject() {
+        assertThat(accepts(token -> token.claims(claims -> claims.remove("sub"))))
+                .isFalse();
+        assertThat(accepts(token -> token.subject(" "))).isFalse();
     }
 
     @Test

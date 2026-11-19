@@ -4,17 +4,24 @@ import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.shared.UuidV7Generator;
 import dev.finaxis.core.tenancy.MemberId;
+import dev.finaxis.core.tenancy.Membership;
 import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.OrganizationId;
 import dev.finaxis.core.tenancy.Role;
 import dev.finaxis.core.tenancy.TenancyApi;
 import dev.finaxis.core.tenancy.TenantStatus;
 import dev.finaxis.core.tenancy.TenantView;
+import dev.finaxis.core.tenancy.persistence.JdbcMembers;
+import dev.finaxis.core.tenancy.persistence.JdbcMembers.MemberRow;
 import dev.finaxis.core.tenancy.persistence.JdbcOrganizations;
 import dev.finaxis.core.tenancy.persistence.JdbcTenants;
 import java.time.Clock;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,11 +39,13 @@ public class TenancyService implements TenancyApi {
 
     private final JdbcOrganizations organizations;
     private final JdbcTenants tenants;
+    private final JdbcMembers members;
     private final UuidV7Generator ids;
 
-    public TenancyService(JdbcOrganizations organizations, JdbcTenants tenants, Clock clock) {
+    public TenancyService(JdbcOrganizations organizations, JdbcTenants tenants, JdbcMembers members, Clock clock) {
         this.organizations = organizations;
         this.tenants = tenants;
+        this.members = members;
         this.ids = new UuidV7Generator(clock);
     }
 
@@ -75,6 +84,34 @@ public class TenancyService implements TenancyApi {
     @Transactional(readOnly = true)
     public Optional<TenantView> tenant(TenantId tenant) {
         return tenants.find(tenant);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Two queries, whatever the number of organizations: the person's members, then the tenants
+     * of all their organizations at once. Both run in one read-only transaction, so they see the
+     * same snapshot of the directory.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<Membership> memberships(String userSubject) {
+        List<MemberRow> rows = members.findBySubject(userSubject);
+        Map<OrganizationId, List<TenantView>> tenantsByOrganization =
+                tenants
+                        .findByOrganizations(
+                                rows.stream().map(MemberRow::organization).toList())
+                        .stream()
+                        .sorted(Comparator.comparing(TenantView::environment))
+                        .collect(Collectors.groupingBy(TenantView::organization));
+        return rows.stream()
+                .map(row -> new Membership(
+                        row.id(),
+                        row.organization(),
+                        row.organizationName(),
+                        row.roles(),
+                        tenantsByOrganization.getOrDefault(row.organization(), List.of())))
+                .toList();
     }
 
     /**

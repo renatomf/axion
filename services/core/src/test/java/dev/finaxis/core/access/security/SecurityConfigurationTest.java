@@ -1,4 +1,4 @@
-package dev.finaxis.core.access;
+package dev.finaxis.core.access.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

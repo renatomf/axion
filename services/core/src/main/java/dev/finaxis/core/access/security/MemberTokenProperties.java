@@ -1,4 +1,4 @@
-package dev.finaxis.core.access;
+package dev.finaxis.core.access.security;
 
 import java.util.Set;
 import org.springframework.boot.context.properties.ConfigurationProperties;
