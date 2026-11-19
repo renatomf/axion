@@ -29,7 +29,7 @@ import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
  *
  * <p>The requests go to {@code /internal/me}: an accepted token reaches the endpoint and gets a
  * {@code 200}; a rejected one never gets that far and is a {@code 401}. What the endpoint answers is
- * tested in {@code MeEndpointTest}.
+ * tested in {@code CurrentMemberControllerTest}.
  */
 @SpringBootTest
 @Import({PostgresTestConfiguration.class, KeycloakTestConfiguration.class})

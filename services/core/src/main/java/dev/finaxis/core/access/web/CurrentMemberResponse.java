@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * The body of {@code GET /internal/me}, shaped as the {@code Me} schema of {@code
+ * The body of {@code GET /internal/me}, shaped as the {@code CurrentMember} schema of {@code
  * openapi/internal.yaml}. Jackson writes a record as a JSON object with one property per component,
  * named as the component.
  *
@@ -17,7 +17,7 @@ import java.util.Locale;
  *
  * @param organizations the caller's organizations, in the order of {@code TenancyApi.memberships}
  */
-record MeResponse(List<Organization> organizations) {
+record CurrentMemberResponse(List<Organization> organizations) {
 
     /** A {@code MemberOrganization} of the contract. */
     record Organization(String id, String name, List<String> roles, List<Tenant> tenants) {}
@@ -25,8 +25,9 @@ record MeResponse(List<Organization> organizations) {
     /** A {@code Tenant} of the contract. */
     record Tenant(String id, String environment, String status) {}
 
-    static MeResponse of(List<Membership> memberships) {
-        return new MeResponse(memberships.stream().map(MeResponse::organization).toList());
+    static CurrentMemberResponse of(List<Membership> memberships) {
+        return new CurrentMemberResponse(
+                memberships.stream().map(CurrentMemberResponse::organization).toList());
     }
 
     private static Organization organization(Membership membership) {
@@ -35,8 +36,11 @@ record MeResponse(List<Organization> organizations) {
                 membership.organizationName(),
                 // Sorted in the order Role declares them, so the response does not depend on how a
                 // set happens to iterate.
-                membership.roles().stream().sorted().map(MeResponse::lowercase).toList(),
-                membership.tenants().stream().map(MeResponse::tenant).toList());
+                membership.roles().stream()
+                        .sorted()
+                        .map(CurrentMemberResponse::lowercase)
+                        .toList(),
+                membership.tenants().stream().map(CurrentMemberResponse::tenant).toList());
     }
 
     private static Tenant tenant(TenantView tenant) {

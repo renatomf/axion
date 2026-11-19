@@ -17,11 +17,11 @@ import org.springframework.web.bind.annotation.RestController;
  * /internal} filter chain of {@code access.security} has validated the access token.
  */
 @RestController
-class MeController {
+class CurrentMemberController {
 
     private final TenancyApi tenancy;
 
-    MeController(TenancyApi tenancy) {
+    CurrentMemberController(TenancyApi tenancy) {
         this.tenancy = tenancy;
     }
 
@@ -31,9 +31,9 @@ class MeController {
      *     decoded {@link Jwt}
      */
     @GetMapping("/internal/me")
-    MeResponse me(@AuthenticationPrincipal Jwt token) {
+    CurrentMemberResponse currentMember(@AuthenticationPrincipal Jwt token) {
         // MemberTokenValidation rejects a token without a subject, so it is never null here.
         String subject = Objects.requireNonNull(token.getSubject());
-        return MeResponse.of(tenancy.memberships(subject));
+        return CurrentMemberResponse.of(tenancy.memberships(subject));
     }
 }

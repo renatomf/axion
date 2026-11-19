@@ -33,7 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Import({PostgresTestConfiguration.class, KeycloakTestConfiguration.class})
 @AutoConfigureMockMvc
 @Transactional
-class MeEndpointTest {
+class CurrentMemberControllerTest {
 
     private final MockMvcTester mvc;
     private final KeycloakRealm realm;
@@ -43,7 +43,7 @@ class MeEndpointTest {
     private String subject = "";
 
     @Autowired
-    MeEndpointTest(MockMvcTester mvc, KeycloakRealm realm, TenancyApi tenancy) {
+    CurrentMemberControllerTest(MockMvcTester mvc, KeycloakRealm realm, TenancyApi tenancy) {
         this.mvc = mvc;
         this.realm = realm;
         this.tenancy = tenancy;

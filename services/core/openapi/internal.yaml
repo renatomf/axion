@@ -29,7 +29,7 @@ tags:
 paths:
   /internal/me:
     get:
-      operationId: getMe
+      operationId: getCurrentMember
       tags: [Members]
       summary: The caller's organizations and tenants
       description: >-
@@ -43,7 +43,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Me"
+                $ref: "#/components/schemas/CurrentMember"
         "401":
           $ref: "components.yaml#/responses/Unauthorized"
         "500":
@@ -58,7 +58,7 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
-    Me:
+    CurrentMember:
       description: The organizations of the calling member.
       type: object
       required: [organizations]
