@@ -292,3 +292,76 @@ A tenant therefore sees the fee leg of its own settlement, which tells it nothin
 The service logs in as `finaxis_app`, a role with `NOINHERIT` and no privileges of its own. It is a member of every module role (`finaxis_ledger`, `finaxis_tenancy`, `finaxis_access`, …), and each module's API entry point switches the transaction to its module's role with `SET LOCAL ROLE`, restoring the caller's role when it returns. A module's statements thus run with only its own privileges, even inside another module's transaction, as settlement requires.
 
 This guards against mistakes, such as a query reaching into another module's schema; it does not stop an attacker who can run arbitrary SQL in the service's session, who could switch roles too. Against tenant data, the barriers are the tenant derived from the credential and Row-Level Security; against SQL injection, parameterized statements only, checked by Semgrep.
+
+## 6. Rate limiting
+
+Limits protect the platform from one caller's bug or abuse, not tenants from each other's business volume (amount and velocity limits belong to `risk`, PR 1.37). They apply after authentication, so they count per credential (PR 1.24):
+
+| Bucket | Live | Test |
+|---|---|---|
+| Per tenant | 100 requests/s, bursts of 200 | 25 requests/s, bursts of 50 |
+| Per API key | 50 requests/s, bursts of 100 | 25 requests/s, bursts of 50 |
+| Per member | 20 requests/s, bursts of 40 | 20 requests/s, bursts of 40 |
+
+- Each bucket is a token bucket (Bucket4j). A request takes one token from each bucket that applies and is rejected if any is empty.
+- A rejected request gets `429` with code `rate_limited`, a `Retry-After` header and the `RateLimit-Policy` and `RateLimit` headers of the IETF draft, so a client can slow down before it is rejected.
+- Buckets live in memory, in a bounded cache. Phase 1 runs one core instance, so a limit is exact. With several instances each enforces its own copy, so the effective limit multiplies; a shared store (PostgreSQL or Redis) is the documented path when the core scales out (phase 5).
+- Unauthenticated traffic never reaches the buckets: the reverse proxy limits it per IP address (overview, section 4.2), and the BFF limits each session (section 4.4).
+
+The values are a starting point, revised with the load tests (PR 1.70).
+
+## 7. API
+
+Other modules use the two modules only through their APIs, in each module's own package:
+
+```java
+public interface TenancyApi {
+    Optional<TenantView> tenant(TenantId tenant);
+    Optional<Membership> membership(String userSubject, TenantId tenant);   // roles, if a member
+    List<Membership> memberships(String userSubject);
+    TenantId platformTenant(Environment environment);
+}
+
+public interface AccessApi {
+    IssuedApiKey issue(TenantId tenant, String name, Set<Permission> scopes, MemberId issuer);
+    IssuedApiKey roll(ApiKeyId key, Duration grace, MemberId issuer);
+    void revoke(ApiKeyId key, MemberId revoker);
+    List<ApiKeyView> keys(TenantId tenant);
+}
+```
+
+- `TenantId` and `Environment` live in `shared`, with `TenantContext`: every module needs them, and the ledger already stores tenant IDs.
+- `IssuedApiKey` is the only type that holds a secret, returned once by `issue` and `roll`; its `toString` masks it. `ApiKeyView` has the name, `last_four`, scopes and dates.
+- Public IDs: `org_` for organizations, `ten_` for tenants, `mem_` for members and `key_` for API keys.
+- Endpoints, contract-first in `internal.yaml`: `GET /internal/me`; `GET` and `POST /internal/tenants/{tenant_id}/api_keys`; `POST …/api_keys/{key_id}/roll` and `POST …/api_keys/{key_id}/revoke`.
+- Issuing, rolling and revoking a key, and changing a member's roles, publish events (`ApiKeyIssued`, `ApiKeyRevoked`, `MemberRolesChanged`) for the audit trail, once the event registry exists (block G).
+
+## 8. Testing
+
+| Suite | What it proves | PR |
+|---|---|---|
+| Domain unit | The role matrix of section 3.3; a key's scopes stay within its issuer's permissions and the machine scopes; the last admin cannot be removed | 1.17, 1.20 |
+| Property-based (jqwik) | Any issued key passes its checksum; changing any one character fails it | 1.20 |
+| Schema (Testcontainers) | Constraints of section 3.4; an organization always has two tenants | 1.17 |
+| Token validation (Keycloak in Testcontainers) | A realm token is accepted; a wrong issuer, audience or algorithm, or an expired token, is rejected; an old `auth_time` yields the step-up challenge | 1.19 |
+| API key authentication | Unknown, revoked, expired and mistyped keys get the same `401`; a key works only for its own tenant | 1.21 |
+| Row-Level Security | As each module role: with no tenant bound, no rows are read and inserts fail; with tenant A bound, B's rows are invisible; the setting does not survive into the next transaction on the same connection | 1.22 |
+| Tenant isolation harness | For every operation in the OpenAPI contracts, tenant A's credential on tenant B's resources gets `404`, and lists never include them; a test key never reaches live data | 1.23 |
+| Rate limiting | A burst beyond the bucket gets `429` with `Retry-After`; buckets of different keys are independent | 1.24 |
+
+The isolation harness reads the operations from the contracts, so a new endpoint is covered without anyone remembering to add it; an operation it cannot exercise fails the suite until it gets a fixture.
+
+## 9. Trade-offs and alternatives
+
+| Alternative | Why it was rejected |
+|---|---|
+| **Environment as a column** beside `tenant_id` (a `livemode` flag on every row) | Two filters in every query and policy, and forgetting the second mixes test and live data, money included. The platform accounts would need an environment anyway |
+| **A database or schema per tenant** | Migrations, connection pools and cross-tenant jobs multiply with tenants. Row-Level Security on shared tables scales to thousands of tenants with one schema |
+| **Roles in Keycloak** (groups or role claims in the token) | A removed role keeps working until the token expires, and roles live in two places. Roles are business data the core must test and audit |
+| **The active tenant in the token** (a Keycloak organization claim) | Switching environment would need a new token, and the core would still have to check the membership |
+| **The tenant in a header** instead of the path | Equally safe, but the path makes the scope part of the resource's address: visible in the contract, in logs and to the isolation harness |
+| **Slow hashing of API keys** (Argon2, bcrypt) | Protects guessable secrets; a 178-bit key is not guessable, and the hash would cost tens of milliseconds per request and prevent an indexed lookup |
+| **Self-contained API keys** (signed JWTs) | Cannot be revoked without a denylist checked on every request, which is the lookup they were meant to avoid |
+| **`BYPASSRLS` for jobs** | Exempts a role from every policy on every table. Policies written for a job role are explicit, per table and read-only |
+| **A shared store for rate limits** now | Phase 1 runs one instance; Redis is more infrastructure and PostgreSQL a write per request. Documented for scale-out |
+| **A hosted identity provider** | See [ADR 0005](../adr/0005-keycloak-for-human-identity.md) |
