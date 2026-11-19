@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.ComponentScan.Filter;
+import org.springframework.context.annotation.FilterType;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -15,6 +17,7 @@ import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.web.ErrorResponseException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
  * How errors are returned over HTTP.
@@ -25,11 +28,17 @@ import org.springframework.web.bind.annotation.RestController;
  * out. It exists only in this test and is imported explicitly, because Spring Boot never scans
  * classes nested in a test class.
  *
+ * <p>{@code excludeFilters} leaves out the other modules' Spring MVC setup, such as the permission
+ * check of {@code access}, which needs services this slice does not start. Spring Boot's own setup
+ * comes from auto-configuration, not from scanning, so it stays.
+ *
  * <p>{@code addFilters = false} leaves the servlet filters, Spring Security among them, out of
  * {@link MockMvcTester}: these tests are about errors raised inside Spring MVC, which security would
  * otherwise reject before they happen. Security has its own tests.
  */
-@WebMvcTest(controllers = ApiExceptionHandlerTest.FailingController.class)
+@WebMvcTest(
+        controllers = ApiExceptionHandlerTest.FailingController.class,
+        excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE, classes = WebMvcConfigurer.class))
 @AutoConfigureMockMvc(addFilters = false)
 @Import(ApiExceptionHandlerTest.FailingController.class)
 class ApiExceptionHandlerTest {
