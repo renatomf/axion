@@ -119,7 +119,7 @@ access.api_keys
   name          text not null                        -- a label chosen by the creator
   secret_hash   bytea not null unique                -- SHA-256 of the whole key, section 4.3
   last_four     char(4) not null                     -- shown as sk_live_…a1b2
-  scopes        text[] not null                      -- checked against the scope list
+  scopes        text[] not null                      -- at least one, all of them API key scopes (CHECK)
   created_by    uuid not null                        -- the member who issued it
   created_at    timestamptz not null
   expires_at    timestamptz null                     -- set when the key is rolled
@@ -205,7 +205,7 @@ No real-looking key appears in this repository, so that the secret scanners stay
 | Roll | Issues a replacement with the same name and scopes, and sets the old key's `expires_at` after a grace period, from zero to 7 days (default 24 hours), so the tenant can deploy the new key first | `api_keys:manage`, step-up |
 | Revoke | Sets `revoked_at`; the key stops working on the next request | `api_keys:manage`, step-up |
 
-A key is never updated otherwise and never deleted: its row is the record of what it could do and who issued it. `last_used_at` is updated at most once an hour per key, with a conditional update, so busy keys add no write per request.
+A key is never updated otherwise and never deleted: its row is the record of what it could do and who issued it. The database enforces this: the `finaxis_access` role may update only `expires_at`, `revoked_at` and `last_used_at`, through a column privilege, and may not delete. `last_used_at` is updated at most once an hour per key, with a conditional update, so busy keys add no write per request.
 
 ### 4.4 Authentication failures
 
