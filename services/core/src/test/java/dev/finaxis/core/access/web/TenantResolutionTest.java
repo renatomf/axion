@@ -8,6 +8,7 @@ import dev.finaxis.core.KeycloakTestConfiguration;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.access.MemberCaller;
 import dev.finaxis.core.access.RequiresPermission;
+import dev.finaxis.core.access.RequiresStepUp;
 import dev.finaxis.core.shared.PublicId;
 import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.NewOrganization;
@@ -56,6 +57,14 @@ class TenantResolutionTest {
         @GetMapping("/internal/tenants/{tenant_id}/probe")
         String probe(MemberCaller caller) {
             return caller.tenant().publicId() + " " + caller.member().value();
+        }
+
+        /** Needs a recent authentication too; {@link StepUpTest} calls it. */
+        @RequiresPermission(Permission.API_KEYS_MANAGE)
+        @RequiresStepUp
+        @GetMapping("/internal/tenants/{tenant_id}/sensitive")
+        String sensitive(MemberCaller caller) {
+            return "reached";
         }
 
         /** Declares no permission, which the architecture test forbids in production code. */
