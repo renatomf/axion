@@ -36,4 +36,19 @@ public enum Permission {
     public boolean isApiKeyScope() {
         return apiKeyScope;
     }
+
+    /**
+     * The permission with this code, as {@link #code} spells it. The inverse of {@code code()}, for
+     * reading permissions back from the database; {@code valueOf} expects the constant's name instead.
+     *
+     * @throws IllegalArgumentException if no permission has this code
+     */
+    public static Permission fromCode(String code) {
+        for (Permission permission : values()) {
+            if (permission.code.equals(code)) {
+                return permission;
+            }
+        }
+        throw new IllegalArgumentException("Unknown permission: " + code);
+    }
 }
