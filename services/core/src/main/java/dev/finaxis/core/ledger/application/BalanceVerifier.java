@@ -4,8 +4,10 @@ import dev.finaxis.core.ledger.persistence.JdbcLedgerChecks;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,7 +53,13 @@ public class BalanceVerifier {
      * committed between the postings check and the balances check could look like a drifted
      * balance. {@code readOnly} makes PostgreSQL reject any write, so the verifier cannot change
      * what it checks.
+     *
+     * <p>The scheduler calls it every 15 minutes, starting 15 minutes after the service starts, and
+     * waits for a run to finish before counting the next interval. It calls the method through the
+     * same Spring proxy that opens the transaction, so the run is transactional; its result is
+     * ignored, since the metric and the log are what reach people.
      */
+    @Scheduled(initialDelay = 15, fixedDelay = 15, timeUnit = TimeUnit.MINUTES)
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public LedgerVerification verify() {
         var found = new LedgerVerification(

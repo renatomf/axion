@@ -7,6 +7,7 @@ import dev.finaxis.core.ledger.AccountRequest;
 import dev.finaxis.core.ledger.AccountType;
 import dev.finaxis.core.ledger.LedgerApi;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.time.Duration;
 import java.util.Currency;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -17,6 +18,9 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.scheduling.config.IntervalTask;
+import org.springframework.scheduling.config.ScheduledTask;
+import org.springframework.scheduling.config.ScheduledTaskHolder;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -72,6 +76,17 @@ class BalanceVerifierTest {
         assertThat(output)
                 .contains("Ledger invariant I6 is violated")
                 .contains(account.value().toString());
+    }
+
+    @Test
+    void runsEveryFifteenMinutes(@Autowired ScheduledTaskHolder scheduler) {
+        assertThat(scheduler.getScheduledTasks())
+                .map(ScheduledTask::getTask)
+                .filteredOn(task -> task.toString().endsWith("BalanceVerifier.verify"))
+                .singleElement()
+                .isInstanceOfSatisfying(
+                        IntervalTask.class,
+                        task -> assertThat(task.getIntervalDuration()).isEqualTo(Duration.ofMinutes(15)));
     }
 
     /** The counter is cumulative over the whole test run, so tests compare it before and after. */
