@@ -215,3 +215,80 @@ A key is never updated otherwise and never deleted: its row is the record of wha
 | Resource of another tenant, or a tenant the member does not belong to | `404` | `not_found` |
 
 Every `401` looks the same, so a caller cannot learn whether a key exists, expired or was revoked; logs and the metric `finaxis_authentication_failures_total{reason}` record the reason, with the key's ID when there is one and never the secret.
+
+## 5. Authorization and tenant context
+
+### 5.1 Principals
+
+Authentication ends with one of two principals, a sealed type in `access`:
+
+```java
+sealed interface Caller permits ApiKeyCaller, MemberCaller {
+    TenantId tenant();
+    Set<Permission> permissions();
+}
+record ApiKeyCaller(TenantId tenant, ApiKeyId key, Set<Permission> permissions) implements Caller {}
+record MemberCaller(TenantId tenant, MemberId member, Set<Permission> permissions, Instant authTime) implements Caller {}
+```
+
+**API keys.** The tenant is the key's tenant and the permissions are its scopes. Nothing in the request can change either.
+
+**Members.** A person may belong to several organizations, so the request names the tenant it acts on, in the path: tenant-scoped internal routes live under `/internal/tenants/{tenant_id}/…`. The core resolves that tenant only through the member's own memberships: one indexed query finds the tenant, checks that it is `ACTIVE` and that the user is a member of its organization, and loads their roles. A tenant the user does not belong to answers `404`, exactly like a tenant that does not exist. The path selects among the caller's tenants; it never grants access to one. `/internal/me` lists the caller's organizations and tenants, for the console's environment switcher.
+
+A request body never carries a tenant ID. Request DTOs have no such field, so it cannot be mass-assigned.
+
+### 5.2 Permissions per operation
+
+Every controller method declares exactly one permission, with `@RequiresPermission(CHARGES_WRITE)`, and an interceptor checks it against the caller before the method runs. A handler without the annotation is denied at runtime, and an architecture test fails the build if one exists, so a new endpoint cannot be open by omission. This extends the deny-by-default rule the security filter chain applies to paths (PR 0.19) down to each operation.
+
+### 5.3 Tenant context
+
+The tenant of the request reaches the database through two independent paths, so that a mistake in one is caught by the other:
+
+1. **Explicitly, in every query.** The controller passes the caller's `TenantId` to the application service, and every query filters by it (overview, section 4.3, layer ②).
+2. **Implicitly, to Row-Level Security.** After authentication, a filter runs the rest of the request inside a Java `ScopedValue` holding the tenant (`TenantContext`, in `shared`). At the start of every transaction, a Spring `TransactionExecutionListener` reads it and binds it to the transaction with `set_config('finaxis.tenant_id', …, true)`. The `true` makes the setting transaction-local: it disappears at commit or rollback, so a pooled connection never carries one request's tenant into the next.
+
+A `ScopedValue` (final in Java 25) is bound for the duration of a call and cannot be changed or leak afterwards, unlike a `ThreadLocal`, which must be cleared by hand. Work outside a request, such as an event listener, binds the tenant from the event with `TenantContext.run(tenant, …)`; work with no tenant binds none.
+
+**Every database access runs in a transaction**, reads included (`@Transactional(readOnly = true)`). Outside a transaction no tenant is bound and no module role is set (section 5.6), so the access fails instead of running unscoped.
+
+### 5.4 Row-Level Security
+
+Every table holding tenant data enables Row-Level Security (PR 1.22), with policies of this shape:
+
+```sql
+ALTER TABLE access.api_keys ENABLE ROW LEVEL SECURITY;
+ALTER TABLE access.api_keys FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolation ON access.api_keys
+    USING (tenant_id = shared.current_tenant())
+    WITH CHECK (tenant_id = shared.current_tenant());
+```
+
+- `shared.current_tenant()` returns `nullif(current_setting('finaxis.tenant_id', true), '')::uuid`. After a transaction-local setting ends, PostgreSQL returns an empty string rather than null, and casting it would fail; `nullif` turns it into null.
+- With no tenant bound, the function returns null, `tenant_id = null` is never true, and the policy shows no rows and accepts no inserts: Row-Level Security fails closed.
+- `FORCE` applies the policies to the table owner too. The service never connects as the owner, but a migration or a manual session that does is not exempt by accident.
+- `USING` filters what a statement can read, update or delete; `WITH CHECK` rejects a row written for another tenant.
+
+The `tenancy` tables are the directory that defines tenants, read by authentication before any tenant is known; they are reached only through `TenancyApi` and have no tenant policy. Authentication looks up an API key by its hash before the tenant is known, through one `SECURITY DEFINER` function, `access.find_api_key(hash)`, that returns the single key with that hash and nothing else: it cannot list keys, only resolve a secret the caller already holds.
+
+**Jobs that span tenants**, such as the ledger verifier and hot-account folding, connect through their own role (`finaxis_ledger_jobs`) with read-only policies written for that role (`FOR SELECT TO finaxis_ledger_jobs USING (true)`). No role has `BYPASSRLS`, which would exempt it from every policy on every table.
+
+### 5.5 Row-Level Security in the ledger
+
+A settlement runs in the context of the tenant who is paid, but posts to the platform's accounts too (ledger design, section 3.3). So the ledger's policies admit the platform tenant of the same environment, which the binding listener sets as `finaxis.platform_tenant_id` beside the tenant:
+
+| Table | A tenant reads | A tenant writes |
+|---|---|---|
+| `accounts` | Its own accounts and the platform's | Its own accounts |
+| `entries` | Its own entries | Its own entries |
+| `postings` | Postings to its own accounts, and the platform legs of its own entries | Postings of its own entries, to its own or the platform's accounts |
+| `balances` | Balances of its own accounts | Balances of its own accounts |
+
+A tenant therefore sees the fee leg of its own settlement, which tells it nothing about anyone else, and never another tenant's postings to the platform. This refines the ledger design, which hid platform postings entirely: the posting algorithm reloads every leg of an existing entry to check idempotency (section 5.1, step 2), and must see them all.
+
+### 5.6 Database roles
+
+The service logs in as `finaxis_app`, a role with `NOINHERIT` and no privileges of its own. It is a member of every module role (`finaxis_ledger`, `finaxis_tenancy`, `finaxis_access`, …), and each module's API entry point switches the transaction to its module's role with `SET LOCAL ROLE`, restoring the caller's role when it returns. A module's statements thus run with only its own privileges, even inside another module's transaction, as settlement requires.
+
+This guards against mistakes, such as a query reaching into another module's schema; it does not stop an attacker who can run arbitrary SQL in the service's session, who could switch roles too. Against tenant data, the barriers are the tenant derived from the credential and Row-Level Security; against SQL injection, parameterized statements only, checked by Semgrep.
