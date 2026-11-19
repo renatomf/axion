@@ -10,6 +10,8 @@ plugins {
     alias(libs.plugins.spotless)
     // Runs Error Prone checks while javac compiles main and test code.
     alias(libs.plugins.errorprone)
+    // Adds the `pitest` task (mutation testing); `build` does not run it.
+    alias(libs.plugins.pitest)
 }
 
 java {
@@ -102,4 +104,22 @@ tasks.test {
     // Run tests with the JUnit Platform (JUnit Jupiter). Without this line
     // Gradle looks for JUnit 4 tests and would find none.
     useJUnitPlatform()
+}
+
+pitest {
+    // Mutation testing: PIT makes small changes ("mutants") to the compiled
+    // code, such as turning `>` into `>=` or removing a call, and runs the
+    // tests against each one. A mutant the tests do not notice "survives",
+    // which points at behavior no test checks. Scope: the ledger only
+    // (docs/design-docs/2026-11-18-ledger.md, section 8).
+    pitestVersion = libs.versions.pit.core.get()
+    junit5PluginVersion = libs.versions.pit.junit5.plugin.get()
+    targetClasses = listOf("dev.finaxis.core.ledger.*")
+    targetTests = listOf("dev.finaxis.core.ledger.*")
+    // Fail the task when fewer than 80% of the mutants are killed.
+    mutationThreshold = 80
+    threads = Runtime.getRuntime().availableProcessors()
+    outputFormats = listOf("HTML", "XML")
+    // One fixed report directory instead of one per run, so CI can upload it.
+    timestampedReports = false
 }
