@@ -239,7 +239,7 @@ A request body never carries a tenant ID. Request DTOs have no such field, so it
 
 ### 5.2 Permissions per operation
 
-Every controller method declares exactly one permission, with `@RequiresPermission(CHARGES_WRITE)`, and an interceptor checks it against the caller before the method runs. A handler without the annotation is denied at runtime, and an architecture test fails the build if one exists, so a new endpoint cannot be open by omission. This extends the deny-by-default rule the security filter chain applies to paths (PR 0.19) down to each operation.
+Every controller method declares exactly one permission, with `@RequiresPermission(CHARGES_WRITE)`, and an interceptor checks it against the caller before the method runs. A handler without the annotation is denied at runtime, and an architecture test fails the build if one exists, so a new endpoint cannot be open by omission. An endpoint that needs an authenticated caller but no permission, such as `/internal/me`, says so explicitly with `@NoPermissionRequired(reason = …)`, which the test accepts in place of a permission. This extends the deny-by-default rule the security filter chain applies to paths (PR 0.19) down to each operation.
 
 ### 5.3 Tenant context
 

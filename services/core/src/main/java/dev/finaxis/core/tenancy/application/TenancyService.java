@@ -96,7 +96,26 @@ public class TenancyService implements TenancyApi {
     @Override
     @Transactional(readOnly = true)
     public List<Membership> memberships(String userSubject) {
-        List<MemberRow> rows = members.findBySubject(userSubject);
+        return withTenants(members.findBySubject(userSubject));
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>It runs on every tenant-scoped request of a member, so it costs two indexed queries: the
+     * member through the tenant, then the tenants of that one organization.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<Membership> membership(String userSubject, TenantId tenant) {
+        return withTenants(members.findBySubjectAndTenant(userSubject, tenant).stream()
+                        .toList())
+                .stream()
+                .findFirst();
+    }
+
+    /** Completes member rows with their organizations' tenants, test first, keeping the rows' order. */
+    private List<Membership> withTenants(List<MemberRow> rows) {
         Map<OrganizationId, List<TenantView>> tenantsByOrganization =
                 tenants
                         .findByOrganizations(

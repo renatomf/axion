@@ -8,9 +8,6 @@ import java.util.Optional;
 /**
  * The only way other modules use the tenancy directory (tenancy design, section 7). Calls run in
  * the caller's transaction when there is one.
- *
- * <p>The lookup of one membership by tenant joins this interface with its first caller, the
- * resolution of a member's tenant from the request path.
  */
 public interface TenancyApi {
 
@@ -36,6 +33,17 @@ public interface TenancyApi {
      * @param userSubject the person's Keycloak {@code sub}
      */
     List<Membership> memberships(String userSubject);
+
+    /**
+     * This person's membership in the organization the tenant belongs to, whatever the tenant's
+     * status. Empty if the tenant does not exist or the person is not a member of its organization:
+     * the two cases are deliberately alike, so a caller cannot learn which tenants exist (section
+     * 5.1).
+     *
+     * @param userSubject the person's Keycloak {@code sub}
+     * @param tenant the tenant the request names
+     */
+    Optional<Membership> membership(String userSubject, TenantId tenant);
 
     /**
      * The platform's own tenant in this environment, which owns accounts such as {@code
