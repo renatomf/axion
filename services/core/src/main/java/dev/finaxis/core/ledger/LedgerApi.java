@@ -49,4 +49,21 @@ public interface LedgerApi {
      *     caller: account IDs come from {@link #openAccount}
      */
     Balance balanceOf(AccountId account);
+
+    /**
+     * A page of the account's postings, newest first: ordered by descending posting ID, which is a
+     * UUIDv7 and so orders them by creation time to the millisecond. Postings created in the same
+     * millisecond come in a fixed but arbitrary order.
+     *
+     * <p>Start with {@link Cursor#first()} and pass each page's {@link Page#next()} to read the
+     * following one.
+     *
+     * @param limit how many postings at most, from 1 to {@value #MAX_HISTORY_LIMIT}
+     * @throws IllegalArgumentException if the limit is out of range or there is no account with that
+     *     ID, which is a bug in the caller
+     */
+    Page<PostingView> history(AccountId account, Cursor cursor, int limit);
+
+    /** The largest page {@link #history} returns. */
+    int MAX_HISTORY_LIMIT = 100;
 }

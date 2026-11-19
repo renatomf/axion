@@ -5,11 +5,15 @@ import dev.finaxis.core.ledger.Direction;
 import dev.finaxis.core.ledger.EntryId;
 import dev.finaxis.core.ledger.EntryRequest;
 import dev.finaxis.core.ledger.EntrySource;
+import dev.finaxis.core.ledger.PostingId;
 import dev.finaxis.core.ledger.PostingRequest;
+import dev.finaxis.core.ledger.PostingView;
 import dev.finaxis.core.ledger.domain.Entry;
 import dev.finaxis.core.ledger.domain.Posting;
 import dev.finaxis.core.shared.Money;
 import dev.finaxis.core.shared.UuidV7Generator;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.Currency;
 import java.util.List;
 import java.util.Optional;
@@ -123,6 +127,42 @@ public class JdbcEntries {
                         new AccountId(row.getObject("account_id", UUID.class)),
                         Direction.valueOf(row.getString("direction")),
                         Money.ofMinor(row.getLong("amount"), Currency.getInstance(row.getString("currency")))))
+                .list();
+    }
+
+    /**
+     * Up to {@code count} of the account's postings, in descending ID order, starting after {@code
+     * after} when it is present.
+     *
+     * <p>Keyset pagination: {@code id < :after} with the index on {@code (account_id, id)} lets
+     * PostgreSQL jump straight to the page and read only its rows, read backwards. {@code OFFSET}
+     * would read and discard every row before the page, slower the deeper the page.
+     */
+    public List<PostingView> history(AccountId account, Optional<PostingId> after, int count) {
+        var sql = """
+                SELECT p.id, p.entry_id, e.source_type, e.source_id, e.purpose,
+                       p.direction, p.amount, p.currency, e.effective_date, p.created_at
+                  FROM ledger.postings p
+                  JOIN ledger.entries e ON e.id = p.entry_id
+                 WHERE p.account_id = :accountId
+                """ + (after.isPresent() ? "   AND p.id < :after\n" : "") + """
+                 ORDER BY p.id DESC
+                 LIMIT :count
+                """;
+        var statement = jdbc.sql(sql).param("accountId", account.value()).param("count", count);
+        if (after.isPresent()) {
+            statement = statement.param("after", after.get().value());
+        }
+        return statement
+                .query((row, rowNumber) -> new PostingView(
+                        new PostingId(row.getObject("id", UUID.class)),
+                        new EntryId(row.getObject("entry_id", UUID.class)),
+                        new EntrySource(
+                                row.getString("source_type"), row.getString("source_id"), row.getString("purpose")),
+                        Direction.valueOf(row.getString("direction")),
+                        Money.ofMinor(row.getLong("amount"), Currency.getInstance(row.getString("currency"))),
+                        row.getObject("effective_date", LocalDate.class),
+                        row.getObject("created_at", OffsetDateTime.class).toInstant()))
                 .list();
     }
 }

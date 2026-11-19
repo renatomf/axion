@@ -7,6 +7,8 @@ import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.ledger.application.BalanceVerifier;
 import dev.finaxis.core.shared.Money;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Currency;
 import java.util.List;
 import java.util.UUID;
@@ -19,7 +21,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
- * {@link LedgerApi#balanceOf} against a real PostgreSQL. Each call commits its own transaction, and
+ * {@link LedgerApi#balanceOf} and {@link LedgerApi#history} against a real PostgreSQL. Each call commits its own transaction, and
  * every test uses new accounts and new sources.
  */
 @SpringBootTest
@@ -27,6 +29,10 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 class LedgerQueriesTest {
 
     private static final Currency BRL = Currency.getInstance("BRL");
+
+    /** Descending ID order, as PostgreSQL compares UUIDs: unsigned, byte by byte. */
+    private static final Comparator<PostingId> NEWEST_FIRST =
+            Comparator.comparing((PostingId id) -> id.value().toString()).reversed();
 
     private final LedgerApi ledger;
     private final BalanceVerifier verifier;
@@ -110,9 +116,89 @@ class LedgerQueriesTest {
                 .hasMessageContaining("Unknown account");
     }
 
+    @Test
+    void readsAnEmptyHistory() {
+        var page = ledger.history(available, Cursor.first(), 10);
+
+        assertThat(page.items()).isEmpty();
+        assertThat(page.hasMore()).isFalse();
+    }
+
+    @Test
+    void describesEachPostingOfTheAccount() {
+        var source = settle(brl(1_000));
+
+        var posting = ledger.history(available, Cursor.first(), 10).items().getFirst();
+
+        assertThat(posting.source()).isEqualTo(source);
+        assertThat(posting.direction()).isEqualTo(Direction.CREDIT);
+        assertThat(posting.amount()).isEqualTo(brl(1_000));
+        assertThat(posting.effectiveDate()).isEqualTo(LocalDate.of(2026, 11, 18));
+    }
+
+    @Test
+    void listsOnlyTheAccountsPostingsInDescendingIdOrder() {
+        var fees =
+                ledger.openAccount(new AccountRequest(tenant, "platform:fees", AccountType.REVENUE, BRL, true, true));
+        settle(brl(1_000));
+        charge(fees, brl(30));
+        settle(brl(500));
+
+        var postings = ledger.history(available, Cursor.first(), 10).items();
+
+        assertThat(postings).hasSize(3);
+        assertThat(postings).extracting(PostingView::id).isSortedAccordingTo(NEWEST_FIRST);
+        // The settlement account has the other legs of the two settlements only.
+        assertThat(ledger.history(settlement, Cursor.first(), 10).items()).hasSize(2);
+    }
+
+    @Test
+    void readsTheWholeHistoryPageByPageExactlyOnce() {
+        for (int i = 1; i <= 7; i++) {
+            settle(brl(i));
+        }
+        var all = ledger.history(available, Cursor.first(), 100).items();
+
+        var read = new ArrayList<PostingView>();
+        var page = ledger.history(available, Cursor.first(), 3);
+        read.addAll(page.items());
+        while (page.next().isPresent()) {
+            page = ledger.history(available, page.next().get(), 3);
+            read.addAll(page.items());
+        }
+
+        assertThat(read).isEqualTo(all).hasSize(7);
+    }
+
+    @Test
+    void endsAFullLastPageWithoutACursor() {
+        settle(brl(1));
+        settle(brl(2));
+
+        assertThat(ledger.history(available, Cursor.first(), 2).hasMore()).isFalse();
+        assertThat(ledger.history(available, Cursor.first(), 1).hasMore()).isTrue();
+    }
+
+    @Test
+    void rejectsALimitOutOfRange() {
+        assertThatThrownBy(() -> ledger.history(available, Cursor.first(), 0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> ledger.history(available, Cursor.first(), LedgerApi.MAX_HISTORY_LIMIT + 1))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void rejectsTheHistoryOfAnUnknownAccount() {
+        var unknown = new AccountId(UUID.randomUUID());
+
+        assertThatThrownBy(() -> ledger.history(unknown, Cursor.first(), 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unknown account");
+    }
+
     /** Settles a payment: the platform receives the money and owes it to the tenant. */
-    private void settle(Money amount) {
-        post(List.of(PostingRequest.debit(settlement, amount), PostingRequest.credit(available, amount)));
+    private EntrySource settle(Money amount) {
+        return post(List.of(PostingRequest.debit(settlement, amount), PostingRequest.credit(available, amount)));
     }
 
     /** Charges the tenant a fee: its balance goes down and the platform's revenue goes up. */
@@ -120,10 +206,11 @@ class LedgerQueriesTest {
         post(List.of(PostingRequest.debit(available, amount), PostingRequest.credit(fees, amount)));
     }
 
-    private void post(List<PostingRequest> postings) {
+    private EntrySource post(List<PostingRequest> postings) {
         var source = new EntrySource("test", UUID.randomUUID().toString(), "test");
         var result = ledger.post(new EntryRequest(tenant, source, LocalDate.of(2026, 11, 18), "corr-test", postings));
         assertThat(result).isInstanceOf(PostResult.Posted.class);
+        return source;
     }
 
     /**

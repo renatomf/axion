@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * One page of a paginated read, such as {@code LedgerApi.history}.
+ * One page of a paginated read, such as {@link LedgerApi#history}.
  *
  * @param items the page's items, in the read's order
  * @param next the cursor of the following page, or empty if this page is the last

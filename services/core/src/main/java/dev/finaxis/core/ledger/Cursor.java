@@ -3,7 +3,7 @@ package dev.finaxis.core.ledger;
 import java.util.Optional;
 
 /**
- * Where a page of {@code LedgerApi.history} starts (ledger design, section 6): at the newest
+ * Where a page of {@link LedgerApi#history} starts (ledger design, section 6): at the newest
  * posting, or right after the last posting of the previous page.
  *
  * <p>The cursor is a position, not a page number: a page starts after a posting ID, so reading it

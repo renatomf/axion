@@ -5,7 +5,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 
 /**
- * One posting in an account's history, as {@code LedgerApi.history} returns it (ledger design,
+ * One posting in an account's history, as {@link LedgerApi#history} returns it (ledger design,
  * section 6), with what its entry says about why it happened.
  *
  * @param id the posting's ID, also the position of the next page's cursor
