@@ -23,13 +23,102 @@ servers:
     description: Local development
 security:
   - service_token: []
-paths: {}
+tags:
+  - name: Members
+    description: The calling member and the organizations they belong to.
+paths:
+  /internal/me:
+    get:
+      operationId: getMe
+      tags: [Members]
+      summary: The caller's organizations and tenants
+      description: >-
+        Every organization the calling member belongs to, with their roles in
+        it and its two tenants, one per environment. The console uses it to
+        offer the member a choice of organization and environment. A member
+        of no organization gets an empty list.
+      responses:
+        "200":
+          description: The caller's organizations, ordered by name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
 components:
   securitySchemes:
     service_token:
       description: >-
-        An OAuth 2.0 access token issued by Keycloak, sent as a bearer token.
-        Defined with human authentication (roadmap 1.19).
+        An OAuth 2.0 access token of a member, issued by the Keycloak realm
+        `finaxis` for the audience `finaxis-core`, sent as a bearer token.
       type: http
       scheme: bearer
       bearerFormat: JWT
+  schemas:
+    Me:
+      description: The organizations of the calling member.
+      type: object
+      required: [organizations]
+      properties:
+        organizations:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemberOrganization"
+      examples:
+        - organizations:
+            - id: org_01jd8x3k9vfz4t2p6q5w7r8s0a
+              name: Acme
+              roles: [admin]
+              tenants:
+                - id: ten_01jd8x3k9vfz4t2p6q5w7r8s0b
+                  environment: test
+                  status: active
+                - id: ten_01jd8x3k9vfz4t2p6q5w7r8s0c
+                  environment: live
+                  status: active
+    MemberOrganization:
+      description: An organization the caller belongs to, and their roles in it.
+      type: object
+      required: [id, name, roles, tenants]
+      properties:
+        id:
+          description: The organization's ID.
+          type: string
+          pattern: "^org_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        name:
+          description: The organization's display name.
+          type: string
+          maxLength: 100
+        roles:
+          description: >-
+            The caller's roles in the organization, for display. Access is
+            decided by permissions, which the roles grant.
+          type: array
+          items:
+            type: string
+            enum: [admin, finance, approver, developer, read_only]
+        tenants:
+          description: The organization's tenants, test first, then live.
+          type: array
+          items:
+            $ref: "#/components/schemas/Tenant"
+    Tenant:
+      description: One environment of an organization.
+      type: object
+      required: [id, environment, status]
+      properties:
+        id:
+          description: >-
+            The tenant's ID, which tenant-scoped routes take in their path.
+          type: string
+          pattern: "^ten_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        environment:
+          type: string
+          enum: [test, live]
+        status:
+          description: Only an active tenant accepts requests.
+          type: string
+          enum: [active, suspended, closed]
