@@ -36,9 +36,9 @@ public class JdbcApiKeys {
     }
 
     /**
-     * Waits until no other transaction is issuing a key for this tenant, and keeps the others waiting
-     * until this transaction ends. Without it, two requests could each count nine keys and both
-     * insert a tenth.
+     * Waits until no other transaction is issuing or rolling a key for this tenant, and keeps the
+     * others waiting until this transaction ends. Without it, two requests could each count nine keys
+     * and both insert a tenth.
      *
      * <p>An advisory lock is a lock on a number, not on a row: there is no tenant row in this
      * module's schema to lock. The two-number form keeps it apart from advisory locks other code may
@@ -150,6 +150,33 @@ public class JdbcApiKeys {
                 .param("tenant", tenant.value())
                 .param("id", id.value())
                 .update();
+    }
+
+    /**
+     * Sets when the tenant's key stops working, the end of a roll's grace period, if it has neither
+     * been revoked nor rolled before: a key is rolled at most once, so its grace period can never be
+     * extended and it never has two replacements.
+     *
+     * <p>As with {@link #revoke}, two concurrent rolls of one key cannot both write: the second
+     * waits for the first's row lock, then finds {@code expires_at} set.
+     *
+     * @return whether the key was updated; false if the tenant has no such key, or it was revoked or
+     *     already rolled
+     */
+    public boolean expire(TenantId tenant, ApiKeyId id, Instant expiresAt) {
+        return jdbc.sql("""
+                        UPDATE access.api_keys
+                           SET expires_at = :expiresAt
+                         WHERE tenant_id = :tenant
+                           AND id = :id
+                           AND revoked_at IS NULL
+                           AND expires_at IS NULL
+                        """)
+                        .param("expiresAt", utc(expiresAt))
+                        .param("tenant", tenant.value())
+                        .param("id", id.value())
+                        .update()
+                == 1;
     }
 
     /** Maps one row to a view. A {@code RowMapper} receives each row in turn; this is one. */

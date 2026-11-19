@@ -2,6 +2,7 @@ package dev.finaxis.core.access;
 
 import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.Permission;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -9,8 +10,6 @@ import java.util.Set;
 /**
  * The API keys of a tenant (tenancy design, sections 4.3 and 7). Calls run in the caller's
  * transaction when there is one.
- *
- * <p>Rolling keys joins this interface in the next pull request.
  */
 public interface AccessApi {
 
@@ -50,9 +49,36 @@ public interface AccessApi {
      */
     Optional<ApiKeyView> revoke(MemberCaller revoker, ApiKeyId key);
 
+    /**
+     * Replaces one of the tenant's keys without downtime: issues a new key with the same name and
+     * scopes, and lets the old one keep working for a grace period, so the tenant can deploy the new
+     * key before the old one stops. A grace period of zero ends the old key at once.
+     *
+     * <p>Like {@link #revoke}, it takes the resolved member, so a key of another tenant is treated as
+     * one that does not exist, and the new key records this member as its issuer. Checking the
+     * permission and the step-up is the endpoint's job.
+     *
+     * @param grace how long the old key keeps working, from zero to {@link #MAX_ROLL_GRACE}
+     * @return {@link RollResult.Rolled} with the new key and its secret, {@link
+     *     RollResult.KeyNotFound} if the tenant has no key with this ID, {@link
+     *     RollResult.KeyNotRollable} if the key was revoked or already rolled, {@link
+     *     RollResult.ScopesNotHeld} if the member lacks one of the key's scopes, or {@link
+     *     RollResult.LimitReached} if the replacement would pass {@value #MAX_ACTIVE_KEYS} working
+     *     keys
+     * @throws IllegalArgumentException if the grace period is negative or longer than {@link
+     *     #MAX_ROLL_GRACE}, which the endpoint's contract rejects first
+     */
+    RollResult roll(MemberCaller roller, ApiKeyId key, Duration grace);
+
     /** The longest key name, in characters, as the schema allows. */
     int MAX_NAME_LENGTH = 100;
 
     /** The most keys a tenant may have that are neither revoked nor expired (section 4.3). */
     int MAX_ACTIVE_KEYS = 10;
+
+    /** The longest grace period a roll may give the old key (section 4.3). */
+    Duration MAX_ROLL_GRACE = Duration.ofDays(7);
+
+    /** The grace period the endpoint gives when the request names none (section 4.3). */
+    Duration DEFAULT_ROLL_GRACE = Duration.ofHours(24);
 }
