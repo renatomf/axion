@@ -7,6 +7,8 @@ import dev.finaxis.core.tenancy.TenantStatus;
 import dev.finaxis.core.tenancy.TenantView;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -34,6 +36,25 @@ public class JdbcTenants {
                           FROM tenancy.tenants
                          WHERE id = :id
                         """).param("id", id.value()).query(JdbcTenants::tenant).optional();
+    }
+
+    /** The tenants of these organizations, in no particular order. */
+    public List<TenantView> findByOrganizations(Collection<OrganizationId> organizations) {
+        if (organizations.isEmpty()) {
+            // "IN ()" is not valid SQL; no organizations have no tenants.
+            return List.of();
+        }
+        // JdbcClient expands a collection parameter into one placeholder per element: IN (?, ?, …).
+        return jdbc.sql("""
+                        SELECT id, organization_id, environment, status
+                          FROM tenancy.tenants
+                         WHERE organization_id IN (:organizations)
+                        """)
+                .param(
+                        "organizations",
+                        organizations.stream().map(OrganizationId::value).toList())
+                .query(JdbcTenants::tenant)
+                .list();
     }
 
     private static TenantView tenant(ResultSet row, int rowNumber) throws SQLException {
