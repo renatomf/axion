@@ -2,19 +2,19 @@
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-compose := "docker compose --file infra/compose/compose.yaml --profile core"
+compose := "docker compose --file infra/compose/compose.yaml"
 
 # List the available recipes
 default:
     @just --list
 
-# Start local infrastructure and wait until it is healthy
-up: _env
-    {{ compose }} up --detach --wait
+# Start a profile of local infrastructure (core or auth) and wait until it is healthy
+up profile="core": _env
+    {{ compose }} --profile {{ profile }} up --detach --wait
 
-# Stop local infrastructure (data is kept in its volume)
+# Stop every profile of local infrastructure (data is kept in its volumes)
 down:
-    {{ compose }} down
+    {{ compose }} --profile "*" down
 
 # Create infra/compose/.env from the example on first use
 _env:
