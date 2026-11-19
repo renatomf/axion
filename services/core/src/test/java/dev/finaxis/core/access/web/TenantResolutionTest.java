@@ -35,8 +35,9 @@ import org.springframework.web.bind.annotation.RestController;
  * the member's memberships, and the permission the endpoint declares. Real access tokens from
  * Keycloak and a real PostgreSQL.
  *
- * <p>No real endpoint is tenant-scoped yet, so {@link TenantScopedController}, which exists only in
- * this test, stands in for one. Each test runs in a transaction rolled back at its end, as in {@link
+ * <p>{@link TenantScopedController}, which exists only in this test, stands in for a tenant-scoped
+ * endpoint, so these rules are proven apart from any real one, and one of its methods can lack a
+ * permission, which production code may not. Each test runs in a transaction rolled back at its end, as in {@link
  * CurrentMemberControllerTest}.
  */
 @SpringBootTest
