@@ -1,13 +1,15 @@
 package dev.finaxis.core.access;
 
+import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.Permission;
+import java.util.List;
 import java.util.Set;
 
 /**
  * The API keys of a tenant (tenancy design, sections 4.3 and 7). Calls run in the caller's
  * transaction when there is one.
  *
- * <p>Rolling, revoking and listing keys join this interface in the next pull requests.
+ * <p>Rolling and revoking keys join this interface in the next commits and pull requests.
  */
 public interface AccessApi {
 
@@ -27,6 +29,13 @@ public interface AccessApi {
      *     of them is a human-only permission, which the endpoint's contract rejects first
      */
     IssueResult issue(MemberCaller issuer, String name, Set<Permission> scopes);
+
+    /**
+     * Every key of the tenant, newest first, including revoked and expired ones: a key is never
+     * deleted, and its row is the record of what it could do. A tenant has at most {@value
+     * #MAX_ACTIVE_KEYS} working keys, but the keys it revoked keep accumulating.
+     */
+    List<ApiKeyView> keys(TenantId tenant);
 
     /** The longest key name, in characters, as the schema allows. */
     int MAX_NAME_LENGTH = 100;

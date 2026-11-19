@@ -1,0 +1,129 @@
+package dev.finaxis.core.access;
+
+import static dev.finaxis.core.tenancy.Permission.CHARGES_READ;
+import static dev.finaxis.core.tenancy.Permission.CHARGES_WRITE;
+import static org.assertj.core.api.Assertions.assertThat;
+
+import dev.finaxis.core.PostgresTestConfiguration;
+import dev.finaxis.core.shared.Environment;
+import dev.finaxis.core.shared.TenantId;
+import dev.finaxis.core.tenancy.NewOrganization;
+import dev.finaxis.core.tenancy.Permission;
+import dev.finaxis.core.tenancy.Role;
+import dev.finaxis.core.tenancy.TenancyApi;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * {@link AccessApi#keys} against a real PostgreSQL. Each test creates its own organization, so it
+ * never meets another test's keys.
+ */
+@SpringBootTest
+@Import(PostgresTestConfiguration.class)
+class ListApiKeysTest {
+
+    private static final Instant MOMENT = Instant.parse("2026-11-19T12:00:00Z");
+
+    private final AccessApi access;
+    private final TenancyApi tenancy;
+    private final JdbcClient jdbc;
+    private NewOrganization organization;
+
+    @Autowired
+    ListApiKeysTest(AccessApi access, TenancyApi tenancy, JdbcClient jdbc) {
+        this.access = access;
+        this.tenancy = tenancy;
+        this.jdbc = jdbc;
+    }
+
+    @BeforeEach
+    void createOrganization() {
+        organization = tenancy.createOrganization("Acme", UUID.randomUUID().toString());
+    }
+
+    @Test
+    void showsAnIssuedKeyAsItWasIssued() {
+        var key = issued(Environment.TEST, "Checkout", Set.of(CHARGES_READ, CHARGES_WRITE));
+
+        assertThat(access.keys(organization.test()))
+                .containsExactly(new ApiKeyView(
+                        key.id(),
+                        "Checkout",
+                        key.lastFour(),
+                        Set.of(CHARGES_READ, CHARGES_WRITE),
+                        key.createdAt(),
+                        Optional.empty(),
+                        Optional.empty(),
+                        Optional.empty()));
+    }
+
+    @Test
+    void listsOnlyTheTenantsKeysNewestFirst() {
+        var first = issued(Environment.TEST, "First", Set.of(CHARGES_READ));
+        var second = issued(Environment.TEST, "Second", Set.of(CHARGES_READ));
+        issued(Environment.LIVE, "Live", Set.of(CHARGES_READ));
+
+        assertThat(access.keys(organization.test()))
+                .extracting(ApiKeyView::id)
+                .containsExactly(second.id(), first.id());
+    }
+
+    @Test
+    void showsWhatHappenedToAKey() {
+        var key = issued(Environment.TEST, "Checkout", Set.of(CHARGES_READ));
+        jdbc.sql("UPDATE access.api_keys SET expires_at = ?, revoked_at = ?, last_used_at = ? WHERE id = ?")
+                .params(
+                        utc(MOMENT.plusSeconds(2)),
+                        utc(MOMENT.plusSeconds(3)),
+                        utc(MOMENT.plusSeconds(1)),
+                        key.id().value())
+                .update();
+
+        var view = access.keys(organization.test()).getFirst();
+
+        assertThat(view.expiresAt()).contains(MOMENT.plusSeconds(2));
+        assertThat(view.revokedAt()).contains(MOMENT.plusSeconds(3));
+        assertThat(view.lastUsedAt()).contains(MOMENT.plusSeconds(1));
+    }
+
+    @Test
+    void listsNothingForATenantWithoutKeys() {
+        assertThat(access.keys(organization.live())).isEmpty();
+    }
+
+    /**
+     * Acting as {@code finaxis_access} proves the code needs no privilege beyond the role's grants
+     * (migration {@code V10}). The test's transaction is rolled back, so it leaves no rows behind.
+     */
+    @Test
+    @Transactional
+    void needsNoMoreThanTheAccessRolesGrants() {
+        issued(Environment.TEST, "Checkout", Set.of(CHARGES_READ));
+        jdbc.sql("SET LOCAL ROLE finaxis_access").update();
+
+        assertThat(access.keys(organization.test())).hasSize(1);
+    }
+
+    /** Issues a key as the organization's admin, in the tenant of this environment. */
+    private IssuedApiKey issued(Environment environment, String name, Set<Permission> scopes) {
+        TenantId tenant = environment == Environment.TEST ? organization.test() : organization.live();
+        var admin = new MemberCaller(tenant, environment, organization.admin(), Role.permissionsOf(Set.of(Role.ADMIN)));
+        var result = access.issue(admin, name, scopes);
+        assertThat(result).isInstanceOf(IssueResult.Issued.class);
+        return ((IssueResult.Issued) result).key();
+    }
+
+    private static Object utc(Instant instant) {
+        return instant.atOffset(ZoneOffset.UTC);
+    }
+}
