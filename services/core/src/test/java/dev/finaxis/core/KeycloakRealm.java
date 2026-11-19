@@ -1,0 +1,123 @@
+package dev.finaxis.core;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.http.MediaType;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.RestClient;
+import org.testcontainers.containers.GenericContainer;
+
+/**
+ * The {@code finaxis} realm of the test Keycloak, and tokens from it.
+ *
+ * <p>The console logs members in with the authorization code flow, PKCE and a second factor: a
+ * browser journey a test cannot run. So, on creation, this adds to the realm, with Keycloak's admin
+ * API, what {@code src/test/resources/keycloak/test-fixtures.json} describes: two clients allowed to
+ * use the password grant ({@value #TEST_CLIENT}, which the core accepts, and {@value
+ * #OTHER_CLIENT}, which it does not) and a synthetic member. Both clients add the {@code
+ * finaxis-core} audience like the console does, so their tokens differ from the console's only in
+ * {@code azp}.
+ */
+public final class KeycloakRealm {
+
+    static final String ADMIN_USERNAME = "admin";
+    static final String ADMIN_PASSWORD = "admin-test-only";
+
+    public static final String TEST_CLIENT = "finaxis-test";
+    public static final String OTHER_CLIENT = "finaxis-other";
+
+    private static final String MEMBER_USERNAME = "member.test";
+    private static final String MEMBER_PASSWORD = "synthetic-password-1";
+
+    private static final ParameterizedTypeReference<Map<String, Object>> JSON_OBJECT =
+            new ParameterizedTypeReference<>() {};
+
+    /** The tokens of one login. */
+    public record Tokens(String accessToken, String idToken) {}
+
+    private final String baseUrl;
+    private final RestClient http;
+
+    KeycloakRealm(GenericContainer<?> keycloak) {
+        this.baseUrl =
+                "http://" + keycloak.getHost() + ":" + keycloak.getMappedPort(KeycloakTestConfiguration.HTTP_PORT);
+        this.http = RestClient.create(baseUrl);
+        addTestFixtures();
+    }
+
+    /** The realm's issuer: in {@code start-dev}, the URL tokens are requested from. */
+    public String issuer() {
+        return baseUrl + "/realms/finaxis";
+    }
+
+    /** Logs the synthetic member in through {@code client}, as the password grant allows. */
+    public Tokens login(String client) {
+        Map<String, Object> response = token(
+                "/realms/finaxis",
+                form(
+                        "grant_type", "password",
+                        "client_id", client,
+                        "username", MEMBER_USERNAME,
+                        "password", MEMBER_PASSWORD,
+                        // openid asks for an ID token too.
+                        "scope", "openid"));
+        return new Tokens(String.valueOf(response.get("access_token")), String.valueOf(response.get("id_token")));
+    }
+
+    /** One partial import: the realm keeps its own settings and gains the fixtures. */
+    private void addTestFixtures() {
+        String adminToken = String.valueOf(token(
+                        "/realms/master",
+                        form(
+                                "grant_type",
+                                "password",
+                                "client_id",
+                                "admin-cli",
+                                "username",
+                                ADMIN_USERNAME,
+                                "password",
+                                ADMIN_PASSWORD))
+                .get("access_token"));
+        http.post()
+                .uri("/admin/realms/finaxis/partialImport")
+                .header("Authorization", "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(readFixtures())
+                .retrieve()
+                .toBodilessEntity();
+    }
+
+    private Map<String, Object> token(String realmPath, MultiValueMap<String, String> form) {
+        Map<String, Object> response = http.post()
+                .uri(realmPath + "/protocol/openid-connect/token")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .body(form)
+                .retrieve()
+                .body(JSON_OBJECT);
+        if (response == null) {
+            throw new IllegalStateException("Keycloak returned no token");
+        }
+        return response;
+    }
+
+    private static MultiValueMap<String, String> form(String... namesAndValues) {
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        for (int i = 0; i < namesAndValues.length; i += 2) {
+            form.add(namesAndValues[i], namesAndValues[i + 1]);
+        }
+        return form;
+    }
+
+    private static String readFixtures() {
+        try {
+            return new ClassPathResource("keycloak/test-fixtures.json").getContentAsString(StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+}
