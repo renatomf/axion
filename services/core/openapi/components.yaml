@@ -49,6 +49,14 @@ responses:
       application/problem+json:
         schema:
           $ref: "#/schemas/Problem"
+  NotFound:
+    description: >-
+      The resource does not exist, or belongs to a tenant the caller cannot
+      reach; the two look the same.
+    content:
+      application/problem+json:
+        schema:
+          $ref: "#/schemas/Problem"
   InternalServerError:
     description: An unexpected error; the detail is always generic.
     content:
