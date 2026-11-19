@@ -6,6 +6,7 @@ import dev.finaxis.core.access.ApiKeyView;
 import dev.finaxis.core.access.IssueResult;
 import dev.finaxis.core.access.IssuedApiKey;
 import dev.finaxis.core.access.MemberCaller;
+import dev.finaxis.core.access.RollResult;
 import dev.finaxis.core.access.domain.ApiKeySecret;
 import dev.finaxis.core.access.persistence.JdbcApiKeys;
 import dev.finaxis.core.shared.TenantId;
@@ -13,6 +14,7 @@ import dev.finaxis.core.shared.UuidV7Generator;
 import dev.finaxis.core.tenancy.Permission;
 import java.security.SecureRandom;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.EnumSet;
@@ -65,11 +67,7 @@ public class AccessService implements AccessApi {
             return new IssueResult.LimitReached(MAX_ACTIVE_KEYS);
         }
 
-        // The tenant's environment, not the issuer's choice, decides the key's prefix.
-        var secret = ApiKeySecret.generate(issuer.environment(), random);
-        var id = new ApiKeyId(ids.next());
-        keys.insert(id, issuer.tenant(), name, secret.hash(), secret.lastFour(), scopes, issuer.member(), now);
-        return new IssueResult.Issued(new IssuedApiKey(id, name, scopes, now, secret));
+        return new IssueResult.Issued(insertKey(issuer, name, scopes, now));
     }
 
     @Override
@@ -83,6 +81,33 @@ public class AccessService implements AccessApi {
     public Optional<ApiKeyView> revoke(MemberCaller revoker, ApiKeyId key) {
         keys.revoke(revoker.tenant(), key, now());
         return keys.find(revoker.tenant(), key);
+    }
+
+    @Override
+    @Transactional
+    public RollResult roll(MemberCaller roller, ApiKeyId key, Duration grace) {
+        requireGrace(grace);
+        Optional<ApiKeyView> found = keys.find(roller.tenant(), key);
+        if (found.isEmpty()) {
+            return new RollResult.KeyNotFound();
+        }
+        ApiKeyView old = found.get();
+
+        Instant now = now();
+        IssuedApiKey replacement = insertKey(roller, old.name(), old.scopes(), now);
+        // Truncated like now(), since a Duration may carry nanoseconds.
+        keys.expire(roller.tenant(), key, now.plus(grace).truncatedTo(ChronoUnit.MICROS));
+        return new RollResult.Rolled(
+                replacement, keys.find(roller.tenant(), key).orElseThrow());
+    }
+
+    /** Stores a new key for the member's tenant and returns it with its secret. */
+    private IssuedApiKey insertKey(MemberCaller issuer, String name, Set<Permission> scopes, Instant now) {
+        // The tenant's environment, not the issuer's choice, decides the key's prefix.
+        var secret = ApiKeySecret.generate(issuer.environment(), random);
+        var id = new ApiKeyId(ids.next());
+        keys.insert(id, issuer.tenant(), name, secret.hash(), secret.lastFour(), scopes, issuer.member(), now);
+        return new IssuedApiKey(id, name, scopes, now, secret);
     }
 
     /**
@@ -103,6 +128,13 @@ public class AccessService implements AccessApi {
         if (length > MAX_NAME_LENGTH) {
             throw new IllegalArgumentException(
                     "Key name must be at most " + MAX_NAME_LENGTH + " characters: " + length);
+        }
+    }
+
+    private static void requireGrace(Duration grace) {
+        if (grace.isNegative() || grace.compareTo(MAX_ROLL_GRACE) > 0) {
+            throw new IllegalArgumentException(
+                    "Grace period must be between zero and " + MAX_ROLL_GRACE + ": " + grace);
         }
     }
 

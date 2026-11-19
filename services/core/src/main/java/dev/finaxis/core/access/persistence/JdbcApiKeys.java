@@ -152,6 +152,20 @@ public class JdbcApiKeys {
                 .update();
     }
 
+    /** Sets when the tenant's key stops working: the end of a roll's grace period. */
+    public void expire(TenantId tenant, ApiKeyId id, Instant expiresAt) {
+        jdbc.sql("""
+                        UPDATE access.api_keys
+                           SET expires_at = :expiresAt
+                         WHERE tenant_id = :tenant
+                           AND id = :id
+                        """)
+                .param("expiresAt", utc(expiresAt))
+                .param("tenant", tenant.value())
+                .param("id", id.value())
+                .update();
+    }
+
     /** Maps one row to a view. A {@code RowMapper} receives each row in turn; this is one. */
     private static ApiKeyView view(ResultSet row, int rowNumber) throws SQLException {
         String[] scopes = (String[]) row.getArray("scopes").getArray();
