@@ -316,6 +316,7 @@ Other modules use the two modules only through their APIs, in each module's own 
 
 ```java
 public interface TenancyApi {
+    NewOrganization createOrganization(String name, String adminSubject);   // both tenants and the first admin
     Optional<TenantView> tenant(TenantId tenant);
     Optional<Membership> membership(String userSubject, TenantId tenant);   // roles, if a member
     List<Membership> memberships(String userSubject);
@@ -330,6 +331,7 @@ public interface AccessApi {
 }
 ```
 
+- `createOrganization` writes the organization, its two tenants and its first member, an admin, in one transaction, so no organization exists without both tenants or without an admin. Its callers are tests and, from PR 1.66, the synthetic data generator.
 - `TenantId` and `Environment` live in `shared`, with `TenantContext`: every module needs them, and the ledger already stores tenant IDs.
 - `IssuedApiKey` is the only type that holds a secret, returned once by `issue` and `roll`; its `toString` masks it. `ApiKeyView` has the name, `last_four`, scopes and dates.
 - Public IDs: `org_` for organizations, `ten_` for tenants, `mem_` for members and `key_` for API keys.
