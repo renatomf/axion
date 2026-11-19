@@ -1,4 +1,4 @@
-package dev.finaxis.core.access;
+package dev.finaxis.core.access.web;
 
 import dev.finaxis.core.shared.PublicId;
 import dev.finaxis.core.tenancy.Membership;

@@ -1,4 +1,4 @@
-package dev.finaxis.core.access;
+package dev.finaxis.core.access.web;
 
 import dev.finaxis.core.tenancy.TenancyApi;
 import java.util.Objects;
@@ -13,8 +13,8 @@ import org.springframework.web.bind.annotation.RestController;
  * openapi/internal.yaml}).
  *
  * <p>{@code @RestController} makes Spring MVC route requests to the {@code @GetMapping} methods
- * below and write what they return as JSON. The request reaches this class only after {@link
- * SecurityConfiguration#internalFilterChain} has validated the access token.
+ * below and write what they return as JSON. The request reaches this class only after the {@code
+ * /internal} filter chain of {@code access.security} has validated the access token.
  */
 @RestController
 class MeController {
