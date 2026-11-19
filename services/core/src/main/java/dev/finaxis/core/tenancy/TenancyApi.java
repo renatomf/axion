@@ -13,6 +13,18 @@ import java.util.Optional;
  */
 public interface TenancyApi {
 
+    /**
+     * Creates an organization with its two tenants, both active, and its first member, an admin.
+     * Everything is written in one transaction, so an organization never exists without both
+     * tenants or without an admin (section 3.3).
+     *
+     * @param name the display name, 1 to {@value #MAX_NAME_LENGTH} characters, not blank
+     * @param adminSubject the Keycloak {@code sub} of the person who becomes the admin, 1 to
+     *     {@value #MAX_SUBJECT_LENGTH} characters, not blank
+     * @throws IllegalArgumentException if the name or the subject is blank or too long
+     */
+    NewOrganization createOrganization(String name, String adminSubject);
+
     /** The tenant with this ID, if there is one. */
     Optional<TenantView> tenant(TenantId tenant);
 
@@ -21,4 +33,10 @@ public interface TenancyApi {
      * platform:settlement}. Each environment has its own, so test money never reaches live accounts.
      */
     TenantId platformTenant(Environment environment);
+
+    /** The longest organization name, in characters, as the schema allows. */
+    int MAX_NAME_LENGTH = 100;
+
+    /** The longest Keycloak subject, in characters, as the schema allows. */
+    int MAX_SUBJECT_LENGTH = 255;
 }
