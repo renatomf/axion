@@ -1,13 +1,21 @@
 package dev.finaxis.core.access.persistence;
 
 import dev.finaxis.core.access.ApiKeyId;
+import dev.finaxis.core.access.ApiKeyView;
 import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.MemberId;
 import dev.finaxis.core.tenancy.Permission;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -90,6 +98,77 @@ public class JdbcApiKeys {
                 .param("createdBy", createdBy.value())
                 .param("createdAt", utc(createdAt))
                 .update();
+    }
+
+    /**
+     * Every key of the tenant, revoked and expired ones included, newest first. IDs are UUIDv7,
+     * which start with their creation time, so ordering by ID orders by issue, and the primary key's
+     * index breaks ties between keys issued in the same millisecond.
+     */
+    public List<ApiKeyView> findByTenant(TenantId tenant) {
+        return jdbc.sql("""
+                        SELECT id, name, last_four, scopes, created_at, expires_at, revoked_at, last_used_at
+                          FROM access.api_keys
+                         WHERE tenant_id = :tenant
+                         ORDER BY id DESC
+                        """)
+                .param("tenant", tenant.value())
+                .query(JdbcApiKeys::view)
+                .list();
+    }
+
+    /** The tenant's key with this ID; empty if there is none, including when another tenant has it. */
+    public Optional<ApiKeyView> find(TenantId tenant, ApiKeyId id) {
+        return jdbc.sql("""
+                        SELECT id, name, last_four, scopes, created_at, expires_at, revoked_at, last_used_at
+                          FROM access.api_keys
+                         WHERE tenant_id = :tenant
+                           AND id = :id
+                        """)
+                .param("tenant", tenant.value())
+                .param("id", id.value())
+                .query(JdbcApiKeys::view)
+                .optional();
+    }
+
+    /**
+     * Marks the tenant's key revoked at this instant, unless it already is: the first revocation is
+     * the one on record. Does nothing for a key of another tenant.
+     *
+     * <p>Two concurrent revocations of one key cannot both write: the first locks the row, and the
+     * second, once it may proceed, finds {@code revoked_at} set and updates nothing.
+     */
+    public void revoke(TenantId tenant, ApiKeyId id, Instant revokedAt) {
+        jdbc.sql("""
+                        UPDATE access.api_keys
+                           SET revoked_at = :revokedAt
+                         WHERE tenant_id = :tenant
+                           AND id = :id
+                           AND revoked_at IS NULL
+                        """)
+                .param("revokedAt", utc(revokedAt))
+                .param("tenant", tenant.value())
+                .param("id", id.value())
+                .update();
+    }
+
+    /** Maps one row to a view. A {@code RowMapper} receives each row in turn; this is one. */
+    private static ApiKeyView view(ResultSet row, int rowNumber) throws SQLException {
+        String[] scopes = (String[]) row.getArray("scopes").getArray();
+        return new ApiKeyView(
+                new ApiKeyId(row.getObject("id", UUID.class)),
+                row.getString("name"),
+                row.getString("last_four"),
+                Arrays.stream(scopes).map(Permission::fromCode).collect(Collectors.toUnmodifiableSet()),
+                instant(row, "created_at").orElseThrow(),
+                instant(row, "expires_at"),
+                instant(row, "revoked_at"),
+                instant(row, "last_used_at"));
+    }
+
+    /** A {@code timestamptz} column as an instant; empty when the column is null. */
+    private static Optional<Instant> instant(ResultSet row, String column) throws SQLException {
+        return Optional.ofNullable(row.getObject(column, OffsetDateTime.class)).map(OffsetDateTime::toInstant);
     }
 
     /** An instant as JDBC 4.2 binds it to a {@code timestamptz}, whatever the JVM's time zone. */

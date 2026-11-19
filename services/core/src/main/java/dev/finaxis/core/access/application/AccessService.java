@@ -2,17 +2,22 @@ package dev.finaxis.core.access.application;
 
 import dev.finaxis.core.access.AccessApi;
 import dev.finaxis.core.access.ApiKeyId;
+import dev.finaxis.core.access.ApiKeyView;
 import dev.finaxis.core.access.IssueResult;
 import dev.finaxis.core.access.IssuedApiKey;
 import dev.finaxis.core.access.MemberCaller;
 import dev.finaxis.core.access.domain.ApiKeySecret;
 import dev.finaxis.core.access.persistence.JdbcApiKeys;
+import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.shared.UuidV7Generator;
 import dev.finaxis.core.tenancy.Permission;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.EnumSet;
+import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,7 +60,7 @@ public class AccessService implements AccessApi {
         }
 
         keys.lockTenantKeys(issuer.tenant());
-        Instant now = clock.instant();
+        Instant now = now();
         if (keys.countActive(issuer.tenant(), now) >= MAX_ACTIVE_KEYS) {
             return new IssueResult.LimitReached(MAX_ACTIVE_KEYS);
         }
@@ -65,6 +70,28 @@ public class AccessService implements AccessApi {
         var id = new ApiKeyId(ids.next());
         keys.insert(id, issuer.tenant(), name, secret.hash(), secret.lastFour(), scopes, issuer.member(), now);
         return new IssueResult.Issued(new IssuedApiKey(id, name, scopes, now, secret));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ApiKeyView> keys(TenantId tenant) {
+        return keys.findByTenant(tenant);
+    }
+
+    @Override
+    @Transactional
+    public Optional<ApiKeyView> revoke(MemberCaller revoker, ApiKeyId key) {
+        keys.revoke(revoker.tenant(), key, now());
+        return keys.find(revoker.tenant(), key);
+    }
+
+    /**
+     * The current instant, to the microsecond. PostgreSQL keeps microseconds; without truncating, an
+     * instant returned to the caller would carry nanoseconds the stored row does not, and lists would
+     * show another instant.
+     */
+    private Instant now() {
+        return clock.instant().truncatedTo(ChronoUnit.MICROS);
     }
 
     /** Counted by code point, as PostgreSQL's {@code char_length} counts, so an emoji counts once. */

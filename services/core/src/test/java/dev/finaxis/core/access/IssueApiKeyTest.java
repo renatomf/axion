@@ -15,6 +15,7 @@ import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.Permission;
 import dev.finaxis.core.tenancy.Role;
 import dev.finaxis.core.tenancy.TenancyApi;
+import java.time.OffsetDateTime;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -71,6 +72,17 @@ class IssueApiKeyTest {
     }
 
     @Test
+    void returnsTheIssueInstantThatIsStored() {
+        var key = issued(admin(Environment.TEST), "Checkout", Set.of(CHARGES_READ));
+
+        var stored = jdbc.sql("SELECT created_at FROM access.api_keys WHERE id = ?")
+                .param(key.id().value())
+                .query(OffsetDateTime.class)
+                .single();
+        assertThat(stored.toInstant()).isEqualTo(key.createdAt());
+    }
+
+    @Test
     void prefixesTheKeyWithTheTenantsEnvironment() {
         var key = issued(admin(Environment.TEST), "Checkout", Set.of(CHARGES_READ));
 
@@ -90,17 +102,15 @@ class IssueApiKeyTest {
     @Test
     void refusesAKeyBeyondTheLimitUntilOneIsRevoked() {
         var admin = admin(Environment.TEST);
-        for (int i = 0; i < AccessApi.MAX_ACTIVE_KEYS; i++) {
+        var first = issued(admin, "Key 0", Set.of(CHARGES_READ));
+        for (int i = 1; i < AccessApi.MAX_ACTIVE_KEYS; i++) {
             issued(admin, "Key " + i, Set.of(CHARGES_READ));
         }
 
         assertThat(access.issue(admin, "One too many", Set.of(CHARGES_READ)))
                 .isEqualTo(new IssueResult.LimitReached(AccessApi.MAX_ACTIVE_KEYS));
 
-        jdbc.sql("""
-                        UPDATE access.api_keys SET revoked_at = now()
-                         WHERE id = (SELECT id FROM access.api_keys WHERE tenant_id = ? ORDER BY id LIMIT 1)
-                        """).param(organization.test().value()).update();
+        access.revoke(admin, first.id());
         assertThat(access.issue(admin, "Replacement", Set.of(CHARGES_READ))).isInstanceOf(IssueResult.Issued.class);
     }
 
