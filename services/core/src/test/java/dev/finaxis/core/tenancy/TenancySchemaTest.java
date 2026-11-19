@@ -1,5 +1,6 @@
 package dev.finaxis.core.tenancy;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.finaxis.core.PostgresTestConfiguration;
@@ -36,6 +37,31 @@ class TenancySchemaTest {
         assertThatThrownBy(() -> insertOrganization(""))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("organizations_name_check");
+    }
+
+    @Test
+    void createsThePlatformOrganizationWithOneTenantPerEnvironment() {
+        var tenants = jdbc.sql("""
+                        SELECT t.id || ' ' || t.environment || ' ' || t.status
+                          FROM tenancy.tenants t
+                          JOIN tenancy.organizations o ON o.id = t.organization_id
+                         WHERE o.is_platform
+                        """).query(String.class).list();
+
+        assertThat(tenants)
+                .containsExactlyInAnyOrder(
+                        "00000000-0000-7000-8000-000000000002 TEST ACTIVE",
+                        "00000000-0000-7000-8000-000000000003 LIVE ACTIVE");
+    }
+
+    @Test
+    void rejectsASecondPlatformOrganization() {
+        assertThatThrownBy(() -> jdbc.sql(
+                                "INSERT INTO tenancy.organizations (id, name, is_platform) VALUES (?, 'Other', true)")
+                        .param(UUID.randomUUID())
+                        .update())
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("organizations_one_platform_idx");
     }
 
     @Test
