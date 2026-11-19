@@ -28,7 +28,7 @@ The platform overview fixes the controls: Keycloak with mandatory MFA for people
 **Non-goals**
 
 - Self-service sign-up, onboarding and KYC. Phase 1 provisions organizations and their first admin with a seed.
-- Invitations and member management screens. Members are provisioned until the console needs them (open question 2).
+- Invitations and member management screens. Members are provisioned in phase 1; invitations get their own design in phase 2, with maker-checker (section 12).
 - Platform staff and back-office roles.
 - Federation with a business's own identity provider (SAML, enterprise SSO).
 - Maker-checker and device-bound approvals (phase 2), and delegated tokens for the intelligence service (phase 4). The model leaves room for both.
@@ -308,7 +308,7 @@ Limits protect the platform from one caller's bug or abuse, not tenants from eac
 - Buckets live in memory, in a bounded cache. Phase 1 runs one core instance, so a limit is exact. With several instances each enforces its own copy, so the effective limit multiplies; a shared store (PostgreSQL or Redis) is the documented path when the core scales out (phase 5).
 - Unauthenticated traffic never reaches the buckets: the reverse proxy limits it per IP address (overview, section 4.2), and the BFF limits each session (section 4.4).
 
-The values are a starting point, revised with the load tests (PR 1.70).
+The tenant values match the defaults that Stripe publishes, which integrators already expect. They are a starting point, revised with the load tests (PR 1.70).
 
 ## 7. API
 
@@ -400,8 +400,8 @@ These modules are the security boundary of the platform: every other module trus
 
 Seeding organizations and members for the demo ships with the synthetic data generator (PR 1.66); until then, tests create their own.
 
-## 12. Open questions
+## 12. Decisions from review
 
-1. Should a role apply to both of an organization's environments, as proposed, or be granted per environment (a developer with test access only)?
-2. Should invitations and member management ship in phase 1, or wait until the console needs them?
-3. Are the rate-limit defaults of section 6 reasonable for the load tests?
+1. **Roles apply to both environments of an organization.** Live is already guarded by step-up on every key operation and by scopes bounded by the issuer's permissions. If a role per environment is ever needed, a nullable `environment` column on `member_roles` adds it with an expand migration.
+2. **Invitations and member management wait for phase 2.** No phase 1 screen or demo step needs them, and an invitation flow (email, acceptance, invitation hijacking) deserves its own design, together with maker-checker. Phase 1 keeps the rule that an organization always has an admin (PR 1.17); demo members come from the synthetic data generator (PR 1.66).
+3. **The rate-limit defaults of section 6 stand** as the starting point, revised with the load tests (PR 1.70).
