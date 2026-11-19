@@ -12,6 +12,7 @@ import dev.finaxis.core.tenancy.Permission;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.EnumSet;
 import java.util.Set;
 import org.springframework.stereotype.Service;
@@ -55,7 +56,9 @@ public class AccessService implements AccessApi {
         }
 
         keys.lockTenantKeys(issuer.tenant());
-        Instant now = clock.instant();
+        // PostgreSQL keeps microseconds; without truncating, the key returned here would carry
+        // nanoseconds the stored key does not, and lists would show it issued at another instant.
+        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         if (keys.countActive(issuer.tenant(), now) >= MAX_ACTIVE_KEYS) {
             return new IssueResult.LimitReached(MAX_ACTIVE_KEYS);
         }

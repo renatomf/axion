@@ -15,6 +15,7 @@ import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.Permission;
 import dev.finaxis.core.tenancy.Role;
 import dev.finaxis.core.tenancy.TenancyApi;
+import java.time.OffsetDateTime;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -68,6 +69,17 @@ class IssueApiKeyTest {
                 .containsEntry("last_four", key.lastFour())
                 .containsEntry("scopes", "charges:read charges:write")
                 .containsEntry("created_by", organization.admin().value());
+    }
+
+    @Test
+    void returnsTheIssueInstantThatIsStored() {
+        var key = issued(admin(Environment.TEST), "Checkout", Set.of(CHARGES_READ));
+
+        var stored = jdbc.sql("SELECT created_at FROM access.api_keys WHERE id = ?")
+                .param(key.id().value())
+                .query(OffsetDateTime.class)
+                .single();
+        assertThat(stored.toInstant()).isEqualTo(key.createdAt());
     }
 
     @Test
