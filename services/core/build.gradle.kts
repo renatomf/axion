@@ -116,8 +116,10 @@ pitest {
     junit5PluginVersion = libs.versions.pit.junit5.plugin.get()
     targetClasses = listOf("dev.finaxis.core.ledger.*")
     targetTests = listOf("dev.finaxis.core.ledger.*")
-    // Fail the task when fewer than 80% of the mutants are killed.
-    mutationThreshold = 80
+    // Fail the task when fewer than 90% of the mutants are killed. The score
+    // was 96% when the threshold was set; the margin absorbs equivalent
+    // mutants. Raise it as the score holds higher; never lower it silently.
+    mutationThreshold = 90
     threads = Runtime.getRuntime().availableProcessors()
     outputFormats = listOf("HTML", "XML")
     // One fixed report directory instead of one per run, so CI can upload it.
