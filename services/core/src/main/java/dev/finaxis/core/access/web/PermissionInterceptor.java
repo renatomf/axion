@@ -118,7 +118,7 @@ final class PermissionInterceptor implements HandlerInterceptor {
         if (!permissions.contains(required)) {
             throw AccessProblems.insufficientPermission();
         }
-        return new MemberCaller(tenant, membership.member(), permissions);
+        return new MemberCaller(tenant, view.environment(), membership.member(), permissions);
     }
 
     /**

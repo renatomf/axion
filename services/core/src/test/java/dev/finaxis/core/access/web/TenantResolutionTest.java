@@ -56,7 +56,8 @@ class TenantResolutionTest {
         @RequiresPermission(Permission.API_KEYS_MANAGE)
         @GetMapping("/internal/tenants/{tenant_id}/probe")
         String probe(MemberCaller caller) {
-            return caller.tenant().publicId() + " " + caller.member().value();
+            return caller.tenant().publicId() + " " + caller.environment() + " "
+                    + caller.member().value();
         }
 
         /** Needs a recent authentication too; {@link StepUpTest} calls it. */
@@ -97,17 +98,17 @@ class TenantResolutionTest {
     }
 
     @Test
-    void passesTheTenantAndTheMemberToTheEndpoint() {
+    void passesTheTenantItsEnvironmentAndTheMemberToTheEndpoint() {
         NewOrganization created = tenancy.createOrganization("Acme", subject);
 
         probe(created.live().publicId().toString())
                 .hasStatus(HttpStatus.OK)
                 .hasBodyTextEqualTo(
-                        created.live().publicId() + " " + created.admin().value());
+                        created.live().publicId() + " LIVE " + created.admin().value());
         probe(created.test().publicId().toString())
                 .hasStatus(HttpStatus.OK)
                 .hasBodyTextEqualTo(
-                        created.test().publicId() + " " + created.admin().value());
+                        created.test().publicId() + " TEST " + created.admin().value());
     }
 
     @Test
