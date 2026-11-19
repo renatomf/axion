@@ -12,4 +12,13 @@ import java.util.UUID;
  *
  * @param value the tenant's primary key, a UUIDv7
  */
-public record TenantId(UUID value) {}
+public record TenantId(UUID value) {
+
+    /** The prefix of a tenant's public ID, as in {@code ten_01jd8x3k9vfz4t2p6q5w7r8s0b}. */
+    public static final String PREFIX = "ten";
+
+    /** The ID as the API shows it. */
+    public PublicId publicId() {
+        return new PublicId(PREFIX, value);
+    }
+}

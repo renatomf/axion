@@ -1,6 +1,5 @@
 package dev.finaxis.core.access.web;
 
-import dev.finaxis.core.shared.PublicId;
 import dev.finaxis.core.tenancy.Membership;
 import dev.finaxis.core.tenancy.TenantView;
 import java.util.List;
@@ -32,7 +31,7 @@ record CurrentMemberResponse(List<Organization> organizations) {
 
     private static Organization organization(Membership membership) {
         return new Organization(
-                new PublicId("org", membership.organization().value()).toString(),
+                membership.organization().publicId().toString(),
                 membership.organizationName(),
                 // Sorted in the order Role declares them, so the response does not depend on how a
                 // set happens to iterate.
@@ -45,9 +44,7 @@ record CurrentMemberResponse(List<Organization> organizations) {
 
     private static Tenant tenant(TenantView tenant) {
         return new Tenant(
-                new PublicId("ten", tenant.id().value()).toString(),
-                lowercase(tenant.environment()),
-                lowercase(tenant.status()));
+                tenant.id().publicId().toString(), lowercase(tenant.environment()), lowercase(tenant.status()));
     }
 
     /** The API spells enumerations in lowercase snake_case: {@code READ_ONLY} becomes {@code read_only}. */

@@ -6,7 +6,6 @@ import com.nimbusds.jwt.SignedJWT;
 import dev.finaxis.core.KeycloakRealm;
 import dev.finaxis.core.KeycloakTestConfiguration;
 import dev.finaxis.core.PostgresTestConfiguration;
-import dev.finaxis.core.shared.PublicId;
 import dev.finaxis.core.tenancy.TenancyApi;
 import java.text.ParseException;
 import java.util.UUID;
@@ -74,9 +73,9 @@ class CurrentMemberControllerTest {
                   ]
                 }]}
                 """.formatted(
-                        new PublicId("org", created.organization().value()),
-                        new PublicId("ten", created.test().value()),
-                        new PublicId("ten", created.live().value())));
+                        created.organization().publicId(),
+                        created.test().publicId(),
+                        created.live().publicId()));
     }
 
     @Test
