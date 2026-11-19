@@ -1,5 +1,6 @@
 package dev.finaxis.core.access.web;
 
+import dev.finaxis.core.access.NoPermissionRequired;
 import dev.finaxis.core.tenancy.TenancyApi;
 import java.util.Objects;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -30,6 +31,7 @@ class CurrentMemberController {
      *     for the principal it authenticated the request with, which for a bearer token is the
      *     decoded {@link Jwt}
      */
+    @NoPermissionRequired(reason = "Lists only the caller's own memberships, and acts on no tenant")
     @GetMapping("/internal/me")
     CurrentMemberResponse currentMember(@AuthenticationPrincipal Jwt token) {
         // MemberTokenValidation rejects a token without a subject, so it is never null here.

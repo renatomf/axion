@@ -1,15 +1,23 @@
 package dev.finaxis.core;
 
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
+import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
+import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
 import com.tngtech.archunit.library.GeneralCodingRules;
+import dev.finaxis.core.access.NoPermissionRequired;
+import dev.finaxis.core.access.RequiresPermission;
 import java.time.Clock;
+import org.springframework.web.bind.annotation.RequestMapping;
 
 /**
  * Coding rules of the engineering standards (overview design, section 19.2), checked against the
@@ -51,6 +59,30 @@ class ArchitectureTest {
      */
     @ArchTest
     static final ArchRule timeComesFromAClock = noClasses().should().callMethodWhere(readsTheSystemClock());
+
+    /**
+     * Every endpoint declares what it needs: exactly one of {@link RequiresPermission} and {@link
+     * NoPermissionRequired} (tenancy design, section 5.2). An endpoint is a method with a Spring MVC
+     * mapping, which {@code @GetMapping}, {@code @PostMapping} and the others carry as a
+     * meta-annotation.
+     */
+    @ArchTest
+    static final ArchRule everyEndpointDeclaresItsPermission =
+            methods().that().areMetaAnnotatedWith(RequestMapping.class).should(declareExactlyOnePermission());
+
+    private static ArchCondition<JavaMethod> declareExactlyOnePermission() {
+        return new ArchCondition<>("declare exactly one of @RequiresPermission and @NoPermissionRequired") {
+            @Override
+            public void check(JavaMethod method, ConditionEvents events) {
+                boolean requires = method.isAnnotatedWith(RequiresPermission.class);
+                boolean exempt = method.isAnnotatedWith(NoPermissionRequired.class);
+                if (requires == exempt) {
+                    events.add(SimpleConditionEvent.violated(
+                            method, method.getFullName() + " must declare exactly one permission annotation"));
+                }
+            }
+        };
+    }
 
     private static DescribedPredicate<JavaMethodCall> readsTheSystemClock() {
         return DescribedPredicate.describe("reads the system clock", call -> {
