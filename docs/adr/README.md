@@ -19,3 +19,4 @@ Statuses: `Proposed`, `Accepted`, `Superseded`, `Deprecated`.
 | [0002](0002-modular-monolith.md) | Build the core as a modular monolith | Accepted |
 | [0003](0003-no-card-data.md) | Never handle payment card data | Accepted |
 | [0004](0004-jdbc-client-in-the-ledger.md) | Use JdbcClient for ledger persistence | Accepted |
+| [0005](0005-keycloak-for-human-identity.md) | Use Keycloak for human identity | Proposed |
