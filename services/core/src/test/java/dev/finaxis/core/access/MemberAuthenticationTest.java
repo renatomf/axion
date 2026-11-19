@@ -27,9 +27,9 @@ import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
  * Members' access tokens on {@code /internal}, against a real Keycloak running the {@code finaxis}
  * realm (tenancy and access design, sections 4.1 and 8).
  *
- * <p>No endpoint exists under {@code /internal} yet, so an accepted token is seen as a {@code 404}:
- * the request passed authentication and reached Spring MVC, which found no handler. A rejected
- * token never gets that far and is a {@code 401}.
+ * <p>The requests go to {@code /internal/me}: an accepted token reaches the endpoint and gets a
+ * {@code 200}; a rejected one never gets that far and is a {@code 401}. What the endpoint answers is
+ * tested in {@code MeEndpointTest}.
  */
 @SpringBootTest
 @Import({PostgresTestConfiguration.class, KeycloakTestConfiguration.class})
@@ -59,7 +59,7 @@ class MemberAuthenticationTest {
 
     @Test
     void acceptsAnAccessTokenOfTheRealm() {
-        internalWith(realm.login(KeycloakRealm.TEST_CLIENT).accessToken()).hasStatus(HttpStatus.NOT_FOUND);
+        internalWith(realm.login(KeycloakRealm.TEST_CLIENT).accessToken()).hasStatus(HttpStatus.OK);
     }
 
     @Test

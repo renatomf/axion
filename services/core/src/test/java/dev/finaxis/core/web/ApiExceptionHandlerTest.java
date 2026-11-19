@@ -20,14 +20,16 @@ import org.springframework.web.bind.annotation.RestController;
  * How errors are returned over HTTP.
  *
  * <p>{@code @WebMvcTest} starts only the Spring MVC layer: controllers, controller advice and
- * filters, without a database, so no Docker is needed. {@link FailingController} exists only in this
- * test; it is imported explicitly because Spring Boot never scans classes nested in a test class.
+ * filters, without a database, so no Docker is needed. {@code controllers} limits the controllers to
+ * {@link FailingController}, so the application's own controllers, and the services they need, stay
+ * out. It exists only in this test and is imported explicitly, because Spring Boot never scans
+ * classes nested in a test class.
  *
  * <p>{@code addFilters = false} leaves the servlet filters, Spring Security among them, out of
  * {@link MockMvcTester}: these tests are about errors raised inside Spring MVC, which security would
  * otherwise reject before they happen. Security has its own tests.
  */
-@WebMvcTest
+@WebMvcTest(controllers = ApiExceptionHandlerTest.FailingController.class)
 @AutoConfigureMockMvc(addFilters = false)
 @Import(ApiExceptionHandlerTest.FailingController.class)
 class ApiExceptionHandlerTest {
