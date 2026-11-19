@@ -36,7 +36,7 @@ How to run each tool is described in [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
 | Transactions declared in the application layer only; short; no remote calls inside a transaction | Review; ArchUnit rule with the first transactional code (PR 1.10) |
 | Typed, validated `@ConfigurationProperties`; twelve-factor configuration; no secrets in the repository | Review; Gitleaks (Hook, CI) |
 | `Clock` injected everywhere; no `now()` without a `Clock` | ArchUnit `ArchitectureTest` (Build) |
-| Contract-first OpenAPI; snake_case JSON; RFC 9457 errors; cursor pagination; versioning and deprecation policy | Spectral (CI); Problem Details tests (Build); contract tests from the first endpoint (PR 1.35) |
+| Contract-first OpenAPI; snake_case JSON; RFC 9457 errors; cursor pagination; versioning and deprecation policy | Spectral (CI); Problem Details tests (Build); contract tests: `OpenApiContract` in endpoint tests (Build) |
 | Structured JSON logs; a correlation ID on every request's log lines; no personal data in logs | Logging tests (Build); Review for personal data |
 | One formatter; zero warnings | Spotless, Error Prone, `javac -Werror` (Build); CodeQL (CI) |
 

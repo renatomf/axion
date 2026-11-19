@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.nimbusds.jwt.SignedJWT;
 import dev.finaxis.core.KeycloakRealm;
 import dev.finaxis.core.KeycloakTestConfiguration;
+import dev.finaxis.core.OpenApiContract;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.tenancy.TenancyApi;
 import java.text.ParseException;
@@ -17,6 +18,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
+import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -54,15 +56,21 @@ class CurrentMemberControllerTest {
         subject = SignedJWT.parse(accessToken).getJWTClaimsSet().getSubject();
     }
 
-    private MvcTestResultAssert me() {
-        return assertThat(mvc.get().uri("/internal/me").header("Authorization", "Bearer " + accessToken));
+    /** Calls the endpoint and checks the response against the contract before the test looks at it. */
+    private MvcTestResultAssert currentMember() {
+        MvcTestResult result = mvc.get()
+                .uri("/internal/me")
+                .header("Authorization", "Bearer " + accessToken)
+                .exchange();
+        OpenApiContract.internal().assertConforms(result);
+        return assertThat(result);
     }
 
     @Test
     void listsTheCallersOrganizationsWithTheirTenants() {
         var created = tenancy.createOrganization("Acme", subject);
 
-        me().hasStatus(HttpStatus.OK).bodyJson().isStrictlyEqualTo("""
+        currentMember().hasStatus(HttpStatus.OK).bodyJson().isStrictlyEqualTo("""
                 {"organizations": [{
                   "id": "%s",
                   "name": "Acme",
@@ -82,7 +90,7 @@ class CurrentMemberControllerTest {
     void listsNoOrganizationOfAnotherPerson() {
         tenancy.createOrganization("Someone else's", UUID.randomUUID().toString());
 
-        me().hasStatus(HttpStatus.OK).bodyJson().isStrictlyEqualTo("""
+        currentMember().hasStatus(HttpStatus.OK).bodyJson().isStrictlyEqualTo("""
                 {"organizations": []}
                 """);
     }

@@ -9,6 +9,7 @@ import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jwt.SignedJWT;
 import dev.finaxis.core.KeycloakRealm;
 import dev.finaxis.core.KeycloakTestConfiguration;
+import dev.finaxis.core.OpenApiContract;
 import dev.finaxis.core.PostgresTestConfiguration;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -21,6 +22,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
+import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
 
 /**
@@ -47,8 +49,14 @@ class MemberAuthenticationTest {
         this.realm = realm;
     }
 
+    /** Every response, accepted or rejected, must also be one the contract documents. */
     private MvcTestResultAssert internalWith(String token) {
-        return assertThat(mvc.get().uri(INTERNAL_PATH).header("Authorization", "Bearer " + token));
+        MvcTestResult result = mvc.get()
+                .uri(INTERNAL_PATH)
+                .header("Authorization", "Bearer " + token)
+                .exchange();
+        OpenApiContract.internal().assertConforms(result);
+        return assertThat(result);
     }
 
     private static void isUnauthorized(MvcTestResultAssert response) {
