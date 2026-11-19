@@ -140,3 +140,78 @@ access.api_keys
 | A tenant has two environments (section 5.1) | An organization has two tenants, one per environment | One isolation key; test money never reaches live accounts (section 3.2) |
 | "API keys per tenant and environment" (section 4.3) | API keys per tenant | Same meaning: a tenant is one environment |
 | A reserved platform tenant (ledger design, section 3.3) | One platform tenant per environment | Test and live platform accounts stay apart |
+
+## 4. Authentication
+
+`/v1` accepts API keys only and `/internal` accepts Keycloak access tokens only; a credential of the wrong kind is rejected as invalid. Both arrive in the `Authorization: Bearer` header and nowhere else: a credential in a query string or a body is ignored, so it never reaches proxy logs or browser history.
+
+### 4.1 Members
+
+Keycloak authenticates people ([ADR 0005](../adr/0005-keycloak-for-human-identity.md)); the core authorizes them. The console's BFF runs the OpenID Connect login, keeps the tokens server-side and calls `/internal` with the member's access token (overview, section 3.3).
+
+**Keycloak realm (PR 1.18).** One realm, `finaxis`, kept as code in `infra/keycloak/` and imported at startup, with no secrets in it:
+
+| Setting | Value |
+|---|---|
+| MFA | Required for every user: TOTP or a passkey (WebAuthn), enrolled at first login |
+| Passwords | At least 12 characters, not the username; brute-force detection locks an account after repeated failures |
+| Access token | 5 minutes |
+| Session | 30 minutes idle, 10 hours maximum |
+| Clients | `finaxis-console` (the BFF, confidential, authorization code with PKCE); the core is an audience, not a client that logs users in |
+
+**Token validation (PR 1.19).** The core is an OAuth 2.0 resource server. It accepts an access token only if all of these hold:
+
+- the signature verifies against the realm's published keys (JWKS), with an allowed algorithm (`RS256`); `none` and symmetric algorithms are rejected;
+- `iss` is the realm, `aud` contains `finaxis-core` and `azp` is an allowed client;
+- `exp` and `nbf` hold, with 30 seconds of clock skew.
+
+The core reads only `sub`, `acr` and `auth_time` from the token. Roles are not in the token: they are looked up in `tenancy` on every request, so removing a role takes effect on the next request instead of when the token expires.
+
+### 4.2 Step-up
+
+Some operations need proof that the member authenticated recently, not just a valid session: issuing, rolling and revoking API keys, changing webhook endpoints, managing members and, in phase 2, approving payouts.
+
+Such an operation requires an `auth_time` at most 5 minutes old and an `acr` that shows MFA. Otherwise the core answers `403` with code `step_up_required` and the challenge of RFC 9470, which the BFF answers by sending the member back to Keycloak to authenticate again:
+
+```
+WWW-Authenticate: Bearer error="insufficient_user_authentication",
+  error_description="A recent authentication is required", max_age=300
+```
+
+### 4.3 API keys
+
+**Format.** `sk_live_` or `sk_test_`, then 30 random characters and a 6-character checksum, all base62:
+
+```
+sk_<environment>_<30 random characters><6 checksum characters>
+```
+
+No real-looking key appears in this repository, so that the secret scanners stay strict.
+
+- The 30 random characters come from `SecureRandom`: about 178 bits, beyond any brute force.
+- The checksum is the CRC32 of the random part, as in GitHub's token format. It lets the core reject a mistyped or invented key without a database query, and lets secret scanners recognize a real key with few false positives. Gitleaks gets a rule for the format.
+- The environment in the prefix tells a reader which environment a leaked key reaches; the core never trusts it, and reads the tenant from the stored key.
+
+**Storage.** The key is shown once, when it is issued, and never stored. The database keeps its SHA-256 hash, unique and indexed, so authentication is one indexed lookup. A fast hash is right here: slow hashes such as Argon2 protect low-entropy passwords from guessing, and a 178-bit random key cannot be guessed, while a slow hash would add tens of milliseconds to every request. Lists show the key's name, `last_four` and dates.
+
+**Lifecycle (PR 1.20).**
+
+| Operation | Effect | Needs |
+|---|---|---|
+| Issue | New key with a name and scopes, a subset of the issuer's permissions (section 3.3). At most 10 unrevoked keys per tenant | `api_keys:manage`, step-up |
+| Roll | Issues a replacement with the same name and scopes, and sets the old key's `expires_at` after a grace period, from zero to 7 days (default 24 hours), so the tenant can deploy the new key first | `api_keys:manage`, step-up |
+| Revoke | Sets `revoked_at`; the key stops working on the next request | `api_keys:manage`, step-up |
+
+A key is never updated otherwise and never deleted: its row is the record of what it could do and who issued it. `last_used_at` is updated at most once an hour per key, with a conditional update, so busy keys add no write per request.
+
+### 4.4 Authentication failures
+
+| Case | Response | Code |
+|---|---|---|
+| No credential, malformed, wrong kind, bad checksum, unknown, expired or revoked key, invalid token | `401` | `invalid_credentials` |
+| Valid credential of a tenant that is not `ACTIVE` | `403` | `tenant_inactive` |
+| Missing permission or scope | `403` | `insufficient_permission` |
+| Recent authentication required | `403` | `step_up_required` |
+| Resource of another tenant, or a tenant the member does not belong to | `404` | `not_found` |
+
+Every `401` looks the same, so a caller cannot learn whether a key exists, expired or was revoked; logs and the metric `finaxis_authentication_failures_total{reason}` record the reason, with the key's ID when there is one and never the secret.
