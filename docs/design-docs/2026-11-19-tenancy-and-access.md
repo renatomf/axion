@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Approved |
 | **Date** | 2026-11-19 |
 | **Scope** | The `tenancy` and `access` modules of the core: tenants, environments, members and roles, human and machine authentication, tenant context, Row-Level Security and rate limiting. Roadmap PRs 1.17–1.24. |
 | **Parent** | [Platform overview](2026-11-17-platform-overview.md), sections 4.3, 4.6 and 4.7 |
