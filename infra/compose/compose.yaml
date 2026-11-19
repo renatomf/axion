@@ -74,6 +74,8 @@ services:
       # Temporary administrator of the master realm, created on the first start.
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD in infra/compose/.env}
+      # Replaces the ${FINAXIS_CONSOLE_CLIENT_SECRET} placeholder in the realm file.
+      FINAXIS_CONSOLE_CLIENT_SECRET: ${FINAXIS_CONSOLE_CLIENT_SECRET:?set FINAXIS_CONSOLE_CLIENT_SECRET in infra/compose/.env}
     ports:
       # KEYCLOAK_PORT changes the host port if 8180 is already taken.
       - "127.0.0.1:${KEYCLOAK_PORT:-8180}:8080"

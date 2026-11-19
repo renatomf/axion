@@ -152,5 +152,43 @@
         "check_result": "not-executed"
       }
     }
+  ],
+  "clients": [
+    {
+      "clientId": "finaxis-console",
+      "name": "Finaxis console",
+      "description": "The console's backend for frontend; it logs members in and calls the core's /internal API",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${FINAXIS_CONSOLE_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "redirectUris": [
+        "http://localhost:3000/auth/callback"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3000/"
+      },
+      "protocolMappers": [
+        {
+          "name": "finaxis-core audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "finaxis-core",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
   ]
 }
