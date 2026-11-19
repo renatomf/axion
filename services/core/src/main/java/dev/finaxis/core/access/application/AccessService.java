@@ -17,6 +17,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -59,9 +60,7 @@ public class AccessService implements AccessApi {
         }
 
         keys.lockTenantKeys(issuer.tenant());
-        // PostgreSQL keeps microseconds; without truncating, the key returned here would carry
-        // nanoseconds the stored key does not, and lists would show it issued at another instant.
-        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
+        Instant now = now();
         if (keys.countActive(issuer.tenant(), now) >= MAX_ACTIVE_KEYS) {
             return new IssueResult.LimitReached(MAX_ACTIVE_KEYS);
         }
@@ -77,6 +76,22 @@ public class AccessService implements AccessApi {
     @Transactional(readOnly = true)
     public List<ApiKeyView> keys(TenantId tenant) {
         return keys.findByTenant(tenant);
+    }
+
+    @Override
+    @Transactional
+    public Optional<ApiKeyView> revoke(MemberCaller revoker, ApiKeyId key) {
+        keys.revoke(revoker.tenant(), key, now());
+        return keys.find(revoker.tenant(), key);
+    }
+
+    /**
+     * The current instant, to the microsecond. PostgreSQL keeps microseconds; without truncating, an
+     * instant returned to the caller would carry nanoseconds the stored row does not, and lists would
+     * show another instant.
+     */
+    private Instant now() {
+        return clock.instant().truncatedTo(ChronoUnit.MICROS);
     }
 
     /** Counted by code point, as PostgreSQL's {@code char_length} counts, so an emoji counts once. */

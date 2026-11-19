@@ -117,6 +117,41 @@ public class JdbcApiKeys {
                 .list();
     }
 
+    /** The tenant's key with this ID; empty if there is none, including when another tenant has it. */
+    public Optional<ApiKeyView> find(TenantId tenant, ApiKeyId id) {
+        return jdbc.sql("""
+                        SELECT id, name, last_four, scopes, created_at, expires_at, revoked_at, last_used_at
+                          FROM access.api_keys
+                         WHERE tenant_id = :tenant
+                           AND id = :id
+                        """)
+                .param("tenant", tenant.value())
+                .param("id", id.value())
+                .query(JdbcApiKeys::view)
+                .optional();
+    }
+
+    /**
+     * Marks the tenant's key revoked at this instant, unless it already is: the first revocation is
+     * the one on record. Does nothing for a key of another tenant.
+     *
+     * <p>Two concurrent revocations of one key cannot both write: the first locks the row, and the
+     * second, once it may proceed, finds {@code revoked_at} set and updates nothing.
+     */
+    public void revoke(TenantId tenant, ApiKeyId id, Instant revokedAt) {
+        jdbc.sql("""
+                        UPDATE access.api_keys
+                           SET revoked_at = :revokedAt
+                         WHERE tenant_id = :tenant
+                           AND id = :id
+                           AND revoked_at IS NULL
+                        """)
+                .param("revokedAt", utc(revokedAt))
+                .param("tenant", tenant.value())
+                .param("id", id.value())
+                .update();
+    }
+
     /** Maps one row to a view. A {@code RowMapper} receives each row in turn; this is one. */
     private static ApiKeyView view(ResultSet row, int rowNumber) throws SQLException {
         String[] scopes = (String[]) row.getArray("scopes").getArray();

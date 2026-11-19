@@ -3,13 +3,14 @@ package dev.finaxis.core.access;
 import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.Permission;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
  * The API keys of a tenant (tenancy design, sections 4.3 and 7). Calls run in the caller's
  * transaction when there is one.
  *
- * <p>Rolling and revoking keys join this interface in the next commits and pull requests.
+ * <p>Rolling keys joins this interface in the next pull request.
  */
 public interface AccessApi {
 
@@ -36,6 +37,18 @@ public interface AccessApi {
      * #MAX_ACTIVE_KEYS} working keys, but the keys it revoked keep accumulating.
      */
     List<ApiKeyView> keys(TenantId tenant);
+
+    /**
+     * Revokes one of the tenant's keys: it stops working on the next request, and for good. Revoking
+     * a key that is already revoked changes nothing, so a retried request is harmless.
+     *
+     * <p>Like {@link #issue}, it takes the resolved member, not a bare key ID: the key is looked up
+     * only among the member's tenant's keys, so a key of another tenant is treated as one that does
+     * not exist. Checking the permission and the step-up is the endpoint's job.
+     *
+     * @return the key as it is now, or empty if the tenant has no key with this ID
+     */
+    Optional<ApiKeyView> revoke(MemberCaller revoker, ApiKeyId key);
 
     /** The longest key name, in characters, as the schema allows. */
     int MAX_NAME_LENGTH = 100;

@@ -102,17 +102,15 @@ class IssueApiKeyTest {
     @Test
     void refusesAKeyBeyondTheLimitUntilOneIsRevoked() {
         var admin = admin(Environment.TEST);
-        for (int i = 0; i < AccessApi.MAX_ACTIVE_KEYS; i++) {
+        var first = issued(admin, "Key 0", Set.of(CHARGES_READ));
+        for (int i = 1; i < AccessApi.MAX_ACTIVE_KEYS; i++) {
             issued(admin, "Key " + i, Set.of(CHARGES_READ));
         }
 
         assertThat(access.issue(admin, "One too many", Set.of(CHARGES_READ)))
                 .isEqualTo(new IssueResult.LimitReached(AccessApi.MAX_ACTIVE_KEYS));
 
-        jdbc.sql("""
-                        UPDATE access.api_keys SET revoked_at = now()
-                         WHERE id = (SELECT id FROM access.api_keys WHERE tenant_id = ? ORDER BY id LIMIT 1)
-                        """).param(organization.test().value()).update();
+        access.revoke(admin, first.id());
         assertThat(access.issue(admin, "Replacement", Set.of(CHARGES_READ))).isInstanceOf(IssueResult.Issued.class);
     }
 
