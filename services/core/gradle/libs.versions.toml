@@ -13,6 +13,9 @@ errorprone-plugin = "5.2.0"
 errorprone = "2.52.0"
 nullaway = "0.14.4"
 jqwik = "1.10.2"
+pit-core = "1.30.1"
+pit-junit5-plugin = "1.2.3"
+gradle-pitest-plugin = "1.19.0"
 
 [libraries]
 # Bill of materials: the versions Spring Boot has tested together. Libraries
@@ -70,3 +73,6 @@ spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 # Plugs Error Prone into every Java compile task.
 errorprone = { id = "net.ltgt.errorprone", version.ref = "errorprone-plugin" }
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
+# Mutation testing with PIT: `pitest` changes the compiled code in small ways
+# and fails if the tests do not notice.
+pitest = { id = "info.solidsoft.pitest", version.ref = "gradle-pitest-plugin" }

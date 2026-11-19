@@ -1,0 +1,56 @@
+# Mutation testing of the ledger with PIT (ledger design, section 8).
+# It runs every test against each mutant, so it belongs to the nightly
+# pipeline (platform overview, section 12) instead of every pull request.
+# It fails when the mutation score drops below the threshold in
+# services/core/build.gradle.kts.
+name: Mutation
+
+on:
+  schedule:
+    # Every night at 05:00 UTC (02:00 in São Paulo).
+    - cron: "0 5 * * *"
+  # Run it by hand from the Actions tab, for example on a branch that
+  # changes the ledger.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pitest:
+    name: Ledger mutation testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: services/core
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-provider: basic
+
+      - name: Mutation testing
+        run: ./gradlew pitest
+
+      # Kept on success too: the surviving mutants are worth reading even
+      # when the score is above the threshold.
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ledger-mutation-report
+          path: services/core/build/reports/pitest/
+          retention-days: 14
+          if-no-files-found: ignore

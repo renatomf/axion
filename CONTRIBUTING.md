@@ -41,9 +41,12 @@ cd services/core
 ./gradlew build      # compile, test and package build/libs/finaxis-core.jar
 ./gradlew bootRun    # start the service from the build
 ./gradlew test       # run the tests only
+./gradlew pitest     # mutation testing of the ledger (a few minutes; not part of build)
 ```
 
 Tests use JUnit Jupiter and AssertJ, from Spring Boot's test starter. Rules that must hold for every input, such as `Money` arithmetic, are also checked with property-based tests in [jqwik](https://jqwik.net): each `@Property` runs against generated inputs and, on failure, reports the smallest input that breaks it and the seed that reproduces the run. Tests that start the application run against a real PostgreSQL in Docker, started by [Testcontainers](https://testcontainers.com) ([`PostgresTestConfiguration`](services/core/src/test/java/dev/finaxis/core/PostgresTestConfiguration.java)), so Docker must be running; `just up` is not needed. Test reports are written to `build/reports/tests/test/index.html`.
+
+The ledger's tests are themselves tested with [PIT](https://pitest.org) mutation testing: `pitest` makes small changes to the ledger's compiled code, such as flipping a comparison or removing a call, and runs the ledger tests against each one. A change the tests do not notice "survives" and points at behavior no test checks. The task fails when fewer than 90% of the changes are caught; the report, listing every survivor, is written to `build/reports/pitest/index.html`.
 
 The service is a Spring Boot application; its entry point is [`Application`](services/core/src/main/java/dev/finaxis/core/Application.java). Spring Boot's own versions come from its bill of materials, imported as a Gradle platform, so libraries it manages are declared in the catalog without a version.
 
@@ -216,6 +219,8 @@ GitHub Actions runs these checks on every pull request and on `main` ([`.github/
 | Core image | Builds the [container image](#container-image) and scans it with Trivy, also weekly: high or critical Dockerfile misconfigurations, and high or critical vulnerabilities that have a fix |
 | Gitleaks | Scans the full git history for secrets |
 | CodeQL | Static analysis (SAST) of workflows and Java code; findings appear under **Security → Code scanning** |
+
+The Mutation workflow runs `./gradlew pitest` every night and on demand from the Actions tab, not on pull requests; its report is kept as an artifact.
 
 The Core workflow validates the Gradle wrapper JAR against known checksums and caches Gradle dependencies; only `main` writes the cache.
 
