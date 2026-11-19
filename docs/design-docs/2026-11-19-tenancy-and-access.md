@@ -202,7 +202,7 @@ No real-looking key appears in this repository, so that the secret scanners stay
 | Operation | Effect | Needs |
 |---|---|---|
 | Issue | New key with a name and scopes, a subset of the issuer's permissions (section 3.3). At most 10 working keys per tenant: neither revoked nor past a roll's grace period | `api_keys:manage`, step-up |
-| Roll | Issues a replacement with the same name and scopes, and sets the old key's `expires_at` after a grace period, from zero to 7 days (default 24 hours), so the tenant can deploy the new key first | `api_keys:manage`, step-up |
+| Roll | Issues a replacement with the same name and scopes, and sets the old key's `expires_at` after a grace period, from zero to 7 days (default 24 hours), so the tenant can deploy the new key first. A key is rolled at most once | `api_keys:manage`, step-up |
 | Revoke | Sets `revoked_at`; the key stops working on the next request | `api_keys:manage`, step-up |
 
 The limit counts working keys, not unrevoked ones, so the keys a tenant has rolled stop counting once their grace period ends. It is counted under a per-tenant advisory lock held until the transaction ends, so concurrent requests are counted one after another and cannot pass the limit together.
@@ -332,7 +332,7 @@ public interface TenancyApi {
 
 public interface AccessApi {
     IssueResult issue(MemberCaller issuer, String name, Set<Permission> scopes);   // Issued, ScopesNotHeld or LimitReached
-    IssuedApiKey roll(ApiKeyId key, Duration grace, MemberId issuer);
+    RollResult roll(MemberCaller roller, ApiKeyId key, Duration grace);       // Rolled, KeyNotFound, KeyNotRollable, ScopesNotHeld or LimitReached
     Optional<ApiKeyView> revoke(MemberCaller revoker, ApiKeyId key);            // empty if the tenant has no such key
     List<ApiKeyView> keys(TenantId tenant);
 }
@@ -342,6 +342,7 @@ public interface AccessApi {
 - `TenantId` and `Environment` live in `shared`, with `TenantContext`: every module needs them, and the ledger already stores tenant IDs.
 - `issue` takes the resolved `MemberCaller`, not a tenant and a member ID: it holds the issuer's permissions, which bound the scopes, and its tenant is already proven to be the member's. A refused scope and the limit are expected outcomes, so `IssueResult` returns them as values, like the ledger's `PostResult`.
 - `revoke` takes the resolved `MemberCaller` too, so the key is looked up only among its tenant's keys (overview, section 4.3, layer ②): a key of another tenant is empty, exactly like an unknown one, and the endpoint answers `404`. Revoking a revoked key changes nothing and returns it again, so a retried request is harmless and the first `revoked_at` stays on record.
+- `roll` takes the resolved `MemberCaller` too, for the same reason, and the replacement records that member as its issuer. It refuses a revoked key and one already rolled, even within its grace period: a key is rolled at most once, so it never has two replacements and its grace period cannot be extended; its replacement is the key to roll next. The replacement is a new key, so the member must hold all of its scopes, as when issuing, and during the grace period both keys count towards the limit; rolling without a grace period always fits.
 - `IssuedApiKey` is the only type that holds a secret, returned once by `issue` and `roll`; its `toString` masks it. `ApiKeyView` has the name, `last_four`, scopes and dates.
 - Public IDs: `org_` for organizations, `ten_` for tenants, `mem_` for members and `key_` for API keys.
 - Endpoints, contract-first in `internal.yaml`: `GET /internal/me`; `GET` and `POST /internal/tenants/{tenant_id}/api_keys`; `POST …/api_keys/{key_id}/roll` and `POST …/api_keys/{key_id}/revoke`.
