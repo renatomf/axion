@@ -19,6 +19,16 @@ spring:
     # of silently skipping it.
     validate-migration-naming: true
 
+finaxis:
+  members:
+    # The Keycloak realm that issues members' access tokens. No default:
+    # each environment sets FINAXIS_MEMBERS_ISSUER, and the core does not
+    # start without it.
+    issuer: ${FINAXIS_MEMBERS_ISSUER}
+    # The clients a member may log in through: today only the console's BFF.
+    clients:
+      - finaxis-console
+
 logging:
   structured:
     format:
