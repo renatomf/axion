@@ -179,20 +179,45 @@ Every request passes through [Spring Security](https://docs.spring.io/spring-sec
 Local services run in Docker Compose ([`infra/compose/compose.yaml`](infra/compose/compose.yaml)). The root [`justfile`](justfile) is the entry point; run `just` to list every recipe.
 
 ```bash
-just up      # start the core profile and wait until it is healthy
-just down    # stop it; data is kept in the postgres-data volume
+just up         # start the core profile and wait until it is healthy
+just up auth    # start the auth profile instead
+just down       # stop every profile; data is kept in the postgres-data volume
 ```
 
 | Profile | Services | Reachable at |
 |---|---|---|
 | `core` | PostgreSQL 17 (database and user `finaxis`) | `127.0.0.1:5432` |
+| `auth` | PostgreSQL 17 and Keycloak 26, for the console and authentication | `127.0.0.1:5432`, `http://localhost:8180` |
 
-Settings come from `infra/compose/.env`, which is git-ignored. `just up` creates it from [`.env.example`](infra/compose/.env.example) on first use; edit it to change the password or, if port 5432 is already taken on your machine, `FINAXIS_DB_PORT`.
+Settings come from `infra/compose/.env`, which is git-ignored. `just up` creates it from [`.env.example`](infra/compose/.env.example) on first use, and later adds any setting the example gained since, with its example value; values already in `.env` are never changed. Edit it to change a password or, if a port is already taken on your machine, `FINAXIS_DB_PORT` or `KEYCLOAK_PORT`.
 
 - Ports are bound to `127.0.0.1`, so the services are not reachable from the network.
 - Images are pinned by digest (`image: name:tag@sha256:...`).
 - The `finaxis` user is the database owner, for local administration only. The service will connect with least-privilege roles, introduced with its first schemas.
-- To start from an empty database, remove the volume: `docker compose --file infra/compose/compose.yaml --profile core down --volumes`.
+- To start from an empty database, remove the volume: `docker compose --file infra/compose/compose.yaml --profile "*" down --volumes`.
+
+### Keycloak
+
+Keycloak authenticates people ([ADR 0005](docs/adr/0005-keycloak-for-human-identity.md); [tenancy and access design](docs/design-docs/2026-11-19-tenancy-and-access.md), section 4.1). It needs about 1 GB of memory, so it runs only in the `auth` profile.
+
+- **Realm as code.** The `finaxis` realm is [`infra/keycloak/realms/finaxis.json`](infra/keycloak/realms/finaxis.json), imported when Keycloak starts. Change the realm in that file, never only in the admin console, so the change is reviewed.
+- **Applying a change.** Import skips a realm that already exists. `just keycloak-reset` drops Keycloak's database and starts it again, so the file is imported anew; it also removes every user created since.
+- **No secrets in the file.** The `finaxis-console` client secret is the `${FINAXIS_CONSOLE_CLIENT_SECRET}` placeholder, filled from `infra/compose/.env` at import.
+- **Storage.** Keycloak keeps its data in its own `keycloak` database and role on the same PostgreSQL server, created by the one-shot `keycloak-database` service; it never touches the core's schemas.
+- **Admin console.** `http://localhost:8180/admin`, user `admin` with `KEYCLOAK_ADMIN_PASSWORD`. This temporary administrator belongs to the `master` realm and is for local use only.
+
+The realm enforces:
+
+| Setting | Value |
+|---|---|
+| Second factor | Required at every login: a passkey if the user has one, TOTP otherwise; a user without either enrolls TOTP at the first login |
+| Passwords | 12 to 128 characters, neither the username nor the email; no self-registration |
+| Brute force | Temporary lockout after 5 failures, from 1 up to 15 minutes; 1 minute after two failures less than a second apart |
+| Tokens | RS256; access tokens live 5 minutes; refresh tokens are single-use |
+| Sessions | 30 minutes idle, 10 hours maximum |
+| `finaxis-console` | Confidential; authorization code with PKCE (S256) only; redirect URI `http://localhost:3000/auth/callback`; tokens carry the audience `finaxis-core` and no roles |
+
+To try a login, create a user in the admin console (realm `finaxis`, **Users**, **Add user**, then a password under **Credentials**) and open `http://localhost:8180/realms/finaxis/account`; Keycloak asks for a TOTP app at the first login. Use synthetic names and emails only.
 
 ### Container image
 
