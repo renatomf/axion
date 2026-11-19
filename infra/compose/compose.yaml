@@ -56,7 +56,9 @@ services:
   keycloak:
     profiles: [auth]
     image: quay.io/keycloak/keycloak:26.8.2@sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3
-    command: [start]
+    # Imports infra/keycloak/realms/*.json at startup. A realm that already
+    # exists is left as it is; see CONTRIBUTING.md (Keycloak).
+    command: [start, --import-realm]
     # The JVM sizes its heap from this limit (70% of it) instead of the
     # host's memory; ADR 0005 budgets about 1 GB.
     mem_limit: 1g
@@ -75,6 +77,8 @@ services:
     ports:
       # KEYCLOAK_PORT changes the host port if 8180 is already taken.
       - "127.0.0.1:${KEYCLOAK_PORT:-8180}:8080"
+    volumes:
+      - ../keycloak/realms:/opt/keycloak/data/import:ro
     healthcheck:
       # The image has no curl: ask the management port with bash's /dev/tcp.
       test:

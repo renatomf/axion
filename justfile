@@ -16,6 +16,12 @@ up profile="core": _env
 down:
     {{ compose }} --profile "*" down
 
+# Drop Keycloak's database so the realm is imported again (removes its users)
+keycloak-reset: _env
+    {{ compose }} --profile auth stop keycloak
+    {{ compose }} --profile auth exec --no-TTY postgres dropdb --username=finaxis --if-exists --force keycloak
+    {{ compose }} --profile auth up --detach --wait
+
 # Create infra/compose/.env from the example on first use
 _env:
     @[ -f infra/compose/.env ] || { cp infra/compose/.env.example infra/compose/.env; echo "Created infra/compose/.env from .env.example"; }
