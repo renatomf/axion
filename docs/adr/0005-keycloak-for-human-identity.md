@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Proposed |
+| **Status** | Accepted |
 | **Date** | 2026-11-19 |
 | **Supersedes** | — |
 | **Superseded by** | — |
