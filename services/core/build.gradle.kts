@@ -70,6 +70,15 @@ dependencies {
     testImplementation(libs.spring.modulith.starter.test)
     testImplementation(libs.archunit.junit5)
     testImplementation(libs.jqwik)
+    testImplementation(libs.json.schema.validator) {
+        // The validator is built on a newer Jackson patch than Spring Boot
+        // manages; Gradle would pick the newer one for the tests. Excluding it
+        // keeps the tests on the Jackson that production runs.
+        exclude(group = "tools.jackson.core")
+        exclude(group = "tools.jackson.dataformat")
+    }
+    // Reads the YAML contracts; its version comes from Spring Boot's BOM.
+    testImplementation(libs.jackson.dataformat.yaml)
     testRuntimeOnly(libs.junit.platform.launcher)
 
     // Error Prone itself: on its own configuration, used only by the compiler.
@@ -106,6 +115,9 @@ tasks.test {
     // Run tests with the JUnit Platform (JUnit Jupiter). Without this line
     // Gradle looks for JUnit 4 tests and would find none.
     useJUnitPlatform()
+    // Contract tests read the OpenAPI documents: a change to them must rerun
+    // the tests instead of leaving Gradle's cached result up to date.
+    inputs.dir("openapi")
 }
 
 pitest {

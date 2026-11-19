@@ -13,6 +13,7 @@ errorprone-plugin = "5.2.0"
 errorprone = "2.52.0"
 nullaway = "0.14.4"
 jqwik = "1.10.2"
+json-schema-validator = "3.0.9"
 pit-core = "1.30.1"
 pit-junit5-plugin = "1.2.3"
 gradle-pitest-plugin = "1.19.0"
@@ -62,6 +63,11 @@ testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgr
 # failure to the smallest input that still breaks the property. A JUnit Platform
 # engine, so its tests run next to the JUnit Jupiter ones.
 jqwik = { module = "net.jqwik:jqwik", version.ref = "jqwik" }
+# JSON Schema 2020-12 validation, the schema dialect of OpenAPI 3.1: tests check
+# that responses match the API contracts. Built on Jackson 3, like Spring Boot 4.
+json-schema-validator = { module = "com.networknt:json-schema-validator", version.ref = "json-schema-validator" }
+# YAML for Jackson, to read the OpenAPI contracts in tests.
+jackson-dataformat-yaml = { module = "tools.jackson.dataformat:jackson-dataformat-yaml" }
 # Lets Gradle launch JUnit tests; Gradle 9 requires it on the test runtime classpath.
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 # Static analysis that runs inside javac and reports common Java bug patterns.
