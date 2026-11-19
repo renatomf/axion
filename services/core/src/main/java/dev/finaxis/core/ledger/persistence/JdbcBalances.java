@@ -55,10 +55,23 @@ public class JdbcBalances {
      *
      * <p>A plain read, without a lock: it sees the last committed balance, and a concurrent posting
      * may change it right after.
+     *
+     * <p>A hot account's row holds only the postings folded into it, those created before {@code
+     * folded_until}; the rest are added here, so the result is exact (section 5.3). Until the folding
+     * job exists, {@code folded_until} is null and every posting is added. One statement reads the
+     * row and the postings, so both come from the same snapshot.
      */
     public Optional<Money> find(AccountId account) {
         return jdbc.sql("""
-                        SELECT b.balance, a.currency
+                        SELECT a.currency,
+                               b.balance + coalesce((
+                                   SELECT sum(CASE WHEN p.direction = a.normal_balance
+                                                   THEN p.amount ELSE -p.amount END)
+                                     FROM ledger.postings p
+                                    WHERE a.is_hot
+                                      AND p.account_id = a.id
+                                      AND (b.folded_until IS NULL OR p.created_at >= b.folded_until)
+                               ), 0) AS balance
                           FROM ledger.accounts a
                           JOIN ledger.balances b ON b.account_id = a.id
                          WHERE a.id = :accountId
