@@ -74,6 +74,32 @@ class LedgerConcurrencyTest {
         assertThat(balanceOf(available)).isZero();
         assertThat(postingsOf(available)).isEqualTo(51);
     }
+
+    @Test
+    void finishesEntriesThatTouchTheSameAccountsInOppositeOrders() throws InterruptedException, ExecutionException {
+        var held =
+                ledger.openAccount(new AccountRequest(tenant, "tenant:held", AccountType.LIABILITY, BRL, false, false));
+        var funds = Money.ofMinor(10_000, BRL);
+        ledger.post(transfer(settlement, available, funds));
+        ledger.post(transfer(settlement, held, funds));
+        // Half the transfers list available first and half list held first. If balances were
+        // locked in that order, two of them could each hold the row the other needs.
+        var transfers = new ArrayList<Callable<PostResult>>();
+        for (int i = 0; i < 100; i++) {
+            var there = transfer(available, held, ONE);
+            var back = transfer(held, available, ONE);
+            transfers.add(() -> ledger.post(there));
+            transfers.add(() -> ledger.post(back));
+        }
+
+        var results = postAtOnce(transfers);
+
+        // Each balance starts with enough for every transfer out of it, so none is refused, and
+        // postAtOnce would have thrown on a deadlock.
+        assertThat(results).allMatch(PostResult.Posted.class::isInstance);
+        assertThat(balanceOf(available)).isEqualTo(10_000);
+        assertThat(balanceOf(held)).isEqualTo(10_000);
+    }
     /**
      * Runs every call on its own thread and returns their results. A latch holds the threads until
      * all of them are ready, so the calls start together instead of one after another.
