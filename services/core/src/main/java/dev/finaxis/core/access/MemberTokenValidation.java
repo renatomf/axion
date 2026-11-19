@@ -7,6 +7,7 @@ import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtAudienceValidator;
+import org.springframework.security.oauth2.jwt.JwtClaimNames;
 import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 import org.springframework.security.oauth2.jwt.JwtIssuerValidator;
 import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
@@ -24,7 +25,9 @@ import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
  *   <li>{@code aud} contains {@value #AUDIENCE}: Keycloak adds it only to access tokens of the
  *       clients configured for the core, so ID and refresh tokens, whose audience is the client or
  *       the realm, are rejected;
- *   <li>{@code azp}, the client the member logged in through, is one of the allowed clients.
+ *   <li>{@code azp}, the client the member logged in through, is one of the allowed clients;
+ *   <li>{@code sub}, the Keycloak user, is present and not blank: the core finds the member's
+ *       organizations and roles by it.
  * </ul>
  */
 final class MemberTokenValidation {
@@ -56,6 +59,7 @@ final class MemberTokenValidation {
                 new JwtIssuerValidator(issuer),
                 new JwtAudienceValidator(AUDIENCE),
                 new JwtClaimValidator<String>(
-                        AUTHORIZED_PARTY, client -> client != null && allowedClients.contains(client)));
+                        AUTHORIZED_PARTY, client -> client != null && allowedClients.contains(client)),
+                new JwtClaimValidator<String>(JwtClaimNames.SUB, subject -> subject != null && !subject.isBlank()));
     }
 }
