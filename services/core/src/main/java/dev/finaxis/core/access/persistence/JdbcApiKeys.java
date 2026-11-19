@@ -1,0 +1,99 @@
+package dev.finaxis.core.access.persistence;
+
+import dev.finaxis.core.access.ApiKeyId;
+import dev.finaxis.core.shared.TenantId;
+import dev.finaxis.core.tenancy.MemberId;
+import dev.finaxis.core.tenancy.Permission;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.Set;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Repository;
+
+/**
+ * Reads and writes {@code access.api_keys} (tenancy design, section 3.4), within the grants of the
+ * {@code finaxis_access} role.
+ *
+ * <p>Runs in the caller's transaction: {@code JdbcClient} uses the connection Spring has bound to
+ * the current transaction, if there is one.
+ */
+@Repository
+public class JdbcApiKeys {
+
+    private final JdbcClient jdbc;
+
+    public JdbcApiKeys(JdbcClient jdbc) {
+        this.jdbc = jdbc;
+    }
+
+    /**
+     * Waits until no other transaction is issuing a key for this tenant, and keeps the others waiting
+     * until this transaction ends. Without it, two requests could each count nine keys and both
+     * insert a tenth.
+     *
+     * <p>An advisory lock is a lock on a number, not on a row: there is no tenant row in this
+     * module's schema to lock. The two-number form keeps it apart from advisory locks other code may
+     * take: the first number names this table, the second the tenant. Two tenants whose IDs hash to
+     * the same number only wait for each other. The {@code xact} variant is released when the
+     * transaction commits or rolls back, so it can never be left behind.
+     */
+    public void lockTenantKeys(TenantId tenant) {
+        jdbc.sql("SELECT pg_advisory_xact_lock(hashtext('access.api_keys'), hashtext(CAST(:tenant AS text)))")
+                .param("tenant", tenant.value())
+                .query()
+                .singleRow();
+    }
+
+    /**
+     * The tenant's keys that still work at this instant: neither revoked nor past the end of a roll's
+     * grace period.
+     */
+    public int countActive(TenantId tenant, Instant now) {
+        return jdbc.sql("""
+                        SELECT count(*)
+                          FROM access.api_keys
+                         WHERE tenant_id = :tenant
+                           AND revoked_at IS NULL
+                           AND (expires_at IS NULL OR expires_at > :now)
+                        """)
+                .param("tenant", tenant.value())
+                .param("now", utc(now))
+                .query(Integer.class)
+                .single();
+    }
+
+    /** Stores a new key. Only the hash of its secret is written; the secret itself never is. */
+    public void insert(
+            ApiKeyId id,
+            TenantId tenant,
+            String name,
+            byte[] secretHash,
+            String lastFour,
+            Set<Permission> scopes,
+            MemberId createdBy,
+            Instant createdAt) {
+        // The driver sends a Java String[] as a PostgreSQL text array. Sorted, so a key's scopes
+        // are stored in the same order however the caller's set iterates.
+        String[] scopeCodes = scopes.stream().map(Permission::code).sorted().toArray(String[]::new);
+        jdbc.sql("""
+                        INSERT INTO access.api_keys
+                               (id, tenant_id, name, secret_hash, last_four, scopes, created_by, created_at)
+                        VALUES (:id, :tenant, :name, :hash, :lastFour, :scopes, :createdBy, :createdAt)
+                        """)
+                .param("id", id.value())
+                .param("tenant", tenant.value())
+                .param("name", name)
+                .param("hash", secretHash)
+                .param("lastFour", lastFour)
+                .param("scopes", scopeCodes)
+                .param("createdBy", createdBy.value())
+                .param("createdAt", utc(createdAt))
+                .update();
+    }
+
+    /** An instant as JDBC 4.2 binds it to a {@code timestamptz}, whatever the JVM's time zone. */
+    private static OffsetDateTime utc(Instant instant) {
+        return instant.atOffset(ZoneOffset.UTC);
+    }
+}
