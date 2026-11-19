@@ -16,6 +16,12 @@ spring:
     username: finaxis
     password: ${FINAXIS_DB_PASSWORD}
 
+finaxis:
+  members:
+    # The realm of the Keycloak started by `just up auth`. KEYCLOAK_PORT comes
+    # from the same .env file as the database settings.
+    issuer: http://localhost:${KEYCLOAK_PORT:8180}/realms/finaxis
+
 management:
   endpoint:
     health:

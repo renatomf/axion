@@ -27,6 +27,8 @@ spring-boot-starter-webmvc = { module = "org.springframework.boot:spring-boot-st
 spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
 # Spring Security: a chain of servlet filters that authenticates and authorizes every request.
 spring-boot-starter-security = { module = "org.springframework.boot:spring-boot-starter-security" }
+# Validates OAuth 2.0 bearer tokens (JWTs) on incoming requests, with Nimbus JOSE + JWT.
+spring-boot-starter-oauth2-resource-server = { module = "org.springframework.boot:spring-boot-starter-oauth2-resource-server" }
 # JDBC access with the HikariCP connection pool; adds a database health check.
 spring-boot-starter-jdbc = { module = "org.springframework.boot:spring-boot-starter-jdbc" }
 # PostgreSQL JDBC driver.

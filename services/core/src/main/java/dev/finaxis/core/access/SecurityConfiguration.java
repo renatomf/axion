@@ -6,8 +6,10 @@ import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
 import org.springframework.web.servlet.HandlerExceptionResolver;
@@ -16,12 +18,20 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
  * The HTTP security of the core: which requests are allowed, before any controller runs.
  *
  * <p>Spring Security is a chain of servlet filters in front of Spring MVC. Spring Boot builds the
- * {@link HttpSecurity} passed to {@link #securityFilterChain}; the {@link SecurityFilterChain} bean
- * returned here replaces Boot's default chain.
+ * {@link HttpSecurity} passed to each method below; the {@link SecurityFilterChain} beans returned
+ * here replace Boot's default chain. A request goes through the first chain, in {@code @Order},
+ * whose {@code securityMatcher} matches it, and through no other:
+ *
+ * <ol>
+ *   <li>{@link #internalFilterChain}: {@code /internal/**}, the API of the console's BFF, open to
+ *       members with a valid access token from Keycloak;
+ *   <li>{@link #securityFilterChain}: every other request.
+ * </ol>
  *
  * <p>Access is denied by default: a request is allowed only if a rule below opens it. A new endpoint
  * therefore stays closed until it gets an explicit rule, instead of being open because someone forgot
- * one. Today only the health endpoint is public, for load balancers and container orchestrators.
+ * one. Outside {@code /internal}, only the health endpoint is public, for load balancers and
+ * container orchestrators.
  */
 @Configuration(proxyBeanMethods = false)
 class SecurityConfiguration {
@@ -29,10 +39,42 @@ class SecurityConfiguration {
     static final String CONTENT_SECURITY_POLICY = "default-src 'none'; frame-ancestors 'none'";
 
     /**
+     * Members on {@code /internal}: the core acts as an OAuth 2.0 resource server. The bearer token
+     * filter reads the token from the {@code Authorization} header only (a token in the query string
+     * or the body is ignored, as Spring does by default), decodes it with {@code jwtDecoder} and, if
+     * it is valid, authenticates the request with the token's claims. Only access tokens are accepted
+     * here: an API key is not a JWT and fails to decode, so it gets a {@code 401}.
+     *
+     * @param jwtDecoder the decoder of {@link MemberTokenConfiguration}
+     */
+    @Bean
+    @Order(1)
+    SecurityFilterChain internalFilterChain(
+            HttpSecurity http,
+            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver,
+            JwtDecoder jwtDecoder) {
+        http.securityMatcher("/internal/**");
+        http.authorizeHttpRequests(requests -> requests.anyRequest().authenticated());
+
+        ProblemDetailsSecurityHandler rejections = new ProblemDetailsSecurityHandler(resolver);
+        http.oauth2ResourceServer(server -> server.jwt(jwt -> jwt.decoder(jwtDecoder))
+                // A missing, malformed or invalid token gets the same 401 as any other rejection.
+                .authenticationEntryPoint(rejections)
+                .accessDeniedHandler(rejections));
+
+        return build(http, rejections);
+    }
+
+    /**
+     * Every request {@link #internalFilterChain} does not match, {@code /v1} included. This chain
+     * has no bearer token filter, so an access token sent here authenticates nothing and gets a
+     * {@code 401}; API keys arrive in PR 1.21.
+     *
      * @param resolver Spring MVC's exception resolver, which applies the {@code web} module's error
      *     format; the qualifier picks it out of the several resolvers in the context
      */
     @Bean
+    @Order(2)
     SecurityFilterChain securityFilterChain(
             HttpSecurity http, @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver) {
         http.authorizeHttpRequests(requests -> requests
@@ -46,8 +88,12 @@ class SecurityConfiguration {
                 .anyRequest()
                 .denyAll());
 
+        return build(http, new ProblemDetailsSecurityHandler(resolver));
+    }
+
+    /** The settings both chains share. */
+    private static SecurityFilterChain build(HttpSecurity http, ProblemDetailsSecurityHandler rejections) {
         // Rejected requests get the same Problem Details as every other error.
-        ProblemDetailsSecurityHandler rejections = new ProblemDetailsSecurityHandler(resolver);
         http.exceptionHandling(
                 exceptions -> exceptions.authenticationEntryPoint(rejections).accessDeniedHandler(rejections));
 
@@ -59,8 +105,8 @@ class SecurityConfiguration {
         http.headers(headers -> headers.contentSecurityPolicy(csp -> csp.policyDirectives(CONTENT_SECURITY_POLICY))
                 .referrerPolicy(referrer -> referrer.policy(ReferrerPolicy.NO_REFERRER)));
 
-        // Clients authenticate on every request (API keys and service tokens arrive in phase 1),
-        // so the core never creates an HTTP session.
+        // Clients authenticate on every request, with an access token or an API key, so the core
+        // never creates an HTTP session.
         http.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
         // CSRF abuses credentials a browser sends on its own, such as cookies. The core uses no
         // cookies; the BFF, which does, protects itself against CSRF.
