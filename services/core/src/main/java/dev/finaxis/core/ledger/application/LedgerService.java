@@ -2,11 +2,15 @@ package dev.finaxis.core.ledger.application;
 
 import dev.finaxis.core.ledger.AccountId;
 import dev.finaxis.core.ledger.AccountRequest;
+import dev.finaxis.core.ledger.Balance;
+import dev.finaxis.core.ledger.Cursor;
 import dev.finaxis.core.ledger.EntryId;
 import dev.finaxis.core.ledger.EntryRequest;
 import dev.finaxis.core.ledger.LedgerApi;
+import dev.finaxis.core.ledger.Page;
 import dev.finaxis.core.ledger.PostResult;
 import dev.finaxis.core.ledger.PostingRequest;
+import dev.finaxis.core.ledger.PostingView;
 import dev.finaxis.core.ledger.domain.Account;
 import dev.finaxis.core.ledger.domain.Entry;
 import dev.finaxis.core.ledger.domain.Posting;
@@ -20,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
@@ -39,12 +44,14 @@ public class LedgerService implements LedgerApi {
     private final JdbcAccounts accounts;
     private final JdbcEntries entries;
     private final JdbcBalances balances;
+    private final Clock clock;
     private final UuidV7Generator ids;
 
     public LedgerService(JdbcAccounts accounts, JdbcEntries entries, JdbcBalances balances, Clock clock) {
         this.accounts = accounts;
         this.entries = entries;
         this.balances = balances;
+        this.clock = clock;
         this.ids = new UuidV7Generator(clock);
     }
 
@@ -120,6 +127,45 @@ public class LedgerService implements LedgerApi {
             throw new IllegalStateException("Source " + request.source() + " was already posted with other postings");
         }
         return new PostResult.AlreadyPosted(existing.id());
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>{@code readOnly = true} tells Spring, and through the driver PostgreSQL, that the call
+     * writes nothing; a write by mistake fails instead of committing.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public Balance balanceOf(AccountId account) {
+        var balance = balances.find(account)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown account " + account.value()));
+        return new Balance(account, balance, clock.instant());
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Reads one posting more than the limit: if it comes back, there is a next page, and the
+     * cursor points after the last posting returned. So the last page never ends with a cursor to an
+     * empty one.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public Page<PostingView> history(AccountId account, Cursor cursor, int limit) {
+        if (limit < 1 || limit > MAX_HISTORY_LIMIT) {
+            throw new IllegalArgumentException(
+                    "History limit must be between 1 and " + MAX_HISTORY_LIMIT + ": " + limit);
+        }
+        if (accounts.findAllById(Set.of(account)).isEmpty()) {
+            throw new IllegalArgumentException("Unknown account " + account.value());
+        }
+        var postings = entries.history(account, cursor.after(), limit + 1);
+        if (postings.size() <= limit) {
+            return new Page<>(postings, Optional.empty());
+        }
+        var page = postings.subList(0, limit);
+        return new Page<>(page, Optional.of(Cursor.after(page.getLast().id())));
     }
 
     /**

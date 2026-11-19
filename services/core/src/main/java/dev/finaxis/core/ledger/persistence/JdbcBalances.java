@@ -1,13 +1,16 @@
 package dev.finaxis.core.ledger.persistence;
 
+import dev.finaxis.core.ledger.AccountId;
 import dev.finaxis.core.ledger.domain.Account;
 import dev.finaxis.core.shared.Money;
+import java.util.Currency;
+import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
 /**
- * Changes ledger balances, the one mutable table (ledger design, section 5.2). A balance row is
- * inserted with its account, by {@link JdbcAccounts}, and only changed here.
+ * Reads and changes ledger balances, the one mutable table (ledger design, section 5.2). A balance
+ * row is inserted with its account, by {@link JdbcAccounts}, and only changed here.
  *
  * <p>Runs in the caller's transaction, like {@link JdbcAccounts}.
  */
@@ -45,5 +48,37 @@ public class JdbcBalances {
                 .param("allowNegative", account.allowNegative())
                 .update();
         return updated == 1;
+    }
+
+    /**
+     * The account's balance, in its currency, if the account exists.
+     *
+     * <p>A plain read, without a lock: it sees the last committed balance, and a concurrent posting
+     * may change it right after.
+     *
+     * <p>A hot account's row holds only the postings folded into it, those created before {@code
+     * folded_until}; the rest are added here, so the result is exact (section 5.3). Until the folding
+     * job exists, {@code folded_until} is null and every posting is added. One statement reads the
+     * row and the postings, so both come from the same snapshot.
+     */
+    public Optional<Money> find(AccountId account) {
+        return jdbc.sql("""
+                        SELECT a.currency,
+                               b.balance + coalesce((
+                                   SELECT sum(CASE WHEN p.direction = a.normal_balance
+                                                   THEN p.amount ELSE -p.amount END)
+                                     FROM ledger.postings p
+                                    WHERE a.is_hot
+                                      AND p.account_id = a.id
+                                      AND (b.folded_until IS NULL OR p.created_at >= b.folded_until)
+                               ), 0) AS balance
+                          FROM ledger.accounts a
+                          JOIN ledger.balances b ON b.account_id = a.id
+                         WHERE a.id = :accountId
+                        """)
+                .param("accountId", account.value())
+                .query((row, rowNumber) ->
+                        Money.ofMinor(row.getLong("balance"), Currency.getInstance(row.getString("currency"))))
+                .optional();
     }
 }
