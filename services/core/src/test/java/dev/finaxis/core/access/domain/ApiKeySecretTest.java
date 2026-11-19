@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.finaxis.core.shared.Environment;
 import java.security.SecureRandom;
+import java.util.Locale;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -50,6 +51,72 @@ class ApiKeySecretTest {
     void twoKeysAreDifferent() {
         assertThat(ApiKeySecret.generate(Environment.TEST, random).reveal())
                 .isNotEqualTo(ApiKeySecret.generate(Environment.TEST, random).reveal());
+    }
+
+    @ParameterizedTest
+    @EnumSource(Environment.class)
+    void parsesAGeneratedKeyBackToItsEnvironment(Environment environment) {
+        String text = ApiKeySecret.generate(environment, random).reveal();
+
+        assertThat(ApiKeySecret.parse(text)).hasValueSatisfying(key -> {
+            assertThat(key.environment()).isEqualTo(environment);
+            assertThat(key.reveal()).isEqualTo(text);
+        });
+    }
+
+    @Test
+    void rejectsAKeyWithAWrongChecksum() {
+        String text = ApiKeySecret.generate(Environment.TEST, random).reveal();
+        char last = text.charAt(text.length() - 1);
+        String mistyped = text.substring(0, text.length() - 1) + (last == 'a' ? 'b' : 'a');
+
+        assertThat(ApiKeySecret.parse(mistyped)).isEmpty();
+    }
+
+    @Test
+    void rejectsAKeyWithAnUnknownEnvironment() {
+        String text = ApiKeySecret.generate(Environment.LIVE, random).reveal();
+
+        assertThat(ApiKeySecret.parse(text.replace("sk_live_", "sk_prod_"))).isEmpty();
+    }
+
+    /** A key is case-sensitive: base62 tells {@code a} from {@code A}. */
+    @Test
+    void rejectsAKeyInAnotherCase() {
+        String text = ApiKeySecret.generate(Environment.TEST, random).reveal();
+
+        String body = text.substring("sk_test_".length());
+
+        assertThat(ApiKeySecret.parse("sk_test_" + body.toUpperCase(Locale.ROOT)))
+                .isEmpty();
+        assertThat(ApiKeySecret.parse("SK_TEST_" + body)).isEmpty();
+    }
+
+    @Test
+    void rejectsAKeyWithSurroundingText() {
+        String text = ApiKeySecret.generate(Environment.TEST, random).reveal();
+
+        assertThat(ApiKeySecret.parse(" " + text)).isEmpty();
+        assertThat(ApiKeySecret.parse(text + "\n")).isEmpty();
+        assertThat(ApiKeySecret.parse(text + "0")).isEmpty();
+        assertThat(ApiKeySecret.parse(text.substring(0, text.length() - 1))).isEmpty();
+    }
+
+    @Test
+    void rejectsACharacterOutsideBase62() {
+        String text = ApiKeySecret.generate(Environment.TEST, random).reveal();
+
+        assertThat(ApiKeySecret.parse(text.substring(0, 10) + "-" + text.substring(11)))
+                .isEmpty();
+        assertThat(ApiKeySecret.parse(text.substring(0, 10) + "é" + text.substring(11)))
+                .isEmpty();
+    }
+
+    @Test
+    void rejectsTextThatIsNotAKey() {
+        assertThat(ApiKeySecret.parse("")).isEmpty();
+        assertThat(ApiKeySecret.parse("sk_test_")).isEmpty();
+        assertThat(ApiKeySecret.parse("not a key")).isEmpty();
     }
 
     /**

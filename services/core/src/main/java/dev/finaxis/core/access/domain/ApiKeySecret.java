@@ -4,6 +4,7 @@ import dev.finaxis.core.shared.Environment;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.zip.CRC32;
 
 /**
@@ -58,6 +59,32 @@ public final class ApiKeySecret {
         return new ApiKeySecret(environment, prefix(environment) + randomText + checksum(randomText));
     }
 
+    /**
+     * Reads a key a caller sent, if it has the exact form {@link #generate} produces and a valid
+     * checksum.
+     *
+     * <p>An empty result is not an error: it is the answer for any text that is not a key, a mistyped
+     * or invented one included, found without a database query. The text comes from the network and
+     * may be anything, so its length is checked before any character is read.
+     */
+    public static Optional<ApiKeySecret> parse(String text) {
+        for (Environment environment : Environment.values()) {
+            String prefix = prefix(environment);
+            if (text.length() == prefix.length() + RANDOM_LENGTH + CHECKSUM_LENGTH && text.startsWith(prefix)) {
+                String body = text.substring(prefix.length());
+                if (!isBase62(body)) {
+                    return Optional.empty();
+                }
+                String randomPart = body.substring(0, RANDOM_LENGTH);
+                String checksum = body.substring(RANDOM_LENGTH);
+                return checksum.equals(checksum(randomPart))
+                        ? Optional.of(new ApiKeySecret(environment, text))
+                        : Optional.empty();
+            }
+        }
+        return Optional.empty();
+    }
+
     /** The environment the prefix names. */
     public Environment environment() {
         return environment;
@@ -74,6 +101,18 @@ public final class ApiKeySecret {
     /** The prefix of a key for the environment, such as {@code sk_test_}. */
     static String prefix(Environment environment) {
         return "sk_" + environment.name().toLowerCase(Locale.ROOT) + "_";
+    }
+
+    private static boolean isBase62(String text) {
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            // Plain ASCII ranges: Character.isLetterOrDigit would also accept non-ASCII letters.
+            boolean base62 = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+            if (!base62) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
