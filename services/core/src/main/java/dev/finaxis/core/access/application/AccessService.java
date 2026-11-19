@@ -94,9 +94,12 @@ public class AccessService implements AccessApi {
         ApiKeyView old = found.get();
 
         Instant now = now();
+        // Ends the old key first: if it no longer works, nothing has been written yet. Truncated
+        // like now(), since a Duration may carry nanoseconds.
+        if (!keys.expire(roller.tenant(), key, now.plus(grace).truncatedTo(ChronoUnit.MICROS))) {
+            return new RollResult.KeyNotRollable();
+        }
         IssuedApiKey replacement = insertKey(roller, old.name(), old.scopes(), now);
-        // Truncated like now(), since a Duration may carry nanoseconds.
-        keys.expire(roller.tenant(), key, now.plus(grace).truncatedTo(ChronoUnit.MICROS));
         return new RollResult.Rolled(
                 replacement, keys.find(roller.tenant(), key).orElseThrow());
     }

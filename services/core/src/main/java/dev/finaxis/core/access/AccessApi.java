@@ -59,8 +59,9 @@ public interface AccessApi {
      * permission and the step-up is the endpoint's job.
      *
      * @param grace how long the old key keeps working, from zero to {@link #MAX_ROLL_GRACE}
-     * @return {@link RollResult.Rolled} with the new key and its secret, or {@link
-     *     RollResult.KeyNotFound} if the tenant has no key with this ID
+     * @return {@link RollResult.Rolled} with the new key and its secret, {@link
+     *     RollResult.KeyNotFound} if the tenant has no key with this ID, or {@link
+     *     RollResult.KeyNotRollable} if the key was revoked or already rolled
      * @throws IllegalArgumentException if the grace period is negative or longer than {@link
      *     #MAX_ROLL_GRACE}, which the endpoint's contract rejects first
      */

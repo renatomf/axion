@@ -17,4 +17,11 @@ public sealed interface RollResult {
 
     /** The member's tenant has no key with this ID, so nothing was rolled. */
     record KeyNotFound() implements RollResult {}
+
+    /**
+     * The key no longer works, or soon will not, so nothing was rolled: it was revoked, or it was
+     * already rolled, whether or not its grace period has ended. A key is rolled at most once; its
+     * replacement is the key to roll next.
+     */
+    record KeyNotRollable() implements RollResult {}
 }

@@ -140,6 +140,45 @@ class RollApiKeyTest {
         assertThat(access.keys(organization.test())).hasSize(1);
     }
 
+    @Test
+    void refusesToRollARevokedKey() {
+        var old = issued(Environment.TEST, Set.of(CHARGES_READ));
+        access.revoke(admin(Environment.TEST), old.id());
+
+        assertThat(access.roll(admin(Environment.TEST), old.id(), DAY)).isEqualTo(new RollResult.KeyNotRollable());
+        assertThat(access.keys(organization.test())).hasSize(1);
+    }
+
+    /** Rolling it again would give it a second replacement and could extend its grace period. */
+    @Test
+    void refusesToRollAKeyInItsGracePeriod() {
+        var old = issued(Environment.TEST, Set.of(CHARGES_READ));
+        var first = rolled(access.roll(admin(Environment.TEST), old.id(), DAY));
+
+        assertThat(access.roll(admin(Environment.TEST), old.id(), AccessApi.MAX_ROLL_GRACE))
+                .isEqualTo(new RollResult.KeyNotRollable());
+        assertThat(access.keys(organization.test())).hasSize(2).contains(first.rolled());
+    }
+
+    @Test
+    void refusesToRollAKeyWhoseGracePeriodHasEnded() {
+        var old = issued(Environment.TEST, Set.of(CHARGES_READ));
+        access.roll(admin(Environment.TEST), old.id(), Duration.ZERO);
+
+        assertThat(access.roll(admin(Environment.TEST), old.id(), DAY)).isEqualTo(new RollResult.KeyNotRollable());
+        assertThat(access.keys(organization.test())).hasSize(2);
+    }
+
+    /** The replacement is a key like any other, so it can be rolled in turn. */
+    @Test
+    void rollsTheReplacementInTurn() {
+        var old = issued(Environment.TEST, Set.of(CHARGES_READ));
+        var first = rolled(access.roll(admin(Environment.TEST), old.id(), DAY));
+
+        assertThat(access.roll(admin(Environment.TEST), first.replacement().id(), DAY))
+                .isInstanceOf(RollResult.Rolled.class);
+    }
+
     /**
      * Acting as {@code finaxis_access} proves the code needs no privilege beyond the role's grants
      * (migration {@code V10}): the old key's update touches only {@code expires_at}. The test's

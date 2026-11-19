@@ -152,18 +152,31 @@ public class JdbcApiKeys {
                 .update();
     }
 
-    /** Sets when the tenant's key stops working: the end of a roll's grace period. */
-    public void expire(TenantId tenant, ApiKeyId id, Instant expiresAt) {
-        jdbc.sql("""
+    /**
+     * Sets when the tenant's key stops working, the end of a roll's grace period, if it has neither
+     * been revoked nor rolled before: a key is rolled at most once, so its grace period can never be
+     * extended and it never has two replacements.
+     *
+     * <p>As with {@link #revoke}, two concurrent rolls of one key cannot both write: the second
+     * waits for the first's row lock, then finds {@code expires_at} set.
+     *
+     * @return whether the key was updated; false if the tenant has no such key, or it was revoked or
+     *     already rolled
+     */
+    public boolean expire(TenantId tenant, ApiKeyId id, Instant expiresAt) {
+        return jdbc.sql("""
                         UPDATE access.api_keys
                            SET expires_at = :expiresAt
                          WHERE tenant_id = :tenant
                            AND id = :id
+                           AND revoked_at IS NULL
+                           AND expires_at IS NULL
                         """)
-                .param("expiresAt", utc(expiresAt))
-                .param("tenant", tenant.value())
-                .param("id", id.value())
-                .update();
+                        .param("expiresAt", utc(expiresAt))
+                        .param("tenant", tenant.value())
+                        .param("id", id.value())
+                        .update()
+                == 1;
     }
 
     /** Maps one row to a view. A {@code RowMapper} receives each row in turn; this is one. */
