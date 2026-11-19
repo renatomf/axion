@@ -9,17 +9,23 @@ import java.util.ArrayList;
 import java.util.Currency;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The ledger under concurrent load, against a real PostgreSQL (ledger design, section 8). Each call
@@ -35,15 +41,17 @@ class LedgerConcurrencyTest {
 
     private final LedgerApi ledger;
     private final JdbcClient jdbc;
+    private final TransactionTemplate transaction;
 
     private UUID tenant;
     private AccountId settlement;
     private AccountId available;
 
     @Autowired
-    LedgerConcurrencyTest(LedgerApi ledger, JdbcClient jdbc) {
+    LedgerConcurrencyTest(LedgerApi ledger, JdbcClient jdbc, PlatformTransactionManager transactions) {
         this.ledger = ledger;
         this.jdbc = jdbc;
+        this.transaction = new TransactionTemplate(transactions);
     }
 
     @BeforeEach
@@ -100,6 +108,63 @@ class LedgerConcurrencyTest {
         assertThat(balanceOf(available)).isEqualTo(10_000);
         assertThat(balanceOf(held)).isEqualTo(10_000);
     }
+
+    /**
+     * The control for the test above: two transactions that lock the same two balance rows in
+     * opposite orders do deadlock, and PostgreSQL aborts one of them. So a test that finishes with
+     * no deadlock shows the lock order works, not that the scenario could not happen.
+     */
+    @Test
+    void deadlocksWhenTwoTransactionsLockRowsInOppositeOrders() throws InterruptedException {
+        var held =
+                ledger.openAccount(new AccountRequest(tenant, "tenant:held", AccountType.LIABILITY, BRL, false, false));
+        // Both transactions hold their first lock before either asks for its second.
+        var bothLockedOne = new CyclicBarrier(2);
+        Callable<Void> availableFirst = () -> lockInOrder(available, held, bothLockedOne);
+        Callable<Void> heldFirst = () -> lockInOrder(held, available, bothLockedOne);
+
+        try (var threads = Executors.newFixedThreadPool(2)) {
+            var outcomes = threads.invokeAll(List.of(availableFirst, heldFirst));
+            var failures = new ArrayList<Throwable>();
+            for (var outcome : outcomes) {
+                try {
+                    outcome.get();
+                } catch (ExecutionException failed) {
+                    failures.add(failed.getCause());
+                }
+            }
+            // PostgreSQL aborts exactly one of them, and the other then gets its second lock.
+            assertThat(failures)
+                    .singleElement()
+                    .satisfies(failure -> assertThat(failure)
+                            .isInstanceOf(PessimisticLockingFailureException.class)
+                            .hasMessageContaining("deadlock detected"));
+        }
+    }
+
+    /**
+     * Locks two balance rows in one transaction, the first one before waiting at the barrier. The
+     * update adds zero, so it takes the row lock without changing the balance.
+     */
+    private @Nullable Void lockInOrder(AccountId first, AccountId second, CyclicBarrier barrier) {
+        return transaction.execute(status -> {
+            lockBalance(first);
+            try {
+                barrier.await();
+            } catch (InterruptedException | BrokenBarrierException interrupted) {
+                throw new IllegalStateException(interrupted);
+            }
+            lockBalance(second);
+            return null;
+        });
+    }
+
+    private void lockBalance(AccountId account) {
+        jdbc.sql("UPDATE ledger.balances SET balance = balance WHERE account_id = ?")
+                .param(account.value())
+                .update();
+    }
+
     /**
      * Runs every call on its own thread and returns their results. A latch holds the threads until
      * all of them are ready, so the calls start together instead of one after another.
