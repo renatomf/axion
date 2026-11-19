@@ -47,6 +47,8 @@ dependencies {
     implementation(libs.spring.boot.starter.actuator)
     // Authentication and authorization for every HTTP request, as servlet filters.
     implementation(libs.spring.boot.starter.security)
+    // Validates the access tokens Keycloak issues to members, on /internal.
+    implementation(libs.spring.boot.starter.oauth2.resource.server)
     // Database access over JDBC, with a connection pool.
     implementation(libs.spring.boot.starter.jdbc)
     // The PostgreSQL driver is needed only when the service runs, never to compile.
