@@ -2,6 +2,7 @@ package dev.finaxis.core.ledger.application;
 
 import dev.finaxis.core.ledger.AccountId;
 import dev.finaxis.core.ledger.AccountRequest;
+import dev.finaxis.core.ledger.Balance;
 import dev.finaxis.core.ledger.EntryId;
 import dev.finaxis.core.ledger.EntryRequest;
 import dev.finaxis.core.ledger.LedgerApi;
@@ -39,12 +40,14 @@ public class LedgerService implements LedgerApi {
     private final JdbcAccounts accounts;
     private final JdbcEntries entries;
     private final JdbcBalances balances;
+    private final Clock clock;
     private final UuidV7Generator ids;
 
     public LedgerService(JdbcAccounts accounts, JdbcEntries entries, JdbcBalances balances, Clock clock) {
         this.accounts = accounts;
         this.entries = entries;
         this.balances = balances;
+        this.clock = clock;
         this.ids = new UuidV7Generator(clock);
     }
 
@@ -120,6 +123,20 @@ public class LedgerService implements LedgerApi {
             throw new IllegalStateException("Source " + request.source() + " was already posted with other postings");
         }
         return new PostResult.AlreadyPosted(existing.id());
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>{@code readOnly = true} tells Spring, and through the driver PostgreSQL, that the call
+     * writes nothing; a write by mistake fails instead of committing.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public Balance balanceOf(AccountId account) {
+        var balance = balances.find(account)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown account " + account.value()));
+        return new Balance(account, balance, clock.instant());
     }
 
     /**

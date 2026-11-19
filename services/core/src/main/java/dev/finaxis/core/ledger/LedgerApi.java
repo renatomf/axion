@@ -40,4 +40,13 @@ public interface LedgerApi {
      *     other postings, which is a bug in the caller
      */
     PostResult post(EntryRequest request);
+
+    /**
+     * The account's current balance: the last committed one, read without waiting for postings in
+     * progress.
+     *
+     * @throws IllegalArgumentException if there is no account with that ID, which is a bug in the
+     *     caller: account IDs come from {@link #openAccount}
+     */
+    Balance balanceOf(AccountId account);
 }
