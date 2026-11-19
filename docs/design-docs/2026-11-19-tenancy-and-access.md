@@ -333,7 +333,7 @@ public interface TenancyApi {
 public interface AccessApi {
     IssueResult issue(MemberCaller issuer, String name, Set<Permission> scopes);   // Issued, ScopesNotHeld or LimitReached
     IssuedApiKey roll(ApiKeyId key, Duration grace, MemberId issuer);
-    void revoke(ApiKeyId key, MemberId revoker);
+    Optional<ApiKeyView> revoke(MemberCaller revoker, ApiKeyId key);            // empty if the tenant has no such key
     List<ApiKeyView> keys(TenantId tenant);
 }
 ```
@@ -341,6 +341,7 @@ public interface AccessApi {
 - `createOrganization` writes the organization, its two tenants and its first member, an admin, in one transaction, so no organization exists without both tenants or without an admin. Its callers are tests and, from PR 1.66, the synthetic data generator.
 - `TenantId` and `Environment` live in `shared`, with `TenantContext`: every module needs them, and the ledger already stores tenant IDs.
 - `issue` takes the resolved `MemberCaller`, not a tenant and a member ID: it holds the issuer's permissions, which bound the scopes, and its tenant is already proven to be the member's. A refused scope and the limit are expected outcomes, so `IssueResult` returns them as values, like the ledger's `PostResult`.
+- `revoke` takes the resolved `MemberCaller` too, so the key is looked up only among its tenant's keys (overview, section 4.3, layer ②): a key of another tenant is empty, exactly like an unknown one, and the endpoint answers `404`. Revoking a revoked key changes nothing and returns it again, so a retried request is harmless and the first `revoked_at` stays on record.
 - `IssuedApiKey` is the only type that holds a secret, returned once by `issue` and `roll`; its `toString` masks it. `ApiKeyView` has the name, `last_four`, scopes and dates.
 - Public IDs: `org_` for organizations, `ten_` for tenants, `mem_` for members and `key_` for API keys.
 - Endpoints, contract-first in `internal.yaml`: `GET /internal/me`; `GET` and `POST /internal/tenants/{tenant_id}/api_keys`; `POST …/api_keys/{key_id}/roll` and `POST …/api_keys/{key_id}/revoke`.
