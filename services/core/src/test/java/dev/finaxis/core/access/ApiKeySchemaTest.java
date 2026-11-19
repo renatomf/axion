@@ -1,12 +1,16 @@
 package dev.finaxis.core.access;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.finaxis.core.PostgresTestConfiguration;
+import dev.finaxis.core.tenancy.Permission;
 import java.security.SecureRandom;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -97,6 +101,26 @@ class ApiKeySchemaTest {
         assertThatThrownBy(() -> insertKey("Checkout", randomHash(), "a1B2", "{charges:read,NULL}"))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("api_keys_scopes_check");
+    }
+
+    /**
+     * The scope list in the table's {@code CHECK} repeats {@link Permission#isApiKeyScope}. This test
+     * keeps the two in step: a permission added to the enum must be added to the migration too, or
+     * the test fails.
+     */
+    @ParameterizedTest
+    @EnumSource(Permission.class)
+    void acceptsAPermissionAsAScopeOnlyIfAnApiKeyMayCarryIt(Permission permission) {
+        var scopes = "{" + permission.code() + "}";
+
+        if (permission.isApiKeyScope()) {
+            assertThatCode(() -> insertKey("Checkout", randomHash(), "a1B2", scopes))
+                    .doesNotThrowAnyException();
+        } else {
+            assertThatThrownBy(() -> insertKey("Checkout", randomHash(), "a1B2", scopes))
+                    .isInstanceOf(DataIntegrityViolationException.class)
+                    .hasMessageContaining("api_keys_scopes_check");
+        }
     }
 
     @Test
