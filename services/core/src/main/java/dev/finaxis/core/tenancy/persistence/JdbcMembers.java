@@ -1,5 +1,6 @@
 package dev.finaxis.core.tenancy.persistence;
 
+import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.MemberId;
 import dev.finaxis.core.tenancy.OrganizationId;
 import dev.finaxis.core.tenancy.Role;
@@ -7,6 +8,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -55,6 +57,27 @@ public class JdbcMembers {
                 .param("userSubject", userSubject)
                 .query(JdbcMembers::member)
                 .list();
+    }
+
+    /**
+     * The member a person is in the organization of this tenant, if any. The tenant is found by its
+     * primary key and the member by the unique {@code (organization_id, user_subject)} index, so the
+     * query reads one row of each table whatever their size.
+     */
+    public Optional<MemberRow> findBySubjectAndTenant(String userSubject, TenantId tenant) {
+        return jdbc.sql("""
+                        SELECT m.id, m.organization_id, o.name,
+                               ARRAY(SELECT r.role FROM tenancy.member_roles r WHERE r.member_id = m.id) AS roles
+                          FROM tenancy.tenants t
+                          JOIN tenancy.members m ON m.organization_id = t.organization_id
+                          JOIN tenancy.organizations o ON o.id = m.organization_id
+                         WHERE t.id = :tenant
+                           AND m.user_subject = :userSubject
+                        """)
+                .param("tenant", tenant.value())
+                .param("userSubject", userSubject)
+                .query(JdbcMembers::member)
+                .optional();
     }
 
     private static MemberRow member(ResultSet row, int rowNumber) throws SQLException {
