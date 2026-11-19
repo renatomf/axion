@@ -201,9 +201,11 @@ No real-looking key appears in this repository, so that the secret scanners stay
 
 | Operation | Effect | Needs |
 |---|---|---|
-| Issue | New key with a name and scopes, a subset of the issuer's permissions (section 3.3). At most 10 unrevoked keys per tenant | `api_keys:manage`, step-up |
+| Issue | New key with a name and scopes, a subset of the issuer's permissions (section 3.3). At most 10 working keys per tenant: neither revoked nor past a roll's grace period | `api_keys:manage`, step-up |
 | Roll | Issues a replacement with the same name and scopes, and sets the old key's `expires_at` after a grace period, from zero to 7 days (default 24 hours), so the tenant can deploy the new key first | `api_keys:manage`, step-up |
 | Revoke | Sets `revoked_at`; the key stops working on the next request | `api_keys:manage`, step-up |
+
+The limit counts working keys, not unrevoked ones, so the keys a tenant has rolled stop counting once their grace period ends. It is counted under a per-tenant advisory lock held until the transaction ends, so concurrent requests are counted one after another and cannot pass the limit together.
 
 A key is never updated otherwise and never deleted: its row is the record of what it could do and who issued it. The database enforces this: the `finaxis_access` role may update only `expires_at`, `revoked_at` and `last_used_at`, through a column privilege, and may not delete. `last_used_at` is updated at most once an hour per key, with a conditional update, so busy keys add no write per request.
 
@@ -231,8 +233,10 @@ sealed interface Caller permits ApiKeyCaller, MemberCaller {
     Set<Permission> permissions();
 }
 record ApiKeyCaller(TenantId tenant, ApiKeyId key, Set<Permission> permissions) implements Caller {}
-record MemberCaller(TenantId tenant, MemberId member, Set<Permission> permissions) implements Caller {}
+record MemberCaller(TenantId tenant, Environment environment, MemberId member, Set<Permission> permissions) implements Caller {}
 ```
+
+A member caller also carries the tenant's environment, which resolution reads anyway, so that code acting on the tenant, such as issuing a key with the right prefix, needs no second query.
 
 **API keys.** The tenant is the key's tenant and the permissions are its scopes. Nothing in the request can change either.
 
@@ -327,7 +331,7 @@ public interface TenancyApi {
 }
 
 public interface AccessApi {
-    IssuedApiKey issue(TenantId tenant, String name, Set<Permission> scopes, MemberId issuer);
+    IssueResult issue(MemberCaller issuer, String name, Set<Permission> scopes);   // Issued, ScopesNotHeld or LimitReached
     IssuedApiKey roll(ApiKeyId key, Duration grace, MemberId issuer);
     void revoke(ApiKeyId key, MemberId revoker);
     List<ApiKeyView> keys(TenantId tenant);
@@ -336,6 +340,7 @@ public interface AccessApi {
 
 - `createOrganization` writes the organization, its two tenants and its first member, an admin, in one transaction, so no organization exists without both tenants or without an admin. Its callers are tests and, from PR 1.66, the synthetic data generator.
 - `TenantId` and `Environment` live in `shared`, with `TenantContext`: every module needs them, and the ledger already stores tenant IDs.
+- `issue` takes the resolved `MemberCaller`, not a tenant and a member ID: it holds the issuer's permissions, which bound the scopes, and its tenant is already proven to be the member's. A refused scope and the limit are expected outcomes, so `IssueResult` returns them as values, like the ledger's `PostResult`.
 - `IssuedApiKey` is the only type that holds a secret, returned once by `issue` and `roll`; its `toString` masks it. `ApiKeyView` has the name, `last_four`, scopes and dates.
 - Public IDs: `org_` for organizations, `ten_` for tenants, `mem_` for members and `key_` for API keys.
 - Endpoints, contract-first in `internal.yaml`: `GET /internal/me`; `GET` and `POST /internal/tenants/{tenant_id}/api_keys`; `POST …/api_keys/{key_id}/roll` and `POST …/api_keys/{key_id}/revoke`.
