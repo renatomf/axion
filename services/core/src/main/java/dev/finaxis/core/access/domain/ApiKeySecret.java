@@ -2,6 +2,8 @@ package dev.finaxis.core.access.domain;
 
 import dev.finaxis.core.shared.Environment;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Locale;
 import java.util.Optional;
@@ -96,6 +98,39 @@ public final class ApiKeySecret {
      */
     public String reveal() {
         return text;
+    }
+
+    /**
+     * The SHA-256 of the whole key, the only form the database keeps: one indexed lookup finds the key
+     * a caller sent, and a copy of the table reveals no key.
+     *
+     * <p>A fast hash is right for a random 178-bit secret. Slow hashes such as Argon2 protect
+     * passwords, which people choose and attackers can guess; nobody can guess this key, and a slow
+     * hash would add tens of milliseconds to every request.
+     *
+     * @return a new array on each call, so the caller cannot change this key's hash
+     */
+    public byte[] hash() {
+        try {
+            return MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.US_ASCII));
+        } catch (NoSuchAlgorithmException e) {
+            // Every Java platform must provide SHA-256 (MessageDigest's documentation).
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** The last four characters, which lists show so that a person can tell their keys apart. */
+    public String lastFour() {
+        return text.substring(text.length() - 4);
+    }
+
+    /**
+     * The key masked, such as {@code sk_live_…a1b2}, so that a key printed by mistake in a log, an
+     * exception or a debugger does not leak. Only {@link #reveal} returns the secret.
+     */
+    @Override
+    public String toString() {
+        return prefix(environment) + "…" + lastFour();
     }
 
     /** The prefix of a key for the environment, such as {@code sk_test_}. */

@@ -3,6 +3,9 @@ package dev.finaxis.core.access.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.finaxis.core.shared.Environment;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Locale;
 import org.junit.jupiter.api.Test;
@@ -117,6 +120,50 @@ class ApiKeySecretTest {
         assertThat(ApiKeySecret.parse("")).isEmpty();
         assertThat(ApiKeySecret.parse("sk_test_")).isEmpty();
         assertThat(ApiKeySecret.parse("not a key")).isEmpty();
+    }
+
+    @Test
+    void hashIsTheSha256OfTheWholeKey() throws NoSuchAlgorithmException {
+        ApiKeySecret key = ApiKeySecret.generate(Environment.TEST, random);
+        byte[] expected =
+                MessageDigest.getInstance("SHA-256").digest(key.reveal().getBytes(StandardCharsets.US_ASCII));
+
+        assertThat(key.hash()).hasSize(32).isEqualTo(expected);
+    }
+
+    @Test
+    void theSameKeyParsedAgainHasTheSameHash() {
+        ApiKeySecret key = ApiKeySecret.generate(Environment.LIVE, random);
+
+        assertThat(ApiKeySecret.parse(key.reveal()))
+                .hasValueSatisfying(parsed -> assertThat(parsed.hash()).isEqualTo(key.hash()));
+    }
+
+    @Test
+    void changingTheReturnedHashDoesNotChangeTheKey() {
+        ApiKeySecret key = ApiKeySecret.generate(Environment.TEST, random);
+        byte[] hash = key.hash();
+        byte[] original = hash.clone();
+
+        hash[0] ^= 1;
+
+        assertThat(key.hash()).isEqualTo(original);
+    }
+
+    @Test
+    void lastFourAreTheLastFourCharacters() {
+        ApiKeySecret key = ApiKeySecret.generate(Environment.TEST, random);
+
+        assertThat(key.lastFour()).hasSize(4);
+        assertThat(key.reveal()).endsWith(key.lastFour());
+    }
+
+    @Test
+    void toStringMasksTheSecret() {
+        ApiKeySecret key = ApiKeySecret.generate(Environment.LIVE, random);
+
+        assertThat(key).hasToString("sk_live_…" + key.lastFour());
+        assertThat(key.toString()).doesNotContain(key.reveal().substring("sk_live_".length(), 40));
     }
 
     /**
