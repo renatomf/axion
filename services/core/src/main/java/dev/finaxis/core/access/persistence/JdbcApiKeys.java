@@ -36,9 +36,9 @@ public class JdbcApiKeys {
     }
 
     /**
-     * Waits until no other transaction is issuing a key for this tenant, and keeps the others waiting
-     * until this transaction ends. Without it, two requests could each count nine keys and both
-     * insert a tenth.
+     * Waits until no other transaction is issuing or rolling a key for this tenant, and keeps the
+     * others waiting until this transaction ends. Without it, two requests could each count nine keys
+     * and both insert a tenth.
      *
      * <p>An advisory lock is a lock on a number, not on a row: there is no tenant row in this
      * module's schema to lock. The two-number form keeps it apart from advisory locks other code may

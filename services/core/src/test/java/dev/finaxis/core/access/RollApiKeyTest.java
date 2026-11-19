@@ -2,6 +2,7 @@ package dev.finaxis.core.access;
 
 import static dev.finaxis.core.tenancy.Permission.CHARGES_READ;
 import static dev.finaxis.core.tenancy.Permission.CHARGES_WRITE;
+import static dev.finaxis.core.tenancy.Permission.REFUNDS_WRITE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -177,6 +178,58 @@ class RollApiKeyTest {
 
         assertThat(access.roll(admin(Environment.TEST), first.replacement().id(), DAY))
                 .isInstanceOf(RollResult.Rolled.class);
+    }
+
+    /** The admin who issued the key had refunds:write; the developer who rolls it does not. */
+    @Test
+    void refusesScopesTheMemberWhoRollsLacks() {
+        var old = issued(Environment.TEST, Set.of(CHARGES_READ, REFUNDS_WRITE));
+        var developer = caller(Environment.TEST, new MemberId(UUID.randomUUID()), Role.DEVELOPER);
+
+        assertThat(access.roll(developer, old.id(), DAY))
+                .isEqualTo(new RollResult.ScopesNotHeld(Set.of(REFUNDS_WRITE)));
+        assertThat(access.keys(organization.test()))
+                .singleElement()
+                .satisfies(key -> assertThat(key.expiresAt()).isEmpty());
+    }
+
+    @Test
+    void refusesAGracePeriodThatWouldPassTheLimit() {
+        var old = issued(Environment.TEST, Set.of(CHARGES_READ));
+        for (int i = 1; i < AccessApi.MAX_ACTIVE_KEYS; i++) {
+            issued(Environment.TEST, Set.of(CHARGES_READ));
+        }
+
+        assertThat(access.roll(admin(Environment.TEST), old.id(), DAY))
+                .isEqualTo(new RollResult.LimitReached(AccessApi.MAX_ACTIVE_KEYS));
+        assertThat(access.keys(organization.test()))
+                .hasSize(AccessApi.MAX_ACTIVE_KEYS)
+                .allSatisfy(key -> assertThat(key.expiresAt()).isEmpty());
+    }
+
+    /** Without a grace period, the replacement takes the old key's place instead of joining it. */
+    @Test
+    void rollsWithoutAGracePeriodAtTheLimit() {
+        var old = issued(Environment.TEST, Set.of(CHARGES_READ));
+        for (int i = 1; i < AccessApi.MAX_ACTIVE_KEYS; i++) {
+            issued(Environment.TEST, Set.of(CHARGES_READ));
+        }
+
+        assertThat(access.roll(admin(Environment.TEST), old.id(), Duration.ZERO))
+                .isInstanceOf(RollResult.Rolled.class);
+    }
+
+    /** During the grace period both keys work, so both count towards the limit. */
+    @Test
+    void countsTheOldKeyDuringItsGracePeriod() {
+        var old = issued(Environment.TEST, Set.of(CHARGES_READ));
+        for (int i = 2; i < AccessApi.MAX_ACTIVE_KEYS; i++) {
+            issued(Environment.TEST, Set.of(CHARGES_READ));
+        }
+        rolled(access.roll(admin(Environment.TEST), old.id(), DAY));
+
+        assertThat(access.issue(admin(Environment.TEST), "Checkout", Set.of(CHARGES_READ)))
+                .isEqualTo(new IssueResult.LimitReached(AccessApi.MAX_ACTIVE_KEYS));
     }
 
     /**

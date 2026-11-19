@@ -1,5 +1,8 @@
 package dev.finaxis.core.access;
 
+import dev.finaxis.core.tenancy.Permission;
+import java.util.Set;
+
 /**
  * The outcome of {@link AccessApi#roll}. Expected outcomes are values, not exceptions (overview
  * design, section 19.1), and the interface is sealed, so a {@code switch} over it must handle each
@@ -24,4 +27,25 @@ public sealed interface RollResult {
      * replacement is the key to roll next.
      */
     record KeyNotRollable() implements RollResult {}
+
+    /**
+     * The member lacks some of the key's scopes, so nothing was rolled: the replacement is a new
+     * key, and a key never does more than the member who issued it could (tenancy design, section
+     * 3.3). A member with fewer permissions can issue a narrower key instead.
+     *
+     * @param missing the key's scopes the member lacks; the set cannot be changed
+     */
+    record ScopesNotHeld(Set<Permission> missing) implements RollResult {
+
+        public ScopesNotHeld {
+            missing = Set.copyOf(missing);
+        }
+    }
+
+    /**
+     * The tenant already has {@value AccessApi#MAX_ACTIVE_KEYS} keys that work, and the old key
+     * would keep working beside its replacement during the grace period, so nothing was rolled.
+     * Rolling without a grace period, or revoking another key, makes room.
+     */
+    record LimitReached(int limit) implements RollResult {}
 }

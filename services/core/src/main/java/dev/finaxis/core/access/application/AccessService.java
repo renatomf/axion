@@ -83,17 +83,42 @@ public class AccessService implements AccessApi {
         return keys.find(revoker.tenant(), key);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Takes the same per-tenant lock as {@link #issue}, since the replacement counts towards the
+     * limit. A revocation does not take it, so the old key is ended with a conditional update that
+     * also catches a revocation made after the key was read.
+     */
     @Override
     @Transactional
     public RollResult roll(MemberCaller roller, ApiKeyId key, Duration grace) {
         requireGrace(grace);
+        keys.lockTenantKeys(roller.tenant());
         Optional<ApiKeyView> found = keys.find(roller.tenant(), key);
         if (found.isEmpty()) {
             return new RollResult.KeyNotFound();
         }
         ApiKeyView old = found.get();
+        if (old.revokedAt().isPresent() || old.expiresAt().isPresent()) {
+            return new RollResult.KeyNotRollable();
+        }
+        // The replacement is a new key, so it may not do more than the member who rolls it could,
+        // even if the member who issued the old key could.
+        Set<Permission> missing = EnumSet.copyOf(old.scopes());
+        missing.removeAll(roller.permissions());
+        if (!missing.isEmpty()) {
+            return new RollResult.ScopesNotHeld(missing);
+        }
 
         Instant now = now();
+        // The old key is working, so it is counted. During a grace period both keys work; without
+        // one, the replacement takes the old key's place.
+        int activeAfterRoll = keys.countActive(roller.tenant(), now) + (grace.isZero() ? 0 : 1);
+        if (activeAfterRoll > MAX_ACTIVE_KEYS) {
+            return new RollResult.LimitReached(MAX_ACTIVE_KEYS);
+        }
+
         // Ends the old key first: if it no longer works, nothing has been written yet. Truncated
         // like now(), since a Duration may carry nanoseconds.
         if (!keys.expire(roller.tenant(), key, now.plus(grace).truncatedTo(ChronoUnit.MICROS))) {

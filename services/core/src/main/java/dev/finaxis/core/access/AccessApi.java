@@ -60,8 +60,11 @@ public interface AccessApi {
      *
      * @param grace how long the old key keeps working, from zero to {@link #MAX_ROLL_GRACE}
      * @return {@link RollResult.Rolled} with the new key and its secret, {@link
-     *     RollResult.KeyNotFound} if the tenant has no key with this ID, or {@link
-     *     RollResult.KeyNotRollable} if the key was revoked or already rolled
+     *     RollResult.KeyNotFound} if the tenant has no key with this ID, {@link
+     *     RollResult.KeyNotRollable} if the key was revoked or already rolled, {@link
+     *     RollResult.ScopesNotHeld} if the member lacks one of the key's scopes, or {@link
+     *     RollResult.LimitReached} if the replacement would pass {@value #MAX_ACTIVE_KEYS} working
+     *     keys
      * @throws IllegalArgumentException if the grace period is negative or longer than {@link
      *     #MAX_ROLL_GRACE}, which the endpoint's contract rejects first
      */
