@@ -48,6 +48,10 @@ class LedgerSchemaTest {
             insertEntry(entry, tenant);
             insertPosting(entry, settlement, tenant, "BRL", "DEBIT", 100);
             insertPosting(entry, available, tenant, "BRL", "CREDIT", 100);
+            // The rows stay committed, so their balances must match their postings, as the ledger
+            // would have written them; otherwise the balance verifier would report them (I6).
+            insertBalance(settlement, 100);
+            insertBalance(available, 100);
         });
 
         assertThat(entryExists(entry)).isTrue();
@@ -239,6 +243,12 @@ class LedgerSchemaTest {
                 .params(id, tenant, "tenant:" + tenant + ":" + id, type, normalBalance, currency)
                 .update();
         return id;
+    }
+
+    private void insertBalance(UUID account, long balance) {
+        jdbc.sql("INSERT INTO ledger.balances (account_id, balance) VALUES (?, ?)")
+                .params(account, balance)
+                .update();
     }
 
     private UUID insertEntry(UUID tenant) {

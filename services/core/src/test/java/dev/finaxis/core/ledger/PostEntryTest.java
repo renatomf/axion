@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.finaxis.core.PostgresTestConfiguration;
+import dev.finaxis.core.ledger.application.BalanceVerifier;
+import dev.finaxis.core.ledger.application.LedgerVerification;
 import dev.finaxis.core.shared.Money;
 import java.time.LocalDate;
 import java.util.Collections;
@@ -14,6 +16,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,16 +41,19 @@ class PostEntryTest {
     private final LedgerApi ledger;
     private final JdbcClient jdbc;
     private final TransactionTemplate transaction;
+    private final BalanceVerifier verifier;
 
     private UUID tenant;
     private AccountId settlement;
     private AccountId available;
 
     @Autowired
-    PostEntryTest(LedgerApi ledger, JdbcClient jdbc, PlatformTransactionManager transactions) {
+    PostEntryTest(
+            LedgerApi ledger, JdbcClient jdbc, PlatformTransactionManager transactions, BalanceVerifier verifier) {
         this.ledger = ledger;
         this.jdbc = jdbc;
         this.transaction = new TransactionTemplate(transactions);
+        this.verifier = verifier;
     }
 
     @BeforeEach
@@ -57,6 +63,12 @@ class PostEntryTest {
                 new AccountRequest(tenant, "platform:settlement", AccountType.ASSET, BRL, true, false));
         available = ledger.openAccount(
                 new AccountRequest(tenant, "tenant:available", AccountType.LIABILITY, BRL, false, false));
+    }
+
+    /** What a test commits must leave the ledger's invariants intact (ledger design, section 8). */
+    @AfterEach
+    void leavesTheLedgerSound() {
+        assertThat(verifier.verify()).isEqualTo(new LedgerVerification(List.of(), List.of(), List.of()));
     }
 
     @Test
