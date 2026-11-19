@@ -192,7 +192,7 @@ sk_<environment>_<30 random characters><6 checksum characters>
 No real-looking key appears in this repository, so that the secret scanners stay strict.
 
 - The 30 random characters come from `SecureRandom`: about 178 bits, beyond any brute force.
-- The checksum is the CRC32 of the random part, as in GitHub's token format. It lets the core reject a mistyped or invented key without a database query, and lets secret scanners recognize a real key with few false positives. Gitleaks gets a rule for the format.
+- The checksum is the CRC32 of the random part, in 6 base62 characters, as in GitHub's token format. It lets the core reject a mistyped or invented key without a database query, and lets secret scanners that verify it recognize a real key with few false positives. Gitleaks gets a rule for the format; it matches the shape and cannot verify the checksum, so tests generate their keys instead of writing them down.
 - The environment in the prefix tells a reader which environment a leaked key reaches; the core never trusts it, and reads the tenant from the stored key.
 
 **Storage.** The key is shown once, when it is issued, and never stored. The database keeps its SHA-256 hash, unique and indexed, so authentication is one indexed lookup. A fast hash is right here: slow hashes such as Argon2 protect low-entropy passwords from guessing, and a 178-bit random key cannot be guessed, while a slow hash would add tens of milliseconds to every request. Lists show the key's name, `last_four` and dates.

@@ -1,0 +1,21 @@
+# Gitleaks configuration: https://github.com/gitleaks/gitleaks#configuration
+#
+# Found automatically by `gitleaks git .` at the repository root, so the
+# pre-commit hook (lefthook.yml) and CI (.github/workflows/gitleaks.yml) both
+# apply it.
+
+title = "Finaxis"
+
+# Keep every built-in rule; the rules below are added to them.
+[extend]
+useDefault = true
+
+# Finaxis API keys (tenancy and access design, section 4.3): the prefix, then
+# 30 random and 6 checksum characters in base62. Gitleaks cannot verify the
+# CRC32 checksum, so any text of this shape is reported; tests generate their
+# keys at run time instead of writing them down.
+[[rules]]
+id = "finaxis-api-key"
+description = "Finaxis API key"
+regex = '''\bsk_(?:live|test)_[0-9A-Za-z]{36}\b'''
+keywords = ["sk_live_", "sk_test_"]
