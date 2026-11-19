@@ -365,3 +365,43 @@ The isolation harness reads the operations from the contracts, so a new endpoint
 | **`BYPASSRLS` for jobs** | Exempts a role from every policy on every table. Policies written for a job role are explicit, per table and read-only |
 | **A shared store for rate limits** now | Phase 1 runs one instance; Redis is more infrastructure and PostgreSQL a write per request. Documented for scale-out |
 | **A hosted identity provider** | See [ADR 0005](../adr/0005-keycloak-for-human-identity.md) |
+
+## 10. Security considerations
+
+These modules are the security boundary of the platform: every other module trusts the caller and tenant they establish. The threats are someone acting with a stolen or forged credential, a caller reaching another tenant's data, a caller gaining permissions it was not given, and floods that exhaust the core.
+
+| STRIDE | Threat | Mitigation |
+|---|---|---|
+| **Spoofing** | An attacker uses a leaked API key | Keys are recognizable by secret scanners (prefix and checksum) and revocable at once; rolling allows replacement without downtime; `last_used_at` shows whether a key is in use; human-only permissions are never scopes |
+| **Spoofing** | An attacker forges or replays an access token | Signature against the realm's keys, fixed algorithm, issuer, audience and expiry checked; access tokens live 5 minutes; refresh tokens never leave the BFF |
+| **Spoofing** | An attacker takes over a member's password | Mandatory MFA, brute-force lockout, short sessions; sensitive operations require a recent authentication (step-up) |
+| **Tampering** | A caller names another tenant in the path or the body | The body has no tenant field; a path tenant is resolved only through the caller's memberships; API keys ignore it; `WITH CHECK` rejects a row written for another tenant |
+| **Tampering** | A member grants themselves a role | Only `members:manage` changes roles, with step-up; DTOs are explicit; the last admin cannot be removed |
+| **Repudiation** | A member denies issuing or revoking a key | Every key records its issuer; issuing, rolling, revoking and role changes publish events for the hash-chained audit trail (block G); logs carry the key or member ID and the correlation ID |
+| **Information disclosure** | A tenant reads another tenant's data | Four layers: tenant from the credential, a tenant filter in every query, Row-Level Security failing closed, and the isolation harness over every operation; another tenant's resource is a `404` |
+| **Information disclosure** | A key or token leaks through logs or URLs | Credentials only in the `Authorization` header; never logged; only the hash is stored; `IssuedApiKey` masks itself; Gitleaks rule for the key format |
+| **Information disclosure** | Error responses tell an attacker which keys exist | One `401` for every authentication failure; the reason only in logs and metrics |
+| **Denial of service** | A caller floods the API | Per-tenant, per-key and per-member buckets; per-IP limits at the proxy before authentication; authentication is one indexed lookup, and a bad checksum costs no query |
+| **Elevation of privilege** | A developer issues a key with more power than they have | A key's scopes are a subset of its issuer's permissions; human-only permissions are never scopes; live keys need step-up like all key operations |
+| **Elevation of privilege** | Code runs a query without a tenant, or as another module | No tenant bound means no rows; module roles limit each module to its schema; no role has `BYPASSRLS`; job roles are read-only. Module roles are not a barrier against arbitrary SQL in the service's session (section 5.6): parameterized statements are, checked by Semgrep |
+
+## 11. Delivery
+
+| PR | Delivers | Sections |
+|---|---|---|
+| 1.17 | Organizations, tenants, members and roles; `TenantId`, `Environment` and `TenantContext` in `shared`; the platform organization; the tenancy role | 3 |
+| 1.18 | Keycloak in Compose, the realm as code, MFA and session policy | 4.1 |
+| 1.19 | Resource server on `/internal`, tenant resolution from the path, `/internal/me`, `@RequiresPermission`, step-up challenge | 4.1, 4.2, 5.1, 5.2 |
+| 1.20 | API key issuance, rolling and revocation, with their endpoints and the Gitleaks rule | 4.3, 7 |
+| 1.21 | API key authentication on `/v1` | 4.3, 4.4, 5.1 |
+| 1.22 | Row-Level Security, the binding listener, the login role and module roles, the ledger's policies | 5.3–5.6 |
+| 1.23 | Tenant isolation harness | 8 |
+| 1.24 | Rate limiting | 6 |
+
+Seeding organizations and members for the demo ships with the synthetic data generator (PR 1.66); until then, tests create their own.
+
+## 12. Open questions
+
+1. Should a role apply to both of an organization's environments, as proposed, or be granted per environment (a developer with test access only)?
+2. Should invitations and member management ship in phase 1, or wait until the console needs them?
+3. Are the rate-limit defaults of section 6 reasonable for the load tests?

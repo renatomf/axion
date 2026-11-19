@@ -10,3 +10,4 @@ One design doc per significant feature, written and approved before implementati
 |---|---|
 | [Platform overview](2026-11-17-platform-overview.md) | Approved |
 | [Ledger](2026-11-18-ledger.md) | Approved |
+| [Tenancy and access](2026-11-19-tenancy-and-access.md) | Draft |
