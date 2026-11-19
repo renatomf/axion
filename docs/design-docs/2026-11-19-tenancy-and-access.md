@@ -140,6 +140,7 @@ access.api_keys
 | A tenant has two environments (section 5.1) | An organization has two tenants, one per environment | One isolation key; test money never reaches live accounts (section 3.2) |
 | "API keys per tenant and environment" (section 4.3) | API keys per tenant | Same meaning: a tenant is one environment |
 | A reserved platform tenant (ledger design, section 3.3) | One platform tenant per environment | Test and live platform accounts stay apart |
+| Step-up "checked via the `acr` claim" (section 4.3) | Checked via `auth_time` only | Keycloak's default `acr` shows a fresh login, not a second factor; the realm requires MFA on every login instead (section 4.2) |
 
 ## 4. Authentication
 
@@ -165,18 +166,20 @@ Keycloak authenticates people ([ADR 0005](../adr/0005-keycloak-for-human-identit
 - `iss` is the realm, `aud` contains `finaxis-core` and `azp` is an allowed client;
 - `exp` and `nbf` hold, with 30 seconds of clock skew.
 
-The core reads only `sub`, `acr` and `auth_time` from the token. Roles are not in the token: they are looked up in `tenancy` on every request, so removing a role takes effect on the next request instead of when the token expires.
+The core reads only `sub` and `auth_time` from the token. Roles are not in the token: they are looked up in `tenancy` on every request, so removing a role takes effect on the next request instead of when the token expires.
 
 ### 4.2 Step-up
 
 Some operations need proof that the member authenticated recently, not just a valid session: issuing, rolling and revoking API keys, changing webhook endpoints, managing members and, in phase 2, approving payouts.
 
-Such an operation requires an `auth_time` at most 5 minutes old and an `acr` that shows MFA. Otherwise the core answers `403` with code `step_up_required` and the challenge of RFC 9470, which the BFF answers by sending the member back to Keycloak to authenticate again:
+Such an operation, marked `@RequiresStepUp` beside its permission, requires an `auth_time` at most 5 minutes old; a token without `auth_time` fails the check. Otherwise the core answers `403` with code `step_up_required` and the challenge of RFC 9470, which the BFF answers by sending the member back to Keycloak to authenticate again. The check runs after the permission check, since authenticating again would not help a member without the permission.
 
 ```
 WWW-Authenticate: Bearer error="insufficient_user_authentication",
-  error_description="A recent authentication is required", max_age=300
+  error_description="A recent authentication is required", max_age="300"
 ```
+
+`auth_time` is the moment the member last entered their password and second factor; Keycloak keeps it when it refreshes a token or reuses the session, and sets it again only on a new login. That every login includes the second factor comes from the realm, not from the token: its browser flow requires MFA for every user, and the core accepts only the console's tokens (`azp`), whose client has no password grant. The `acr` claim adds nothing here: by default Keycloak sets it to `1` for any fresh login, password-only included, and `0` for a reused session. An `acr` that names MFA needs Keycloak's levels of authentication in the login flow, a later hardening that the core's check would then also require.
 
 ### 4.3 API keys
 
@@ -228,7 +231,7 @@ sealed interface Caller permits ApiKeyCaller, MemberCaller {
     Set<Permission> permissions();
 }
 record ApiKeyCaller(TenantId tenant, ApiKeyId key, Set<Permission> permissions) implements Caller {}
-record MemberCaller(TenantId tenant, MemberId member, Set<Permission> permissions, Instant authTime) implements Caller {}
+record MemberCaller(TenantId tenant, MemberId member, Set<Permission> permissions) implements Caller {}
 ```
 
 **API keys.** The tenant is the key's tenant and the permissions are its scopes. Nothing in the request can change either.

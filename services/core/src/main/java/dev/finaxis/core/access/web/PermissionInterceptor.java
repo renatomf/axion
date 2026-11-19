@@ -3,6 +3,7 @@ package dev.finaxis.core.access.web;
 import dev.finaxis.core.access.MemberCaller;
 import dev.finaxis.core.access.NoPermissionRequired;
 import dev.finaxis.core.access.RequiresPermission;
+import dev.finaxis.core.access.RequiresStepUp;
 import dev.finaxis.core.shared.PublicId;
 import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.Membership;
@@ -13,6 +14,7 @@ import dev.finaxis.core.tenancy.TenantStatus;
 import dev.finaxis.core.tenancy.TenantView;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import java.time.Clock;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -21,6 +23,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -44,7 +47,10 @@ import org.springframework.web.servlet.HandlerMapping;
  *       sub}; a tenant that does not exist or that the member does not belong to answers {@code
  *       404}, so nobody learns which tenants exist;
  *   <li>a tenant that is not active answers {@code 403 tenant_inactive};
- *   <li>roles become permissions; without the required one, {@code 403 insufficient_permission}.
+ *   <li>roles become permissions; without the required one, {@code 403 insufficient_permission};
+ *   <li>if the method also carries {@link RequiresStepUp}, a member whose {@code auth_time} is more
+ *       than five minutes old, or missing, gets {@code 403 step_up_required}. This comes last:
+ *       authenticating again would not help a member who lacks the permission.
  * </ol>
  *
  * <p>The caller is then kept as a request attribute, where {@link CallerArgumentResolver} finds it.
@@ -59,12 +65,17 @@ final class PermissionInterceptor implements HandlerInterceptor {
     /** The path variable that names the tenant, as in {@code /internal/tenants/{tenant_id}/…}. */
     static final String TENANT_ID = "tenant_id";
 
+    /** The token claim with the moment the member last authenticated, in seconds. */
+    static final String AUTH_TIME = "auth_time";
+
     private static final Logger LOG = LoggerFactory.getLogger(PermissionInterceptor.class);
 
     private final TenancyApi tenancy;
+    private final Clock clock;
 
-    PermissionInterceptor(TenancyApi tenancy) {
+    PermissionInterceptor(TenancyApi tenancy, Clock clock) {
         this.tenancy = tenancy;
+        this.clock = clock;
     }
 
     @Override
@@ -81,13 +92,21 @@ final class PermissionInterceptor implements HandlerInterceptor {
             LOG.error("Endpoint {} declares no permission and is denied", method.getShortLogMessage());
             throw AccessProblems.insufficientPermission();
         }
-        request.setAttribute(CALLER_ATTRIBUTE, member(request, required.value()));
+        Jwt token = accessToken();
+        MemberCaller caller = member(request, token, required.value());
+        if (method.hasMethodAnnotation(RequiresStepUp.class)
+                && !RecentAuthentication.isRecent(token.getClaimAsInstant(AUTH_TIME), clock)) {
+            throw AccessProblems.stepUpRequired();
+        }
+        request.setAttribute(CALLER_ATTRIBUTE, caller);
         return true;
     }
 
-    private MemberCaller member(HttpServletRequest request, Permission required) {
+    private MemberCaller member(HttpServletRequest request, Jwt token, Permission required) {
         TenantId tenant = tenantInPath(request);
-        Membership membership = tenancy.membership(subject(), tenant).orElseThrow(AccessProblems::notFound);
+        // MemberTokenValidation rejects a token without a subject, so it is never null here.
+        String subject = Objects.requireNonNull(token.getSubject());
+        Membership membership = tenancy.membership(subject, tenant).orElseThrow(AccessProblems::notFound);
         TenantView view = membership.tenants().stream()
                 .filter(candidate -> candidate.id().equals(tenant))
                 .findFirst()
@@ -122,15 +141,15 @@ final class PermissionInterceptor implements HandlerInterceptor {
     }
 
     /**
-     * The member's Keycloak {@code sub}. Only {@code /internal} reaches a tenant-scoped endpoint
-     * for now, and its filter chain authenticates every request with a validated access token, which
-     * always has a subject; API keys on {@code /v1} arrive in PR 1.21.
+     * The member's validated access token. Only {@code /internal} reaches a tenant-scoped endpoint
+     * for now, and its filter chain authenticates every request with one; API keys on {@code /v1}
+     * arrive in PR 1.21.
      */
-    private static String subject() {
+    private static Jwt accessToken() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (!(authentication instanceof JwtAuthenticationToken token)) {
             throw new IllegalStateException("A tenant-scoped request must be authenticated with an access token");
         }
-        return Objects.requireNonNull(token.getToken().getSubject());
+        return token.getToken();
     }
 }

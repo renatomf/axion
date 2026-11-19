@@ -1,6 +1,7 @@
 package dev.finaxis.core.access.web;
 
 import dev.finaxis.core.tenancy.TenancyApi;
+import java.time.Clock;
 import java.util.List;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
@@ -18,14 +19,16 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 class AccessWebConfiguration implements WebMvcConfigurer {
 
     private final TenancyApi tenancy;
+    private final Clock clock;
 
-    AccessWebConfiguration(TenancyApi tenancy) {
+    AccessWebConfiguration(TenancyApi tenancy, Clock clock) {
         this.tenancy = tenancy;
+        this.clock = clock;
     }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(new PermissionInterceptor(tenancy)).addPathPatterns("/internal/**", "/v1/**");
+        registry.addInterceptor(new PermissionInterceptor(tenancy, clock)).addPathPatterns("/internal/**", "/v1/**");
     }
 
     @Override

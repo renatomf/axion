@@ -1,5 +1,6 @@
 package dev.finaxis.core.access.web;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.ErrorResponseException;
@@ -27,6 +28,23 @@ final class AccessProblems {
     /** A caller without the permission the operation requires, or an operation that declares none. */
     static ErrorResponseException insufficientPermission() {
         return problem(HttpStatus.FORBIDDEN, "insufficient_permission", "Access is denied.");
+    }
+
+    /**
+     * A member who must authenticate again before the operation. The {@code WWW-Authenticate}
+     * challenge of RFC 9470 tells the console how recent the authentication must be; the console
+     * then asks Keycloak for a login with that {@code max_age}.
+     */
+    static ErrorResponseException stepUpRequired() {
+        ErrorResponseException problem =
+                problem(HttpStatus.FORBIDDEN, "step_up_required", "A recent authentication is required.");
+        problem.getHeaders()
+                .set(
+                        HttpHeaders.WWW_AUTHENTICATE,
+                        "Bearer error=\"insufficient_user_authentication\", "
+                                + "error_description=\"A recent authentication is required\", "
+                                + "max_age=\"" + RecentAuthentication.MAX_AGE.toSeconds() + "\"");
+        return problem;
     }
 
     private static ErrorResponseException problem(HttpStatus status, String code, String detail) {
