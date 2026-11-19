@@ -44,7 +44,7 @@ cd services/core
 ./gradlew pitest     # mutation testing of the ledger (a few minutes; not part of build)
 ```
 
-Tests use JUnit Jupiter and AssertJ, from Spring Boot's test starter. Rules that must hold for every input, such as `Money` arithmetic, are also checked with property-based tests in [jqwik](https://jqwik.net): each `@Property` runs against generated inputs and, on failure, reports the smallest input that breaks it and the seed that reproduces the run. Tests that start the application run against a real PostgreSQL in Docker, started by [Testcontainers](https://testcontainers.com) ([`PostgresTestConfiguration`](services/core/src/test/java/dev/finaxis/core/PostgresTestConfiguration.java)), so Docker must be running; `just up` is not needed. Test reports are written to `build/reports/tests/test/index.html`.
+Tests use JUnit Jupiter and AssertJ, from Spring Boot's test starter. Rules that must hold for every input, such as `Money` arithmetic, are also checked with property-based tests in [jqwik](https://jqwik.net): each `@Property` runs against generated inputs and, on failure, reports the smallest input that breaks it and the seed that reproduces the run. Tests that start the application run against a real PostgreSQL in Docker, started by [Testcontainers](https://testcontainers.com) ([`PostgresTestConfiguration`](services/core/src/test/java/dev/finaxis/core/PostgresTestConfiguration.java)), so Docker must be running; `just up` is not needed. Tests of member authentication also start a real Keycloak with the `finaxis` realm ([`KeycloakTestConfiguration`](services/core/src/test/java/dev/finaxis/core/KeycloakTestConfiguration.java)), which adds test-only clients and a synthetic member to it. Test reports are written to `build/reports/tests/test/index.html`.
 
 The ledger's tests are themselves tested with [PIT](https://pitest.org) mutation testing: `pitest` makes small changes to the ledger's compiled code, such as flipping a comparison or removing a call, and runs the ledger tests against each one. A change the tests do not notice "survives" and points at behavior no test checks. The task fails when fewer than 90% of the changes are caught; the report, listing every survivor, is written to `build/reports/pitest/index.html`.
 
@@ -92,8 +92,8 @@ Configuration lives in [`src/main/resources`](services/core/src/main/resources).
 
 | Profile | Active when | Differences |
 |---|---|---|
-| default | No profile is set (e.g. `java -jar build/libs/finaxis-core.jar`) | Safe defaults; the database is set with `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME` and `SPRING_DATASOURCE_PASSWORD` |
-| `local` | `./gradlew bootRun`, or `SPRING_PROFILES_ACTIVE=local` | Connects to the PostgreSQL started by `just up`, with the settings in `infra/compose/.env`; health shows component details; logs are plain text |
+| default | No profile is set (e.g. `java -jar build/libs/finaxis-core.jar`) | Safe defaults; the database is set with `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME` and `SPRING_DATASOURCE_PASSWORD`, and the Keycloak realm with `FINAXIS_MEMBERS_ISSUER` (required: the service does not start without it) |
+| `local` | `./gradlew bootRun`, or `SPRING_PROFILES_ACTIVE=local` | Connects to the PostgreSQL started by `just up`, with the settings in `infra/compose/.env`, and accepts tokens of the Keycloak started by `just up auth` (needed only for requests with a token); health shows component details; logs are plain text |
 
 The service listens on port 8080. Only the Actuator health endpoint is exposed:
 
@@ -169,9 +169,10 @@ just lint-api
 
 Every request passes through [Spring Security](https://docs.spring.io/spring-security/reference/) before any controller runs, configured in one place: [`SecurityConfiguration`](services/core/src/main/java/dev/finaxis/core/access/SecurityConfiguration.java) in the `access` module.
 
-- **Deny by default.** A request is allowed only if a rule opens it. Today the only rule opens the health endpoint (`/actuator/health` and its probes). A new endpoint answers `401` until its pull request adds an explicit rule, and that rule is reviewed like any other code.
+- **Deny by default.** A request is allowed only if a rule opens it. Today two rules do: the health endpoint (`/actuator/health` and its probes) is public, and `/internal` is open to members with a valid access token. A new endpoint elsewhere answers `401` until its pull request adds an explicit rule, and that rule is reviewed like any other code.
+- **Members on `/internal`.** The core is an OAuth 2.0 resource server for the `finaxis` realm, in its own filter chain. A token is accepted only if it is a JWT signed with `RS256` by one of the realm's keys, with `iss` the realm, `aud` containing `finaxis-core`, `azp` one of `finaxis.members.clients`, and `exp` (required) and `nbf` holding with 30 seconds of clock skew ([`MemberTokenValidation`](services/core/src/main/java/dev/finaxis/core/access/MemberTokenValidation.java)). The token is read from the `Authorization: Bearer` header only. Anything else, an API key included, gets the same `401`. `/v1` has no bearer token filter, so an access token there is a `401` too.
 - An unauthenticated request gets a `401` (code `unauthorized`); an authenticated one without a matching rule, a `403` (code `forbidden`). Both are Problem Details, and their detail never says why, so a missing path and a closed one look the same.
-- **Stateless:** no HTTP session, no cookies, no login form, HTTP Basic or `/logout`. Callers will authenticate on every request with API keys or service tokens (phase 1). Without cookies there is nothing for CSRF to abuse, so CSRF protection is off; the BFF, which uses cookies, has its own.
+- **Stateless:** no HTTP session, no cookies, no login form, HTTP Basic or `/logout`. Callers authenticate on every request, members with access tokens and, from PR 1.21, systems with API keys. Without cookies there is nothing for CSRF to abuse, so CSRF protection is off; the BFF, which uses cookies, has its own.
 - Every response, errors included, carries `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Cache-Control: no-store`. `Strict-Transport-Security` is sent on HTTPS requests only; TLS ends at the reverse proxy (overview design, section 4.2).
 
 ### Local infrastructure
