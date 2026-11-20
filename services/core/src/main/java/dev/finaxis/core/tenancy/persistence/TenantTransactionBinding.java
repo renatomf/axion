@@ -20,7 +20,7 @@ public class TenantTransactionBinding implements TransactionExecutionListener {
 
     public static final String TENANT_SETTING = "finaxis.tenant_id";
 
-    static final String PLATFORM_TENANT_SETTING = "finaxis.platform_tenant_id";
+    public static final String PLATFORM_TENANT_SETTING = "finaxis.platform_tenant_id";
 
     private final JdbcClient jdbc;
     private final TenancyApi tenancy;
