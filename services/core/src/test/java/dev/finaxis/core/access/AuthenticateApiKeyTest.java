@@ -61,8 +61,8 @@ class AuthenticateApiKeyTest {
         var key = issued(Environment.LIVE, Set.of(CHARGES_READ, CHARGES_WRITE));
 
         assertThat(access.authenticate(key.secret()))
-                .isEqualTo(new Authenticated(
-                        new ApiKeyCaller(organization.live(), key.id(), Set.of(CHARGES_READ, CHARGES_WRITE))));
+                .isEqualTo(new Authenticated(new ApiKeyCaller(
+                        organization.live(), Environment.LIVE, key.id(), Set.of(CHARGES_READ, CHARGES_WRITE))));
     }
 
     @Test

@@ -1,5 +1,6 @@
 package dev.finaxis.core.access;
 
+import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.Permission;
 import java.util.Set;
@@ -11,6 +12,9 @@ import java.util.Set;
 public sealed interface Caller permits ApiKeyCaller, MemberCaller {
 
     TenantId tenant();
+
+    /** The tenant's, read with its status, so code acting on the tenant needs no second query. */
+    Environment environment();
 
     Set<Permission> permissions();
 }
