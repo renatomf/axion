@@ -335,6 +335,7 @@ public interface AccessApi {
     RollResult roll(MemberCaller roller, ApiKeyId key, Duration grace);       // Rolled, KeyNotFound, KeyNotRollable, ScopesNotHeld or LimitReached
     Optional<ApiKeyView> revoke(MemberCaller revoker, ApiKeyId key);            // empty if the tenant has no such key
     List<ApiKeyView> keys(TenantId tenant);
+    AuthenticationResult authenticate(String credential);                   // Authenticated, Rejected or TenantInactive
 }
 ```
 
@@ -343,6 +344,7 @@ public interface AccessApi {
 - `issue` takes the resolved `MemberCaller`, not a tenant and a member ID: it holds the issuer's permissions, which bound the scopes, and its tenant is already proven to be the member's. A refused scope and the limit are expected outcomes, so `IssueResult` returns them as values, like the ledger's `PostResult`.
 - `revoke` takes the resolved `MemberCaller` too, so the key is looked up only among its tenant's keys (overview, section 4.3, layer ②): a key of another tenant is empty, exactly like an unknown one, and the endpoint answers `404`. Revoking a revoked key changes nothing and returns it again, so a retried request is harmless and the first `revoked_at` stays on record.
 - `roll` takes the resolved `MemberCaller` too, for the same reason, and the replacement records that member as its issuer. It refuses a revoked key and one already rolled, even within its grace period: a key is rolled at most once, so it never has two replacements and its grace period cannot be extended; its replacement is the key to roll next. The replacement is a new key, so the member must hold all of its scopes, as when issuing, and during the grace period both keys count towards the limit; rolling without a grace period always fits.
+- `authenticate` resolves the text a caller sent on `/v1` (section 4.4). A text that is not a key, wrong in shape or checksum, is rejected before any query; otherwise one indexed lookup by hash finds the key. `Authenticated` carries the `ApiKeyCaller`; `Rejected` names the reason (`MALFORMED`, `UNKNOWN`, `REVOKED` or `EXPIRED`) and the key's ID when there is one, for logs and metrics only, since every rejection gets the same `401`; `TenantInactive` is a working key of a tenant that is not `ACTIVE`, the `403`. A key revoked during its grace period is `REVOKED`.
 - `IssuedApiKey` is the only type that holds a secret, returned once by `issue` and `roll`; its `toString` masks it. `ApiKeyView` has the name, `last_four`, scopes and dates.
 - Public IDs: `org_` for organizations, `ten_` for tenants, `mem_` for members and `key_` for API keys.
 - Endpoints, contract-first in `internal.yaml`: `GET /internal/me`; `GET` and `POST /internal/tenants/{tenant_id}/api_keys`; `POST …/api_keys/{key_id}/roll` and `POST …/api_keys/{key_id}/revoke`.
