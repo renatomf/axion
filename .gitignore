@@ -15,13 +15,22 @@ Thumbs.db
 *.iml
 .vscode/*
 !.vscode/extensions.json
-.claude/settings.local.json
+*.swp
+*~
+
+# --- AI assistants and local tools ------------------------------------------
+# Shared assistant settings may be committed; personal ones stay local.
+.claude/*
+!.claude/settings.json
+CLAUDE.local.md
+graphify-out/
 
 # --- Java / Gradle ----------------------------------------------------------
 .gradle/
 build/
 out/
 *.class
+*.hprof
 
 # --- Node / TypeScript ------------------------------------------------------
 node_modules/
