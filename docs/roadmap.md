@@ -138,7 +138,7 @@ Estimates assume the Spring learning curve. Quality is never traded for schedule
 | 1.22 | Row-Level Security | RLS policies and per-module DB roles |
 | ↳ 1.22a | Tenant context | `TenantContext` (`ScopedValue`) bound around the controller method once the caller is established; a transaction listener sets `finaxis.tenant_id` ([#149](https://github.com/renatomf/finaxis/pull/149)) |
 | ↳ 1.22b | Tenant policies | `shared.current_tenant()`; RLS on `access.api_keys`; the key lookup and last use through `SECURITY DEFINER` functions owned by `finaxis_access_lookup` ([#151](https://github.com/renatomf/finaxis/pull/151)) |
-| ↳ 1.22c | Module roles | Each module's API entry point switches the transaction to its role with `SET LOCAL ROLE`, restoring the caller's on return |
+| ↳ 1.22c | Module roles | Each module's API entry point switches the transaction to its role with `SET LOCAL ROLE`, restoring the caller's on return ([#153](https://github.com/renatomf/finaxis/pull/153)) |
 | ↳ 1.22d | Login role | `finaxis_app` with `NOINHERIT`, a member of every module role; migrations run as the owner with credentials of their own |
 | ↳ 1.22e | Ledger policies | The platform tenant beside the tenant; the read and write policies of the ledger tables |
 | ↳ 1.22f | Ledger jobs role | `finaxis_ledger_jobs` with read-only policies for the balance verifier |
