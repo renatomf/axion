@@ -102,6 +102,51 @@ class JdbcApiKeysTest {
         assertThat(found.scopes()).containsExactlyInAnyOrder(Permission.CHARGES_READ, Permission.CHARGES_WRITE);
         assertThat(found.revokedAt()).contains(NOW);
         assertThat(found.expiresAt()).isEmpty();
+        assertThat(found.lastUsedAt()).isEmpty();
+    }
+
+    @Test
+    void recordsTheFirstUseOfAKey() {
+        var id = insert(tenant, Set.of(Permission.CHARGES_READ));
+
+        assertThat(keys.recordUse(id, NOW)).isTrue();
+        assertThat(lastUsedAt(id)).isEqualTo(NOW);
+    }
+
+    @Test
+    void recordsAUseOnlyOnceTheLastIsAnHourOld() {
+        var recent = insert(tenant, Set.of(Permission.CHARGES_READ));
+        var anHourOld = insert(tenant, Set.of(Permission.CHARGES_READ));
+        set("last_used_at", recent, NOW.minus(Duration.ofMinutes(59)));
+        set("last_used_at", anHourOld, NOW.minus(Duration.ofHours(1)));
+
+        assertThat(keys.recordUse(recent, NOW)).isFalse();
+        assertThat(keys.recordUse(anHourOld, NOW)).isTrue();
+        assertThat(lastUsedAt(recent)).isEqualTo(NOW.minus(Duration.ofMinutes(59)));
+        assertThat(lastUsedAt(anHourOld)).isEqualTo(NOW);
+    }
+
+    @Test
+    void neverMovesTheLastUseBackwards() {
+        var id = insert(tenant, Set.of(Permission.CHARGES_READ));
+        set("last_used_at", id, NOW);
+
+        // A request whose clock lags behind the one that last wrote.
+        assertThat(keys.recordUse(id, NOW.minus(Duration.ofMinutes(5)))).isFalse();
+        assertThat(lastUsedAt(id)).isEqualTo(NOW);
+    }
+
+    @Test
+    void findsTheLastUseByHashAndTellsWhetherAnotherIsDue() {
+        var hash = randomHash();
+        var id = insert(tenant, Set.of(Permission.CHARGES_READ), hash);
+        set("last_used_at", id, NOW.minus(Duration.ofMinutes(30)));
+
+        var found = keys.findByHash(hash).orElseThrow();
+
+        assertThat(found.lastUsedAt()).contains(NOW.minus(Duration.ofMinutes(30)));
+        assertThat(found.useIsDue(NOW)).isFalse();
+        assertThat(found.useIsDue(NOW.plus(Duration.ofMinutes(30)))).isTrue();
     }
 
     @Test
@@ -136,6 +181,14 @@ class JdbcApiKeysTest {
         var hash = new byte[32];
         RANDOM.nextBytes(hash);
         return hash;
+    }
+
+    private Instant lastUsedAt(ApiKeyId id) {
+        return jdbc.sql("SELECT last_used_at FROM access.api_keys WHERE id = ?")
+                .param(id.value())
+                .query(OffsetDateTime.class)
+                .single()
+                .toInstant();
     }
 
     private void set(String column, ApiKeyId id, Instant value) {

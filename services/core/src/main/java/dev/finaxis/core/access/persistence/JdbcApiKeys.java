@@ -7,6 +7,7 @@ import dev.finaxis.core.tenancy.MemberId;
 import dev.finaxis.core.tenancy.Permission;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -28,6 +29,13 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 public class JdbcApiKeys {
+
+    /**
+     * How stale a key's {@code last_used_at} may be (section 4.3): it is written again only once
+     * this long has passed, so a key that authenticates many requests an hour adds one write an
+     * hour, not one per request.
+     */
+    public static final Duration LAST_USE_PRECISION = Duration.ofHours(1);
 
     private final JdbcClient jdbc;
 
@@ -140,7 +148,7 @@ public class JdbcApiKeys {
      */
     public Optional<Credential> findByHash(byte[] secretHash) {
         return jdbc.sql("""
-                        SELECT id, tenant_id, scopes, expires_at, revoked_at
+                        SELECT id, tenant_id, scopes, expires_at, revoked_at, last_used_at
                           FROM access.api_keys
                          WHERE secret_hash = :hash
                         """)
@@ -150,7 +158,8 @@ public class JdbcApiKeys {
                         new TenantId(row.getObject("tenant_id", UUID.class)),
                         scopes(row),
                         instant(row, "expires_at"),
-                        instant(row, "revoked_at")))
+                        instant(row, "revoked_at"),
+                        instant(row, "last_used_at")))
                 .optional();
     }
 
@@ -164,7 +173,43 @@ public class JdbcApiKeys {
             TenantId tenant,
             Set<Permission> scopes,
             Optional<Instant> expiresAt,
-            Optional<Instant> revokedAt) {}
+            Optional<Instant> revokedAt,
+            Optional<Instant> lastUsedAt) {
+
+        /**
+         * Whether a use at this instant should be recorded: the key was never used, or its last use
+         * on record is at least {@link #LAST_USE_PRECISION} old. The same rule as {@link
+         * #recordUse}, checked on the row already read, so most requests skip the update entirely.
+         */
+        public boolean useIsDue(Instant now) {
+            return lastUsedAt.isEmpty() || !lastUsedAt.get().isAfter(now.minus(LAST_USE_PRECISION));
+        }
+    }
+
+    /**
+     * Records that the key authenticated a request at this instant, unless its last use on record is
+     * less than {@link #LAST_USE_PRECISION} old.
+     *
+     * <p>The condition is in the {@code UPDATE} itself, not only in {@link Credential#useIsDue}: many
+     * requests with the same key may find it due at once, and only the first to lock the row writes.
+     * The others wait for that lock, then find the new value and update nothing, so the hour is never
+     * written twice and {@code last_used_at} never moves backwards.
+     *
+     * @return whether the key was updated
+     */
+    public boolean recordUse(ApiKeyId id, Instant usedAt) {
+        return jdbc.sql("""
+                        UPDATE access.api_keys
+                           SET last_used_at = :usedAt
+                         WHERE id = :id
+                           AND (last_used_at IS NULL OR last_used_at <= :dueFrom)
+                        """)
+                        .param("usedAt", utc(usedAt))
+                        .param("id", id.value())
+                        .param("dueFrom", utc(usedAt.minus(LAST_USE_PRECISION)))
+                        .update()
+                == 1;
+    }
 
     /**
      * Marks the tenant's key revoked at this instant, unless it already is: the first revocation is
