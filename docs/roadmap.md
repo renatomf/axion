@@ -150,7 +150,7 @@ Estimates assume the Spring learning curve. Quality is never traded for schedule
 | ↳ 1.24b | Rate limit filter | Buckets applied after authentication; `429 rate_limited` with `Retry-After` |
 | ↳ 1.24c | Member limits and headers | Per-member buckets on `/internal`; `RateLimit-Policy` and `RateLimit` headers |
 
-**Cleanup before 1.22.** The existing code is brought to the [comment standard](architecture/engineering-standards.md#comments-and-documentation), one module per PR (`access`, `tenancy`, `ledger`, then `shared`, `web` and `observability`), and `CONTRIBUTING.md` is trimmed to commands and rules. These PRs change no behavior and take no roadmap number.
+**Cleanup before 1.22.** The existing code was brought to the [comment standard](architecture/engineering-standards.md#comments-and-documentation) ([#133](https://github.com/renatomf/finaxis/pull/133)), one module per PR: `access` ([#135](https://github.com/renatomf/finaxis/pull/135), [#137](https://github.com/renatomf/finaxis/pull/137)), `tenancy` ([#139](https://github.com/renatomf/finaxis/pull/139)), `ledger` ([#141](https://github.com/renatomf/finaxis/pull/141)), then `shared`, `web` and `observability` ([#143](https://github.com/renatomf/finaxis/pull/143)). Duplicated test helpers and production code were removed ([#145](https://github.com/renatomf/finaxis/pull/145)), and `CONTRIBUTING.md` was trimmed to commands and rules ([#147](https://github.com/renatomf/finaxis/pull/147)). These PRs changed no behavior and take no roadmap number.
 
 ### 4.4 Block D — Idempotency
 
