@@ -13,7 +13,6 @@ import dev.finaxis.core.access.domain.ApiKeySecret;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.NewOrganization;
-import dev.finaxis.core.tenancy.Permission;
 import dev.finaxis.core.tenancy.Role;
 import dev.finaxis.core.tenancy.TenancyApi;
 import java.time.OffsetDateTime;
@@ -54,7 +53,8 @@ class IssueApiKeyTest {
 
     @Test
     void storesOnlyTheHashOfTheSecretItReturns() {
-        var key = issued(admin(Environment.LIVE), "Checkout", Set.of(CHARGES_READ, CHARGES_WRITE));
+        var key =
+                AccessFixtures.issue(access, admin(Environment.LIVE), "Checkout", Set.of(CHARGES_READ, CHARGES_WRITE));
 
         var secret = ApiKeySecret.parse(key.secret()).orElseThrow();
         var stored = jdbc.sql("""
@@ -74,7 +74,7 @@ class IssueApiKeyTest {
 
     @Test
     void returnsTheIssueInstantThatIsStored() {
-        var key = issued(admin(Environment.TEST), "Checkout", Set.of(CHARGES_READ));
+        var key = AccessFixtures.issue(access, admin(Environment.TEST), "Checkout", Set.of(CHARGES_READ));
 
         var stored = jdbc.sql("SELECT created_at FROM access.api_keys WHERE id = ?")
                 .param(key.id().value())
@@ -85,7 +85,7 @@ class IssueApiKeyTest {
 
     @Test
     void prefixesTheKeyWithTheTenantsEnvironment() {
-        var key = issued(admin(Environment.TEST), "Checkout", Set.of(CHARGES_READ));
+        var key = AccessFixtures.issue(access, admin(Environment.TEST), "Checkout", Set.of(CHARGES_READ));
 
         assertThat(key.secret()).startsWith("sk_test_");
     }
@@ -103,9 +103,9 @@ class IssueApiKeyTest {
     @Test
     void refusesAKeyBeyondTheLimitUntilOneIsRevoked() {
         var admin = admin(Environment.TEST);
-        var first = issued(admin, "Key 0", Set.of(CHARGES_READ));
+        var first = AccessFixtures.issue(access, admin, "Key 0", Set.of(CHARGES_READ));
         for (int i = 1; i < AccessApi.MAX_ACTIVE_KEYS; i++) {
-            issued(admin, "Key " + i, Set.of(CHARGES_READ));
+            AccessFixtures.issue(access, admin, "Key " + i, Set.of(CHARGES_READ));
         }
 
         assertThat(access.issue(admin, "One too many", Set.of(CHARGES_READ)))
@@ -119,7 +119,7 @@ class IssueApiKeyTest {
     void countsTheLimitPerTenant() {
         var test = admin(Environment.TEST);
         for (int i = 0; i < AccessApi.MAX_ACTIVE_KEYS; i++) {
-            issued(test, "Key " + i, Set.of(CHARGES_READ));
+            AccessFixtures.issue(access, test, "Key " + i, Set.of(CHARGES_READ));
         }
 
         assertThat(access.issue(admin(Environment.LIVE), "Live", Set.of(CHARGES_READ)))
@@ -168,19 +168,11 @@ class IssueApiKeyTest {
     }
 
     private MemberCaller admin(Environment environment) {
-        return caller(environment, Role.ADMIN);
+        return AccessFixtures.admin(organization, environment);
     }
 
     private MemberCaller caller(Environment environment, Role role) {
-        TenantId tenant = environment == Environment.TEST ? organization.test() : organization.live();
-        Set<Permission> permissions = Role.permissionsOf(Set.of(role));
-        return new MemberCaller(tenant, environment, organization.admin(), permissions);
-    }
-
-    private IssuedApiKey issued(MemberCaller issuer, String name, Set<Permission> scopes) {
-        var result = access.issue(issuer, name, scopes);
-        assertThat(result).isInstanceOf(IssueResult.Issued.class);
-        return ((IssueResult.Issued) result).key();
+        return AccessFixtures.member(organization, environment, organization.admin(), role);
     }
 
     private int keyCount(TenantId tenant) {

@@ -13,7 +13,6 @@ import dev.finaxis.core.access.domain.ApiKeySecret;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.Permission;
-import dev.finaxis.core.tenancy.Role;
 import dev.finaxis.core.tenancy.TenancyApi;
 import java.security.SecureRandom;
 import java.time.Duration;
@@ -201,13 +200,10 @@ class AuthenticateApiKeyTest {
     }
 
     private MemberCaller admin(Environment environment) {
-        var tenant = environment == Environment.TEST ? organization.test() : organization.live();
-        return new MemberCaller(tenant, environment, organization.admin(), Role.permissionsOf(Set.of(Role.ADMIN)));
+        return AccessFixtures.admin(organization, environment);
     }
 
     private IssuedApiKey issued(Environment environment, Set<Permission> scopes) {
-        var result = access.issue(admin(environment), "Checkout", scopes);
-        assertThat(result).isInstanceOf(IssueResult.Issued.class);
-        return ((IssueResult.Issued) result).key();
+        return AccessFixtures.issue(access, admin(environment), "Checkout", scopes);
     }
 }

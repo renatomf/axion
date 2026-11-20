@@ -7,10 +7,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.shared.Environment;
-import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.Permission;
-import dev.finaxis.core.tenancy.Role;
 import dev.finaxis.core.tenancy.TenancyApi;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -113,11 +111,7 @@ class ListApiKeysTest {
     }
 
     private IssuedApiKey issued(Environment environment, String name, Set<Permission> scopes) {
-        TenantId tenant = environment == Environment.TEST ? organization.test() : organization.live();
-        var admin = new MemberCaller(tenant, environment, organization.admin(), Role.permissionsOf(Set.of(Role.ADMIN)));
-        var result = access.issue(admin, name, scopes);
-        assertThat(result).isInstanceOf(IssueResult.Issued.class);
-        return ((IssueResult.Issued) result).key();
+        return AccessFixtures.issue(access, AccessFixtures.admin(organization, environment), name, scopes);
     }
 
     private static Object utc(Instant instant) {
