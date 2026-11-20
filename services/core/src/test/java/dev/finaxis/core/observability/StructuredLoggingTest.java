@@ -16,14 +16,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
-/**
- * Logs as configured in {@code application.yml}: what a log line written while a request is handled
- * looks like on the console.
- *
- * <p>The test uses the filter bean from the application context and logs from inside the filter
- * chain, as a controller would. {@link OutputCaptureExtension} records what is written to the
- * console and hands it to the test as {@link CapturedOutput}.
- */
+/** What a log line written during a request looks like on the console, as {@code application.yml} configures it. */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
 @ExtendWith(OutputCaptureExtension.class)

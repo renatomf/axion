@@ -8,13 +8,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
-/**
- * Flyway migrations, checked against a real PostgreSQL.
- *
- * <p>Flyway runs while the application context starts, before any test method. The tests then read
- * the resulting database state with {@link JdbcClient}, Spring's SQL client, which Spring Boot
- * configures on the same connection pool as the service.
- */
+/** The database state Flyway's migrations leave, read after the context starts. */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
 class DatabaseMigrationTest {

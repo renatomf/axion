@@ -8,15 +8,9 @@ import java.util.Set;
 import java.util.TreeSet;
 
 /**
- * The national bank holidays in Brazil: the days banks do not settle, as published in the ANBIMA
- * national holiday calendar.
- *
- * <p>Most are fixed dates. Four move with Easter: Carnival Monday and Tuesday (48 and 47 days
- * before), Good Friday (2 days before) and Corpus Christi (60 days after). Black Consciousness Day
- * (November 20) is a national holiday from 2024 on (Law 14,759/2023).
- *
- * <p>State and municipal holidays are not included: settlement follows the national calendar. Pix
- * itself runs every day; business days matter for due dates and payout schedules.
+ * National bank holidays, as in ANBIMA's calendar: fixed dates, four that move with Easter, and
+ * Black Consciousness Day from 2024 (Law 14,759/2023). Settlement follows the national calendar
+ * only.
  */
 public final class BankHolidays {
 
@@ -35,12 +29,10 @@ public final class BankHolidays {
 
     private BankHolidays() {}
 
-    /** Whether the date is a national bank holiday. */
     public static boolean isHoliday(LocalDate date) {
         return of(date.getYear()).contains(date);
     }
 
-    /** Every national bank holiday of the year, in date order. */
     public static Set<LocalDate> of(int year) {
         Set<LocalDate> holidays = new TreeSet<>();
         FIXED.forEach(day -> holidays.add(day.atYear(year)));
@@ -55,11 +47,7 @@ public final class BankHolidays {
         return Collections.unmodifiableSet(holidays);
     }
 
-    /**
-     * Easter Sunday in the Gregorian calendar, by the anonymous Gregorian algorithm (Meeus/Jones/
-     * Butcher). It finds the first Sunday after the ecclesiastical full moon on or after March 21,
-     * using only integer arithmetic.
-     */
+    // Anonymous Gregorian algorithm (Meeus/Jones/Butcher), integer arithmetic only.
     static LocalDate easterSunday(int year) {
         int a = year % 19; // position in the 19-year lunar cycle
         int b = year / 100;

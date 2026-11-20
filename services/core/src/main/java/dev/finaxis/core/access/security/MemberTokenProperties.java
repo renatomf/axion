@@ -4,10 +4,6 @@ import java.util.Set;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.util.Assert;
 
-/**
- * @param issuer the Keycloak realm's issuer URL
- * @param clients the Keycloak clients whose access tokens the core accepts
- */
 @ConfigurationProperties("finaxis.members")
 record MemberTokenProperties(String issuer, Set<String> clients) {
 

@@ -31,21 +31,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
- * How errors are returned over HTTP.
- *
- * <p>{@code @WebMvcTest} starts only the Spring MVC layer: controllers, controller advice and
- * filters, without a database, so no Docker is needed. {@code controllers} limits the controllers to
- * {@link FailingController}, so the application's own controllers, and the services they need, stay
- * out. It exists only in this test and is imported explicitly, because Spring Boot never scans
- * classes nested in a test class.
- *
- * <p>{@code excludeFilters} leaves out the other modules' Spring MVC setup, such as the permission
- * check of {@code access}, which needs services this slice does not start. Spring Boot's own setup
- * comes from auto-configuration, not from scanning, so it stays.
- *
- * <p>{@code addFilters = false} leaves the servlet filters, Spring Security among them, out of
- * {@link MockMvcTester}: these tests are about errors raised inside Spring MVC, which security would
- * otherwise reject before they happen. Security has its own tests.
+ * How errors are returned over HTTP, in the Spring MVC layer only, without a database. Other
+ * modules' MVC setup and the servlet filters are left out: these errors arise inside Spring MVC.
  */
 @WebMvcTest(
         controllers = ApiExceptionHandlerTest.FailingController.class,
@@ -191,7 +178,6 @@ class ApiExceptionHandlerTest {
                 .isEqualTo("bad_request");
     }
 
-    /** Posts the body to {@link FailingController#validated}. */
     private MvcTestResult validated(String body) {
         return mvc.post()
                 .uri("/test/validated")
@@ -229,11 +215,6 @@ class ApiExceptionHandlerTest {
         }
     }
 
-    /**
-     * A request body with constraints. A missing property arrives as {@code null}, which {@code
-     * @NotBlank} and {@code @NotEmpty} reject as well; {@code maxRetries} is optional, and {@code
-     * @Min}, like every standard constraint, lets a {@code null} pass.
-     */
     record Form(
             @NotBlank @Size(max = 10) String name,
             @NotEmpty List<@NotBlank String> tags,

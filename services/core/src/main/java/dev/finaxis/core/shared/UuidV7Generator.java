@@ -6,27 +6,9 @@ import java.util.UUID;
 import java.util.random.RandomGenerator;
 
 /**
- * Generates version 7 UUIDs (<a href="https://www.rfc-editor.org/rfc/rfc9562#section-5.7">RFC 9562,
- * section 5.7</a>), the primary keys of every table.
- *
- * <p>A UUIDv7 starts with the creation time in milliseconds, so new keys are close to each other in
- * a B-tree index instead of scattered over it like random (version 4) UUIDs, and sorting by key
- * sorts by creation time to the millisecond. The remaining 74 bits are random, so keys can be created
- * anywhere without coordination and cannot be guessed from one another. Keys created within the same
- * millisecond are unique but not ordered among themselves.
- *
- * <p>The layout of the 128 bits, most significant first:
- *
- * <pre>
- * 48 bits  Unix time in milliseconds
- *  4 bits  version, 0111 (7)
- * 12 bits  random
- *  2 bits  variant, 10 (RFC 9562)
- * 62 bits  random
- * </pre>
- *
- * <p>The time comes from the injected {@link Clock}, never from the system clock, so tests can fix
- * it. A UUID is an identifier, not a secret: knowing one never grants access to anything.
+ * Version 7 UUIDs (RFC 9562, section 5.7), the primary keys of every table: time-ordered, so new
+ * keys stay together in a B-tree index, and 74 random bits, so they cannot be guessed. Within one
+ * millisecond they are not ordered.
  */
 public final class UuidV7Generator {
 
@@ -37,22 +19,19 @@ public final class UuidV7Generator {
     private final Clock clock;
     private final RandomGenerator random;
 
-    /** A generator with a cryptographically strong source of randomness. */
     public UuidV7Generator(Clock clock) {
         this(clock, new SecureRandom());
     }
 
-    /** A generator with the given randomness; tests use it to make the random bits predictable. */
     UuidV7Generator(Clock clock, RandomGenerator random) {
         this.clock = clock;
         this.random = random;
     }
 
     /**
-     * A new UUIDv7 for the clock's current instant.
+     * A UUIDv7 for the clock's instant.
      *
-     * @throws IllegalStateException if the clock is before 1970 or after the year 10889, which 48
-     *     bits of milliseconds cannot hold
+     * @throws IllegalStateException if the clock is outside what 48 bits of milliseconds can hold
      */
     public UUID next() {
         long timestamp = clock.millis();

@@ -13,10 +13,7 @@ import org.slf4j.MDC;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
-/**
- * The correlation ID filter on its own, without a Spring context: Spring's mock request and response
- * stand in for the server, and a lambda stands in for the rest of the filter chain.
- */
+/** The correlation ID filter on its own, without a Spring context. */
 class CorrelationIdFilterTest {
 
     private final CorrelationIdFilter filter = new CorrelationIdFilter();
