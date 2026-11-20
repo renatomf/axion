@@ -1,7 +1,7 @@
 /**
  * Who may call the core and what they may do: members' access tokens, permissions, step-up and
- * {@code /internal/me}, and issuing API keys through {@link dev.finaxis.core.access.AccessApi};
- * authenticating with API keys and rate limiting as they arrive.
+ * {@code /internal/me}, and issuing and authenticating API keys through {@link
+ * dev.finaxis.core.access.AccessApi}; rate limiting as it arrives.
  *
  * <p>The module is split by technical role, and Spring Modulith hides these subpackages from other
  * modules:

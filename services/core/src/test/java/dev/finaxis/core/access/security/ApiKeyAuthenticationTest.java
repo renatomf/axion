@@ -1,0 +1,172 @@
+package dev.finaxis.core.access.security;
+
+import static dev.finaxis.core.tenancy.Permission.CHARGES_READ;
+import static org.assertj.core.api.Assertions.assertThat;
+
+import dev.finaxis.core.PostgresTestConfiguration;
+import dev.finaxis.core.access.AccessApi;
+import dev.finaxis.core.access.IssueResult;
+import dev.finaxis.core.access.IssuedApiKey;
+import dev.finaxis.core.access.MemberCaller;
+import dev.finaxis.core.access.NoPermissionRequired;
+import dev.finaxis.core.access.domain.ApiKeySecret;
+import dev.finaxis.core.shared.Environment;
+import dev.finaxis.core.tenancy.NewOrganization;
+import dev.finaxis.core.tenancy.Role;
+import dev.finaxis.core.tenancy.TenancyApi;
+import java.security.SecureRandom;
+import java.time.Duration;
+import java.util.Set;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.web.servlet.assertj.MockMvcTester;
+import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * How a request authenticates on {@code /v1}: the API key in its {@code Authorization} header,
+ * through the whole application and a real PostgreSQL. Keys are issued at run time, so none is
+ * written in the repository.
+ *
+ * <p>{@link PublicApiController}, which exists only in this test, stands in for a {@code /v1}
+ * endpoint, so authentication is proven apart from any real one.
+ */
+@SpringBootTest
+@Import({PostgresTestConfiguration.class, ApiKeyAuthenticationTest.PublicApiController.class})
+@AutoConfigureMockMvc
+class ApiKeyAuthenticationTest {
+
+    @RestController
+    static class PublicApiController {
+
+        /** Answers with the caller's name, the key's public ID, to show who authenticated. */
+        @NoPermissionRequired(reason = "Stands in for a /v1 endpoint in this test only")
+        @GetMapping("/v1/probe")
+        String probe() {
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            return authentication == null ? "nobody" : authentication.getName();
+        }
+    }
+
+    private static final String UNAUTHORIZED = """
+            {"status": 401, "detail": "Authentication is required.", "code": "unauthorized"}
+            """;
+
+    private final MockMvcTester mvc;
+    private final AccessApi access;
+    private final TenancyApi tenancy;
+    private final JdbcClient jdbc;
+    private NewOrganization organization;
+
+    @Autowired
+    ApiKeyAuthenticationTest(MockMvcTester mvc, AccessApi access, TenancyApi tenancy, JdbcClient jdbc) {
+        this.mvc = mvc;
+        this.access = access;
+        this.tenancy = tenancy;
+        this.jdbc = jdbc;
+    }
+
+    @BeforeEach
+    void createOrganization() {
+        organization = tenancy.createOrganization("Acme", UUID.randomUUID().toString());
+    }
+
+    @Test
+    void aWorkingKeyAuthenticatesTheRequest() {
+        IssuedApiKey key = issued();
+
+        probeWith("Bearer " + key.secret())
+                .hasStatusOk()
+                .bodyText()
+                .isEqualTo(key.id().publicId().toString());
+    }
+
+    @Test
+    void aRequestWithoutCredentialIsUnauthorized() {
+        isUnauthorized(assertThat(mvc.get().uri("/v1/probe")));
+    }
+
+    /** Every reason gets the same answer, so a caller cannot tell them apart. */
+    @Test
+    void everyRejectedKeyGetsTheSameAnswer() {
+        IssuedApiKey revoked = issued();
+        access.revoke(admin(), revoked.id());
+        IssuedApiKey expired = issued();
+        access.roll(admin(), expired.id(), Duration.ZERO);
+        String neverIssued =
+                ApiKeySecret.generate(Environment.TEST, new SecureRandom()).reveal();
+
+        isUnauthorized(probeWith("Bearer " + revoked.secret()));
+        isUnauthorized(probeWith("Bearer " + expired.secret()));
+        isUnauthorized(probeWith("Bearer " + neverIssued));
+        isUnauthorized(probeWith("Bearer sk_test_not-a-real-key"));
+    }
+
+    /** A key outside a single {@code Bearer} credential is not read. */
+    @Test
+    void aKeyOutsideABearerCredentialIsUnauthorized() {
+        IssuedApiKey key = issued();
+
+        isUnauthorized(probeWith("Basic " + key.secret()));
+        isUnauthorized(probeWith(key.secret()));
+        isUnauthorized(assertThat(mvc.get().uri("/v1/probe").queryParam("access_token", key.secret())));
+    }
+
+    @Test
+    void aWorkingKeyOfAnInactiveTenantIsForbidden() {
+        IssuedApiKey key = issued();
+        jdbc.sql("UPDATE tenancy.tenants SET status = 'SUSPENDED' WHERE id = ?")
+                .param(organization.test().value())
+                .update();
+
+        probeWith("Bearer " + key.secret())
+                .hasStatus(HttpStatus.FORBIDDEN)
+                .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .bodyJson()
+                .isLenientlyEqualTo("""
+                        {"status": 403, "detail": "The tenant is not active.", "code": "tenant_inactive"}
+                        """);
+    }
+
+    /** An unknown path is a {@code 404} only for an authenticated caller, as on {@code /internal}. */
+    @Test
+    void anUnknownPathAnswersOnlyAnAuthenticatedCaller() {
+        isUnauthorized(assertThat(mvc.get().uri("/v1/unknown")));
+        assertThat(mvc.get().uri("/v1/unknown").header("Authorization", "Bearer " + issued().secret()))
+                .hasStatus(HttpStatus.NOT_FOUND);
+    }
+
+    private MvcTestResultAssert probeWith(String authorization) {
+        return assertThat(mvc.get().uri("/v1/probe").header("Authorization", authorization));
+    }
+
+    private static void isUnauthorized(MvcTestResultAssert response) {
+        response.hasStatus(HttpStatus.UNAUTHORIZED)
+                .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .bodyJson()
+                .isLenientlyEqualTo(UNAUTHORIZED);
+    }
+
+    /** The caller tenant resolution would build for the organization's admin, on the test tenant. */
+    private MemberCaller admin() {
+        return new MemberCaller(
+                organization.test(), Environment.TEST, organization.admin(), Role.permissionsOf(Set.of(Role.ADMIN)));
+    }
+
+    private IssuedApiKey issued() {
+        var result = access.issue(admin(), "Checkout", Set.of(CHARGES_READ));
+        assertThat(result).isInstanceOf(IssueResult.Issued.class);
+        return ((IssueResult.Issued) result).key();
+    }
+}
