@@ -4,11 +4,13 @@ import dev.finaxis.core.access.AccessApi;
 import dev.finaxis.core.access.AuthenticationResult.Authenticated;
 import dev.finaxis.core.access.AuthenticationResult.Rejected;
 import dev.finaxis.core.access.AuthenticationResult.TenantInactive;
+import dev.finaxis.core.access.security.AuthenticationFailures.Failure;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
@@ -35,6 +37,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *   <li>a working key: the request continues as an {@link ApiKeyAuthentication}.
  * </ul>
  *
+ * <p>Each {@code 401} the filter answers is recorded by {@link AuthenticationFailures}, with its
+ * reason: the response hides it, the metric and the logs do not.
+ *
  * <p>The header is read by Spring's {@link DefaultBearerTokenResolver}, the one the {@code
  * /internal} chain uses for access tokens, so both APIs parse it alike: the header only, never the
  * query string or the body, and a request with two credentials is refused.
@@ -48,12 +53,15 @@ final class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
 
     private final AccessApi access;
     private final ProblemDetailsSecurityHandler rejections;
+    private final AuthenticationFailures failures;
     private final BearerTokenResolver bearer = new DefaultBearerTokenResolver();
     private final SecurityContextHolderStrategy contexts = SecurityContextHolder.getContextHolderStrategy();
 
-    ApiKeyAuthenticationFilter(AccessApi access, ProblemDetailsSecurityHandler rejections) {
+    ApiKeyAuthenticationFilter(
+            AccessApi access, ProblemDetailsSecurityHandler rejections, AuthenticationFailures failures) {
         this.access = access;
         this.rejections = rejections;
+        this.failures = failures;
     }
 
     @Override
@@ -63,6 +71,7 @@ final class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
         try {
             credential = bearer.resolve(request);
         } catch (AuthenticationException malformedHeader) {
+            failures.record(Failure.MALFORMED, Optional.empty());
             rejections.commence(request, response, malformedHeader);
             return;
         }
@@ -77,9 +86,11 @@ final class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
                 contexts.setContext(context);
                 chain.doFilter(request, response);
             }
-            case Rejected _ ->
-                // The reason stays out of the response; logs and the metric arrive in PR 1.21d.
+            case Rejected(var reason, var key) -> {
+                // The reason stays out of the response, which is the same for every rejection.
+                failures.record(Failure.of(reason), key);
                 rejections.commence(request, response, new BadCredentialsException("Invalid API key"));
+            }
             case TenantInactive _ -> rejections.tenantInactive(request, response);
         }
     }

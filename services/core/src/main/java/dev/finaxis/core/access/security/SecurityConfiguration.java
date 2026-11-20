@@ -1,6 +1,7 @@
 package dev.finaxis.core.access.security;
 
 import dev.finaxis.core.access.AccessApi;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.DispatcherType;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
@@ -79,18 +80,22 @@ class SecurityConfiguration {
      * marks a request that nothing authenticated as anonymous, so the rule below sees the key.
      *
      * @param access authenticates the key
+     * @param meters where the authentication failures are counted
      */
     @Bean
     @Order(2)
     SecurityFilterChain publicApiFilterChain(
             HttpSecurity http,
             @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver,
-            AccessApi access) {
+            AccessApi access,
+            MeterRegistry meters) {
         http.securityMatcher("/v1/**");
         http.authorizeHttpRequests(requests -> requests.anyRequest().authenticated());
 
         ProblemDetailsSecurityHandler rejections = new ProblemDetailsSecurityHandler(resolver);
-        http.addFilterBefore(new ApiKeyAuthenticationFilter(access, rejections), AnonymousAuthenticationFilter.class);
+        var failures = new AuthenticationFailures(meters);
+        http.addFilterBefore(
+                new ApiKeyAuthenticationFilter(access, rejections, failures), AnonymousAuthenticationFilter.class);
 
         return build(http, rejections);
     }

@@ -3,6 +3,7 @@ package dev.finaxis.core.access.security;
 import static dev.finaxis.core.tenancy.Permission.CHARGES_READ;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jayway.jsonpath.JsonPath;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.access.AccessApi;
 import dev.finaxis.core.access.IssueResult;
@@ -10,18 +11,25 @@ import dev.finaxis.core.access.IssuedApiKey;
 import dev.finaxis.core.access.MemberCaller;
 import dev.finaxis.core.access.NoPermissionRequired;
 import dev.finaxis.core.access.domain.ApiKeySecret;
+import dev.finaxis.core.access.security.AuthenticationFailures.Failure;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.Role;
 import dev.finaxis.core.tenancy.TenancyApi;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.util.EnumMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
@@ -40,11 +48,13 @@ import org.springframework.web.bind.annotation.RestController;
  * written in the repository.
  *
  * <p>{@link PublicApiController}, which exists only in this test, stands in for a {@code /v1}
- * endpoint, so authentication is proven apart from any real one.
+ * endpoint, so authentication is proven apart from any real one. {@link OutputCaptureExtension}
+ * records what the test writes to the console, logs included.
  */
 @SpringBootTest
 @Import({PostgresTestConfiguration.class, ApiKeyAuthenticationTest.PublicApiController.class})
 @AutoConfigureMockMvc
+@ExtendWith(OutputCaptureExtension.class)
 class ApiKeyAuthenticationTest {
 
     @RestController
@@ -67,14 +77,17 @@ class ApiKeyAuthenticationTest {
     private final AccessApi access;
     private final TenancyApi tenancy;
     private final JdbcClient jdbc;
+    private final MeterRegistry meters;
     private NewOrganization organization;
 
     @Autowired
-    ApiKeyAuthenticationTest(MockMvcTester mvc, AccessApi access, TenancyApi tenancy, JdbcClient jdbc) {
+    ApiKeyAuthenticationTest(
+            MockMvcTester mvc, AccessApi access, TenancyApi tenancy, JdbcClient jdbc, MeterRegistry meters) {
         this.mvc = mvc;
         this.access = access;
         this.tenancy = tenancy;
         this.jdbc = jdbc;
+        this.meters = meters;
     }
 
     @BeforeEach
@@ -113,6 +126,54 @@ class ApiKeyAuthenticationTest {
         isUnauthorized(probeWith("Bearer sk_test_not-a-real-key"));
     }
 
+    /**
+     * Each rejection is counted under its reason. The counters are shared by the whole test run, so
+     * the test compares them before and after its own requests.
+     */
+    @Test
+    void everyRejectionIsCountedWithItsReason() {
+        IssuedApiKey revoked = issued();
+        access.revoke(admin(), revoked.id());
+        IssuedApiKey expired = issued();
+        access.roll(admin(), expired.id(), Duration.ZERO);
+        String neverIssued =
+                ApiKeySecret.generate(Environment.TEST, new SecureRandom()).reveal();
+        Map<Failure, Double> before = failureCounts();
+
+        probeWith("Bearer " + revoked.secret());
+        probeWith("Bearer " + expired.secret());
+        probeWith("Bearer " + neverIssued);
+        probeWith("Bearer sk_test_not-a-real-key");
+        probeWith("Bearer a, Bearer b");
+
+        // The two malformed are the key that is not one and the header with two credentials.
+        assertThat(increaseSince(before))
+                .containsExactlyInAnyOrderEntriesOf(Map.of(
+                        Failure.MALFORMED, 2.0,
+                        Failure.UNKNOWN, 1.0,
+                        Failure.REVOKED, 1.0,
+                        Failure.EXPIRED, 1.0));
+    }
+
+    /** The log names the reason and the key, never the secret the caller sent. */
+    @Test
+    void aRejectionIsLoggedWithTheKeyButNotTheSecret(CapturedOutput output) {
+        IssuedApiKey revoked = issued();
+        access.revoke(admin(), revoked.id());
+
+        probeWith("Bearer " + revoked.secret());
+
+        String line = output.getOut()
+                .lines()
+                .filter(l -> l.contains("API key authentication failed"))
+                .reduce((first, second) -> second)
+                .orElseThrow();
+        assertThat(JsonPath.<String>read(line, "$.reason")).isEqualTo("revoked");
+        assertThat(JsonPath.<String>read(line, "$.api_key_id"))
+                .isEqualTo(revoked.id().publicId().toString());
+        assertThat(output.getOut()).doesNotContain(revoked.secret());
+    }
+
     /** A key outside a single {@code Bearer} credential is not read. */
     @Test
     void aKeyOutsideABearerCredentialIsUnauthorized() {
@@ -145,6 +206,27 @@ class ApiKeyAuthenticationTest {
         isUnauthorized(assertThat(mvc.get().uri("/v1/unknown")));
         assertThat(mvc.get().uri("/v1/unknown").header("Authorization", "Bearer " + issued().secret()))
                 .hasStatus(HttpStatus.NOT_FOUND);
+    }
+
+    /** The current value of each failure's counter. */
+    private Map<Failure, Double> failureCounts() {
+        Map<Failure, Double> counts = new EnumMap<>(Failure.class);
+        for (Failure failure : Failure.values()) {
+            counts.put(
+                    failure,
+                    meters.get(AuthenticationFailures.FAILURES)
+                            .tag("reason", failure.tag())
+                            .counter()
+                            .count());
+        }
+        return counts;
+    }
+
+    /** How much each failure's counter grew since {@code before}. */
+    private Map<Failure, Double> increaseSince(Map<Failure, Double> before) {
+        Map<Failure, Double> increase = failureCounts();
+        increase.replaceAll((failure, now) -> now - before.getOrDefault(failure, 0.0));
+        return increase;
     }
 
     private MvcTestResultAssert probeWith(String authorization) {
