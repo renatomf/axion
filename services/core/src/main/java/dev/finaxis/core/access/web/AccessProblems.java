@@ -55,6 +55,14 @@ final class AccessProblems {
     }
 
     /**
+     * A key that was revoked or already rolled, so it cannot be rolled. {@code 409}: the request
+     * conflicts with the key's current state, and only rolling its replacement can succeed.
+     */
+    static ErrorResponseException keyNotRollable() {
+        return problem(HttpStatus.CONFLICT, "key_not_rollable", "The key was revoked or already rolled.");
+    }
+
+    /**
      * A member who must authenticate again before the operation. The {@code WWW-Authenticate}
      * challenge of RFC 9470 tells the console how recent the authentication must be; the console
      * then asks Keycloak for a login with that {@code max_age}.

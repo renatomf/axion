@@ -6,9 +6,12 @@ import dev.finaxis.core.access.IssueResult;
 import dev.finaxis.core.access.MemberCaller;
 import dev.finaxis.core.access.RequiresPermission;
 import dev.finaxis.core.access.RequiresStepUp;
+import dev.finaxis.core.access.RollResult;
 import dev.finaxis.core.shared.PublicId;
 import dev.finaxis.core.tenancy.Permission;
 import jakarta.validation.Valid;
+import java.time.Duration;
+import org.jspecify.annotations.Nullable;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -80,6 +83,34 @@ class ApiKeysController {
     @PostMapping("/internal/tenants/{tenant_id}/api_keys/{key_id}/revoke")
     ApiKeyResponse revoke(MemberCaller caller, @PathVariable("key_id") String keyId) {
         return access.revoke(caller, keyIn(keyId)).map(ApiKeyResponse::of).orElseThrow(AccessProblems::notFound);
+    }
+
+    /**
+     * Rolls one of the tenant's keys: issues a replacement with the same name and scopes, and
+     * returns it with its secret, beside the old key, which keeps working until the end of the grace
+     * period.
+     *
+     * <p>{@code @RequestBody(required = false)} lets the request have no body: Spring MVC then passes
+     * {@code null}, and the default grace period applies. A body that is present is checked by
+     * {@code @Valid} as when issuing. Rolling a key twice is refused, so a retried request answers
+     * {@code 409} rather than issuing a second replacement.
+     */
+    @RequiresPermission(Permission.API_KEYS_MANAGE)
+    @RequiresStepUp
+    @PostMapping("/internal/tenants/{tenant_id}/api_keys/{key_id}/roll")
+    @ResponseStatus(HttpStatus.CREATED)
+    RolledApiKeyResponse roll(
+            MemberCaller caller,
+            @PathVariable("key_id") String keyId,
+            @Valid @RequestBody(required = false) @Nullable RollApiKeyRequest request) {
+        Duration grace = request == null ? AccessApi.DEFAULT_ROLL_GRACE : request.gracePeriod();
+        return switch (access.roll(caller, keyIn(keyId), grace)) {
+            case RollResult.Rolled rolled -> RolledApiKeyResponse.of(rolled);
+            case RollResult.KeyNotFound _ -> throw AccessProblems.notFound();
+            case RollResult.KeyNotRollable _ -> throw AccessProblems.keyNotRollable();
+            case RollResult.ScopesNotHeld _ -> throw AccessProblems.scopesNotHeld();
+            case RollResult.LimitReached reached -> throw AccessProblems.limitExceeded(reached.limit());
+        };
     }
 
     /** The key a path names; a malformed ID names no key, so it answers {@code 404}. */
