@@ -3,6 +3,7 @@ package dev.finaxis.core.tenancy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.shared.Environment;
 import java.util.UUID;
@@ -21,12 +22,12 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 class CreateOrganizationTest {
 
     private final TenancyApi tenancy;
-    private final JdbcClient jdbc;
+    private final JdbcClient owner;
 
     @Autowired
-    CreateOrganizationTest(TenancyApi tenancy, JdbcClient jdbc) {
+    CreateOrganizationTest(TenancyApi tenancy, DatabaseOwner databaseOwner) {
         this.tenancy = tenancy;
-        this.jdbc = jdbc;
+        this.owner = databaseOwner.jdbc();
     }
 
     @Test
@@ -49,7 +50,7 @@ class CreateOrganizationTest {
 
         var created = tenancy.createOrganization("Acme", subject);
 
-        var roles = jdbc.sql("""
+        var roles = owner.sql("""
                         SELECT m.user_subject || ' ' || r.role
                           FROM tenancy.members m
                           JOIN tenancy.member_roles r ON r.member_id = m.id

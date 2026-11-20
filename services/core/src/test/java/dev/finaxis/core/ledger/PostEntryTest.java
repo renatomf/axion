@@ -6,6 +6,7 @@ import static dev.finaxis.core.ledger.LedgerFixtures.storedBalance;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.ledger.application.BalanceVerifier;
 import dev.finaxis.core.ledger.application.LedgerVerification;
@@ -37,7 +38,7 @@ class PostEntryTest {
     private static final Money TEN = Money.ofMinor(1_000, BRL);
 
     private final LedgerApi ledger;
-    private final JdbcClient jdbc;
+    private final JdbcClient owner;
     private final TransactionTemplate transaction;
     private final BalanceVerifier verifier;
 
@@ -47,9 +48,12 @@ class PostEntryTest {
 
     @Autowired
     PostEntryTest(
-            LedgerApi ledger, JdbcClient jdbc, PlatformTransactionManager transactions, BalanceVerifier verifier) {
+            LedgerApi ledger,
+            DatabaseOwner databaseOwner,
+            PlatformTransactionManager transactions,
+            BalanceVerifier verifier) {
         this.ledger = ledger;
-        this.jdbc = jdbc;
+        this.owner = databaseOwner.jdbc();
         this.transaction = new TransactionTemplate(transactions);
         this.verifier = verifier;
     }
@@ -82,8 +86,8 @@ class PostEntryTest {
         ledger.post(settle(newSource(), TEN));
 
         // A debit raises an asset and a credit raises a liability (ledger design, section 3.2).
-        assertThat(storedBalance(jdbc, settlement)).isEqualTo(1_000);
-        assertThat(storedBalance(jdbc, available)).isEqualTo(1_000);
+        assertThat(storedBalance(owner, settlement)).isEqualTo(1_000);
+        assertThat(storedBalance(owner, available)).isEqualTo(1_000);
     }
 
     @Test
@@ -96,8 +100,8 @@ class PostEntryTest {
         assertThat(result).isEqualTo(new PostResult.InsufficientFunds(available));
         assertThat(entriesOf(payout.source())).isZero();
         // The settlement account was changed first, then rolled back with the rest.
-        assertThat(storedBalance(jdbc, settlement)).isEqualTo(1_000);
-        assertThat(storedBalance(jdbc, available)).isEqualTo(1_000);
+        assertThat(storedBalance(owner, settlement)).isEqualTo(1_000);
+        assertThat(storedBalance(owner, available)).isEqualTo(1_000);
     }
 
     @Test
@@ -126,7 +130,7 @@ class PostEntryTest {
         var result = ledger.post(payout);
 
         assertThat(result).isInstanceOf(PostResult.Posted.class);
-        assertThat(storedBalance(jdbc, available)).isZero();
+        assertThat(storedBalance(owner, available)).isZero();
     }
 
     @Test
@@ -138,7 +142,7 @@ class PostEntryTest {
             return opened;
         });
 
-        assertThat(storedBalance(jdbc, callersAccount)).isZero();
+        assertThat(storedBalance(owner, callersAccount)).isZero();
     }
 
     @Test
@@ -168,8 +172,8 @@ class PostEntryTest {
         ledger.post(
                 request(newSource(), List.of(PostingRequest.debit(hot, TEN), PostingRequest.credit(available, TEN))));
 
-        assertThat(storedBalance(jdbc, hot)).isZero();
-        assertThat(storedBalance(jdbc, available)).isEqualTo(1_000);
+        assertThat(storedBalance(owner, hot)).isZero();
+        assertThat(storedBalance(owner, available)).isEqualTo(1_000);
     }
 
     @Test
@@ -181,7 +185,7 @@ class PostEntryTest {
 
         assertThat(second).isEqualTo(new PostResult.AlreadyPosted(entryOf(first)));
         assertThat(postingsOf(entryOf(first))).isEqualTo(2);
-        assertThat(storedBalance(jdbc, available)).isEqualTo(1_000);
+        assertThat(storedBalance(owner, available)).isEqualTo(1_000);
     }
 
     @Test
@@ -284,21 +288,21 @@ class PostEntryTest {
     }
 
     private long accountsWithCode(String code) {
-        return jdbc.sql("SELECT count(*) FROM ledger.accounts WHERE tenant_id = ? AND code = ?")
+        return owner.sql("SELECT count(*) FROM ledger.accounts WHERE tenant_id = ? AND code = ?")
                 .params(tenant, code)
                 .query(Long.class)
                 .single();
     }
 
     private long postingsOf(EntryId entry) {
-        return jdbc.sql("SELECT count(*) FROM ledger.postings WHERE entry_id = ?")
+        return owner.sql("SELECT count(*) FROM ledger.postings WHERE entry_id = ?")
                 .param(entry.value())
                 .query(Long.class)
                 .single();
     }
 
     private long entriesOf(EntrySource source) {
-        return jdbc.sql("SELECT count(*) FROM ledger.entries WHERE source_type = ? AND source_id = ? AND purpose = ?")
+        return owner.sql("SELECT count(*) FROM ledger.entries WHERE source_type = ? AND source_id = ? AND purpose = ?")
                 .params(source.type(), source.id(), source.purpose())
                 .query(Long.class)
                 .single();

@@ -5,6 +5,7 @@ import static dev.finaxis.core.ledger.LedgerFixtures.storedBalance;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.PostgresTestConfiguration;
 import java.util.Collections;
 import java.util.Currency;
@@ -27,19 +28,19 @@ class OpenAccountTest {
     private static final Currency USD = Currency.getInstance("USD");
 
     private final LedgerApi ledger;
-    private final JdbcClient jdbc;
+    private final JdbcClient owner;
 
     @Autowired
-    OpenAccountTest(LedgerApi ledger, JdbcClient jdbc) {
+    OpenAccountTest(LedgerApi ledger, DatabaseOwner databaseOwner) {
         this.ledger = ledger;
-        this.jdbc = jdbc;
+        this.owner = databaseOwner.jdbc();
     }
 
     @Test
     void opensAnAccountWithABalanceOfZero() {
         var account = ledger.openAccount(available(UUID.randomUUID(), BRL));
 
-        assertThat(storedBalance(jdbc, account)).isZero();
+        assertThat(storedBalance(owner, account)).isZero();
     }
 
     @Test
@@ -98,7 +99,7 @@ class OpenAccountTest {
     }
 
     private long accountsOf(UUID tenant) {
-        return jdbc.sql("SELECT count(*) FROM ledger.accounts WHERE tenant_id = ?")
+        return owner.sql("SELECT count(*) FROM ledger.accounts WHERE tenant_id = ?")
                 .param(tenant)
                 .query(Long.class)
                 .single();

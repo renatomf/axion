@@ -3,6 +3,7 @@ package dev.finaxis.core.access.web;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 
+import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.KeycloakTestConfiguration;
 import dev.finaxis.core.OpenApiContract;
 import dev.finaxis.core.PostgresTestConfiguration;
@@ -50,17 +51,17 @@ class ApiKeysControllerTest {
     private final MockMvcTester mvc;
     private final AccessApi access;
     private final TenancyApi tenancy;
-    private final JdbcClient jdbc;
+    private final JdbcClient owner;
 
     private String subject = "";
     private NewOrganization organization;
 
     @Autowired
-    ApiKeysControllerTest(MockMvcTester mvc, AccessApi access, TenancyApi tenancy, JdbcClient jdbc) {
+    ApiKeysControllerTest(MockMvcTester mvc, AccessApi access, TenancyApi tenancy, DatabaseOwner databaseOwner) {
         this.mvc = mvc;
         this.access = new TenantBoundAccess(access);
         this.tenancy = tenancy;
-        this.jdbc = jdbc;
+        this.owner = databaseOwner.jdbc();
     }
 
     @BeforeEach
@@ -72,7 +73,7 @@ class ApiKeysControllerTest {
     @Test
     void listsAKeyWithoutItsSecret() {
         IssuedApiKey key = issued(organization, Environment.TEST, "Checkout");
-        jdbc.sql("UPDATE access.api_keys SET created_at = ?, last_used_at = ? WHERE id = ?")
+        owner.sql("UPDATE access.api_keys SET created_at = ?, last_used_at = ? WHERE id = ?")
                 .params(utc(MOMENT), utc(MOMENT.plusSeconds(3600)), key.id().value())
                 .update();
 
@@ -109,7 +110,7 @@ class ApiKeysControllerTest {
     @Test
     void listsARevokedKeyWithWhenItWasRevoked() {
         IssuedApiKey key = issued(organization, Environment.TEST, "Checkout");
-        jdbc.sql("UPDATE access.api_keys SET revoked_at = ? WHERE id = ?")
+        owner.sql("UPDATE access.api_keys SET revoked_at = ? WHERE id = ?")
                 .params(utc(MOMENT), key.id().value())
                 .update();
 
@@ -129,7 +130,7 @@ class ApiKeysControllerTest {
 
     @Test
     void refusesAMemberWhoCannotManageKeys() {
-        jdbc.sql("UPDATE tenancy.member_roles SET role = 'READ_ONLY' WHERE member_id = ?")
+        owner.sql("UPDATE tenancy.member_roles SET role = 'READ_ONLY' WHERE member_id = ?")
                 .param(organization.admin().value())
                 .update();
 
@@ -236,7 +237,7 @@ class ApiKeysControllerTest {
     @Test
     void refusesScopesTheMemberDoesNotHold() {
         // A developer may manage keys, but not issue refunds.
-        jdbc.sql("UPDATE tenancy.member_roles SET role = 'DEVELOPER' WHERE member_id = ?")
+        owner.sql("UPDATE tenancy.member_roles SET role = 'DEVELOPER' WHERE member_id = ?")
                 .param(organization.admin().value())
                 .update();
 
@@ -266,7 +267,7 @@ class ApiKeysControllerTest {
 
     @Test
     void checksThePermissionBeforeTheBody() {
-        jdbc.sql("UPDATE tenancy.member_roles SET role = 'READ_ONLY' WHERE member_id = ?")
+        owner.sql("UPDATE tenancy.member_roles SET role = 'READ_ONLY' WHERE member_id = ?")
                 .param(organization.admin().value())
                 .update();
 
@@ -366,7 +367,7 @@ class ApiKeysControllerTest {
     @Test
     void refusesToRevokeForAMemberWhoCannotManageKeys() {
         IssuedApiKey key = issued(organization, Environment.TEST, "Checkout");
-        jdbc.sql("UPDATE tenancy.member_roles SET role = 'READ_ONLY' WHERE member_id = ?")
+        owner.sql("UPDATE tenancy.member_roles SET role = 'READ_ONLY' WHERE member_id = ?")
                 .param(organization.admin().value())
                 .update();
 
@@ -493,7 +494,7 @@ class ApiKeysControllerTest {
                 .id()
                 .publicId()
                 .toString();
-        jdbc.sql("UPDATE tenancy.member_roles SET role = 'DEVELOPER' WHERE member_id = ?")
+        owner.sql("UPDATE tenancy.member_roles SET role = 'DEVELOPER' WHERE member_id = ?")
                 .param(organization.admin().value())
                 .update();
 
@@ -525,7 +526,7 @@ class ApiKeysControllerTest {
     @Test
     void refusesToRollForAMemberWhoCannotManageKeys() {
         IssuedApiKey key = issued(organization, Environment.TEST, "Checkout");
-        jdbc.sql("UPDATE tenancy.member_roles SET role = 'READ_ONLY' WHERE member_id = ?")
+        owner.sql("UPDATE tenancy.member_roles SET role = 'READ_ONLY' WHERE member_id = ?")
                 .param(organization.admin().value())
                 .update();
 

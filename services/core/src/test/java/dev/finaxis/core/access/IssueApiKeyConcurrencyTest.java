@@ -2,6 +2,7 @@ package dev.finaxis.core.access;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.tenancy.Permission;
@@ -31,13 +32,13 @@ class IssueApiKeyConcurrencyTest {
 
     private final AccessApi access;
     private final TenancyApi tenancy;
-    private final JdbcClient jdbc;
+    private final JdbcClient owner;
 
     @Autowired
-    IssueApiKeyConcurrencyTest(AccessApi access, TenancyApi tenancy, JdbcClient jdbc) {
+    IssueApiKeyConcurrencyTest(AccessApi access, TenancyApi tenancy, DatabaseOwner databaseOwner) {
         this.access = new TenantBoundAccess(access);
         this.tenancy = tenancy;
-        this.jdbc = jdbc;
+        this.owner = databaseOwner.jdbc();
     }
 
     @Test
@@ -74,7 +75,7 @@ class IssueApiKeyConcurrencyTest {
     }
 
     private int keysOf(UUID tenant) {
-        return jdbc.sql("SELECT count(*) FROM access.api_keys WHERE tenant_id = ?")
+        return owner.sql("SELECT count(*) FROM access.api_keys WHERE tenant_id = ?")
                 .param(tenant)
                 .query(Integer.class)
                 .single();

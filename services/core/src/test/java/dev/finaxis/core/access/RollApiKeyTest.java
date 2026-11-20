@@ -6,6 +6,7 @@ import static dev.finaxis.core.tenancy.Permission.REFUNDS_WRITE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.access.domain.ApiKeySecret;
 import dev.finaxis.core.shared.Environment;
@@ -36,14 +37,14 @@ class RollApiKeyTest {
 
     private final AccessApi access;
     private final TenancyApi tenancy;
-    private final JdbcClient jdbc;
+    private final JdbcClient owner;
     private NewOrganization organization;
 
     @Autowired
-    RollApiKeyTest(AccessApi access, TenancyApi tenancy, JdbcClient jdbc) {
+    RollApiKeyTest(AccessApi access, TenancyApi tenancy, DatabaseOwner databaseOwner) {
         this.access = new TenantBoundAccess(access);
         this.tenancy = tenancy;
-        this.jdbc = jdbc;
+        this.owner = databaseOwner.jdbc();
     }
 
     @BeforeEach
@@ -95,7 +96,7 @@ class RollApiKeyTest {
 
         var rolled = rolled(access.roll(caller(Environment.TEST, developer, Role.DEVELOPER), old.id(), DAY));
 
-        var createdBy = jdbc.sql("SELECT created_by FROM access.api_keys WHERE id = ?")
+        var createdBy = owner.sql("SELECT created_by FROM access.api_keys WHERE id = ?")
                 .param(rolled.replacement().id().value())
                 .query(UUID.class)
                 .single();

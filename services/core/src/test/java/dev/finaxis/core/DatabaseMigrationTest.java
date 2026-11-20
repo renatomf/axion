@@ -13,19 +13,19 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 @Import(PostgresTestConfiguration.class)
 class DatabaseMigrationTest {
 
-    private final JdbcClient jdbc;
+    private final JdbcClient owner;
 
     @Autowired
-    DatabaseMigrationTest(JdbcClient jdbc) {
-        this.jdbc = jdbc;
+    DatabaseMigrationTest(DatabaseOwner databaseOwner) {
+        this.owner = databaseOwner.jdbc();
     }
 
     @Test
     void appliesEveryMigrationSuccessfully() {
-        var failed = jdbc.sql("SELECT count(*) FROM flyway_schema_history WHERE NOT success")
+        var failed = owner.sql("SELECT count(*) FROM flyway_schema_history WHERE NOT success")
                 .query(Long.class)
                 .single();
-        var latest = jdbc.sql("SELECT max(installed_rank) FROM flyway_schema_history")
+        var latest = owner.sql("SELECT max(installed_rank) FROM flyway_schema_history")
                 .query(Integer.class)
                 .single();
 
@@ -36,10 +36,10 @@ class DatabaseMigrationTest {
     @Test
     void closesThePublicSchemaToOtherRoles() {
         // PUBLIC is the pseudo-role every database role belongs to.
-        var publicCanUse = jdbc.sql("SELECT has_schema_privilege('public', 'public', 'USAGE')")
+        var publicCanUse = owner.sql("SELECT has_schema_privilege('public', 'public', 'USAGE')")
                 .query(Boolean.class)
                 .single();
-        var publicCanCreate = jdbc.sql("SELECT has_schema_privilege('public', 'public', 'CREATE')")
+        var publicCanCreate = owner.sql("SELECT has_schema_privilege('public', 'public', 'CREATE')")
                 .query(Boolean.class)
                 .single();
 
@@ -49,7 +49,7 @@ class DatabaseMigrationTest {
 
     @Test
     void exemptsNoRoleFromRowLevelSecurity() {
-        var exempt = jdbc.sql("SELECT rolname FROM pg_roles WHERE rolname LIKE 'finaxis%' AND rolbypassrls")
+        var exempt = owner.sql("SELECT rolname FROM pg_roles WHERE rolname LIKE 'finaxis%' AND rolbypassrls")
                 .query(String.class)
                 .list();
 

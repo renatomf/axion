@@ -4,6 +4,7 @@ import static dev.finaxis.core.tenancy.Permission.CHARGES_READ;
 import static dev.finaxis.core.tenancy.Permission.CHARGES_WRITE;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.access.AuthenticationResult.Authenticated;
 import dev.finaxis.core.access.AuthenticationResult.Reason;
@@ -40,14 +41,14 @@ class AuthenticateApiKeyTest {
 
     private final AccessApi access;
     private final TenancyApi tenancy;
-    private final JdbcClient jdbc;
+    private final JdbcClient owner;
     private NewOrganization organization;
 
     @Autowired
-    AuthenticateApiKeyTest(AccessApi access, TenancyApi tenancy, JdbcClient jdbc) {
+    AuthenticateApiKeyTest(AccessApi access, TenancyApi tenancy, DatabaseOwner databaseOwner) {
         this.access = new TenantBoundAccess(access);
         this.tenancy = tenancy;
-        this.jdbc = jdbc;
+        this.owner = databaseOwner.jdbc();
     }
 
     @BeforeEach
@@ -116,7 +117,7 @@ class AuthenticateApiKeyTest {
     @Test
     void tellsAKeyOfAnInactiveTenantApart() {
         var key = issued(Environment.TEST, Set.of(CHARGES_READ));
-        jdbc.sql("UPDATE tenancy.tenants SET status = 'SUSPENDED' WHERE id = ?")
+        owner.sql("UPDATE tenancy.tenants SET status = 'SUSPENDED' WHERE id = ?")
                 .param(organization.test().value())
                 .update();
 
@@ -127,7 +128,7 @@ class AuthenticateApiKeyTest {
     void rejectsARevokedKeyOfAnInactiveTenant() {
         var key = issued(Environment.TEST, Set.of(CHARGES_READ));
         access.revoke(admin(Environment.TEST), key.id());
-        jdbc.sql("UPDATE tenancy.tenants SET status = 'CLOSED' WHERE id = ?")
+        owner.sql("UPDATE tenancy.tenants SET status = 'CLOSED' WHERE id = ?")
                 .param(organization.test().value())
                 .update();
 
@@ -171,7 +172,7 @@ class AuthenticateApiKeyTest {
         var revoked = issued(Environment.TEST, Set.of(CHARGES_READ));
         access.revoke(admin(Environment.TEST), revoked.id());
         var ofInactiveTenant = issued(Environment.LIVE, Set.of(CHARGES_READ));
-        jdbc.sql("UPDATE tenancy.tenants SET status = 'SUSPENDED' WHERE id = ?")
+        owner.sql("UPDATE tenancy.tenants SET status = 'SUSPENDED' WHERE id = ?")
                 .param(organization.live().value())
                 .update();
 
@@ -183,7 +184,7 @@ class AuthenticateApiKeyTest {
     }
 
     private Optional<Instant> lastUsedAt(IssuedApiKey key) {
-        return jdbc.sql("SELECT last_used_at FROM access.api_keys WHERE id = ?")
+        return owner.sql("SELECT last_used_at FROM access.api_keys WHERE id = ?")
                 .param(key.id().value())
                 .query((row, rowNumber) -> Optional.ofNullable(row.getObject(1, OffsetDateTime.class)))
                 .single()
@@ -193,7 +194,7 @@ class AuthenticateApiKeyTest {
     /** Writes the key's last use, truncated as PostgreSQL stores it, and returns what was written. */
     private Instant setLastUsedAt(IssuedApiKey key, Instant value) {
         var stored = value.truncatedTo(ChronoUnit.MICROS);
-        jdbc.sql("UPDATE access.api_keys SET last_used_at = ? WHERE id = ?")
+        owner.sql("UPDATE access.api_keys SET last_used_at = ? WHERE id = ?")
                 .params(stored.atOffset(ZoneOffset.UTC), key.id().value())
                 .update();
         return stored;
