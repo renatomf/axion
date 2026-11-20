@@ -10,6 +10,7 @@ import dev.finaxis.core.access.MemberCaller;
 import dev.finaxis.core.access.RequiresPermission;
 import dev.finaxis.core.access.RequiresStepUp;
 import dev.finaxis.core.shared.PublicId;
+import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.Permission;
@@ -54,6 +55,15 @@ class TenantResolutionTest {
         String probe(MemberCaller caller) {
             return caller.tenant().publicId() + " " + caller.environment() + " "
                     + caller.member().value();
+        }
+
+        /** Answers with the tenant bound for Row-Level Security. */
+        @RequiresPermission(Permission.API_KEYS_MANAGE)
+        @GetMapping("/internal/tenants/{tenant_id}/bound")
+        String bound() {
+            return TenantContext.current()
+                    .map(tenant -> tenant.publicId().toString())
+                    .orElse("none");
         }
 
         /** Needs a recent authentication too; {@link StepUpTest} calls it. */
@@ -105,6 +115,19 @@ class TenantResolutionTest {
                 .hasStatus(HttpStatus.OK)
                 .hasBodyTextEqualTo(
                         created.test().publicId() + " TEST " + created.admin().value());
+    }
+
+    @Test
+    void bindsTheTenantInThePathOnceTheMembershipIsChecked() {
+        NewOrganization created = tenancy.createOrganization("Acme", subject);
+
+        assertThat(mvc.get()
+                        .uri(
+                                "/internal/tenants/{tenant_id}/bound",
+                                created.live().publicId())
+                        .header("Authorization", "Bearer " + accessToken))
+                .hasStatus(HttpStatus.OK)
+                .hasBodyTextEqualTo(created.live().publicId().toString());
     }
 
     @Test
