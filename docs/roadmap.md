@@ -5,7 +5,7 @@
 | **Status** | Approved |
 | **Date** | 2026-11-17 |
 | **Source** | [Platform overview design](design-docs/2026-11-17-platform-overview.md) |
-| **Pace** | 6–8 hours per day, step-by-step mode (author new to Spring) |
+| **Pace** | 6–8 hours per day |
 
 This roadmap turns the platform overview into phases, milestones and pull requests. Phases 0 and 1 are listed PR by PR; phase 1b and phase 2 are listed by deliverable and broken into PRs when their design docs are written; phases 3–5 are extensions, summarized only.
 
@@ -22,14 +22,14 @@ This roadmap turns the platform overview into phases, milestones and pull reques
 | 11–15 | **2 — Money movement** | `v0.2.0` | Split, sub-accounts, payout saga, biometric maker-checker |
 | 16+ | **3–5 — Extensions** | `v0.3.0+` | Only after the phase 1 and 2 exit criteria are met |
 
-Estimates assume the Spring learning curve. Quality is never traded for schedule: if a phase runs late, the timeline moves, not the exit criteria.
+Quality is never traded for schedule: if a phase runs late, the timeline moves, not the exit criteria.
 
 ---
 
 ## 2. Working agreement
 
 - **One PR = one complete item, or a slice of it.** An item is split only for a reason (see `CONTRIBUTING.md`, *Pull request size*), never to fit a size; each commit introduces one concept.
-- **Per PR:** short goal statement → commits on a feature branch → PR from the template → explanation to the author (what, components, why, how it works, files, review questions) → author review → fixes as new commits → the author rebases the branch onto `main` locally and merges with a merge commit (keeps every commit signed).
+- **Per PR:** short goal statement → commits on a feature branch → PR from the template → author review → fixes as new commits → the author rebases the branch onto `main` locally and merges with a merge commit (keeps every commit signed).
 - **Design first:** every block that introduces a significant feature starts with its design doc PR.
 - **GitHub:** one milestone per phase, one issue per PR (`Closes #n`).
 - **Numbering:** a PR takes the number of its roadmap item, `<phase>.<item>` (for example `1.21`, item 21 of phase 1). An item delivered in one PR takes no letter; its issue is titled `PR 1.25: <title>`. An item that is split is delivered in lettered slices, `1.21a`, `1.21b`, `1.21c`, each its own issue and PR, titled `PR 1.21b: <title>`, and the first slice's issue names the reason for the split. In the tables below, each slice has a row (`↳`) under its item, and the row of a slice, or of an item delivered in one PR, gets the link to its pull request when it is merged. Slices not yet merged may be split, merged or renumbered when the plan changes, in particular by the design doc that opens their block; each issue's *Out* section names the slices still to come. A PR that splits, adds or renumbers slices updates their rows in the same PR, so the table always shows the current plan. Every slice belongs to its item's feature: work for another feature goes into that feature's item, never into a slice of this one. An item merged into another keeps its row, marked as merged (see 0.15).
@@ -39,7 +39,7 @@ Estimates assume the Spring learning curve. Quality is never traded for schedule
 
 ## 3. Phase 0 — Foundation (weeks 1–2)
 
-### 3.1 Guided setup (no PRs)
+### 3.1 Environment setup (no PRs)
 
 | # | Step | Result |
 |---|---|---|

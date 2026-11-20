@@ -624,7 +624,6 @@ Quality targets: ≥ 90% coverage on domain code (not globally); mutation testin
 ## 13. Engineering process
 
 - **Unit of work:** one PR = one complete roadmap item (code, tests, docs) in atomic Conventional Commits, or a slice of it when the split has a reason: a slice that lowers the risk of the next, a security boundary reviewed on its own, steps that migrations or deployment require, or a diff too large to review with care.
-- **Step-by-step mode (the author is new to Spring):** work proceeds in very small increments, from installing each tool and dependency up to each feature. Each commit introduces a single concept (e.g. "add the Spring Web dependency", "first controller", "first test for that controller"). After each commit or PR, the author receives a plain-language explanation of what was done, why, and how it works, a brief description of what each component created or changed does (its responsibility and how it fits into the system), plus review questions to answer before merging. Repository artifacts stay professional; the teaching explanations live in the conversation.
 - **Flow per PR:** short goal statement → implementation on a feature branch → PR from the template (context, changes, rationale, how to test, security checklist) → author review → fixes as new commits → the author merges.
 - **GitHub:** milestones = phases; issues = PRs (`Closes #n`); protected `main` via a repository ruleset (PR required, signed commits required, no force pushes, no deletion, green CI required once the first workflow exists; no required approval, since a solo author cannot approve their own PR); branches are rebased locally onto `main` before merging, then merged with a merge commit — GitHub's "rebase and merge" rewrites commits and drops their signatures, so it is incompatible with required signatures, while a merge commit keeps every signed commit intact and marks each PR boundary; SemVer tag per phase (`v0.1.0` = phase 1) with release-please.
 - **Definition of Done:** tests, updated docs, security checklist, green CI, a diff a reviewer can read with care.
@@ -682,9 +681,9 @@ Each phase has its own design doc, implementation plan and milestone; the detail
 
 | Item | Why | Owner |
 |---|---|---|
-| Project `CLAUDE.md` | The project spans months and every new session starts without this conversation's memory. It records the process rules (step-by-step mode, explanation format including component descriptions, PR size, language, commit conventions) and points to this document | First PR |
-| WSL2 development environment | Docker bind mounts and Gradle are much faster inside WSL2 than on the Windows filesystem; each tool is installed and verified step by step | Author, guided |
-| GitHub setup | Repository name, authenticated `gh` CLI (used to open PRs), SSH commit-signing key | Author, guided |
+| Project `CLAUDE.md` | The project spans months and every new assistant session starts without memory. It records the rules an AI assistant follows here (sources of truth, slicing and commits, language, boundaries) and points to this document | First PR |
+| WSL2 development environment | Docker bind mounts and Gradle are much faster inside WSL2 than on the Windows filesystem; each tool is installed and verified | Author |
+| GitHub setup | Repository name, authenticated `gh` CLI (used to open PRs), SSH commit-signing key | Author |
 | Demo video script | Defines exactly what phase 1 must show; work is built toward it | First document of phase 1 |
 
 ### 15.2 Exit criteria for phases 1 and 2
@@ -698,7 +697,6 @@ A phase is done only when **all** of the following hold:
 5. The phase design doc, ADRs, OpenAPI reference, runbooks and threat model are complete and current.
 6. The public demo reflects the phase, with an updated GIF/video.
 7. Security gates (CodeQL, Semgrep, Gitleaks, Trivy, ZAP baseline) report no unresolved high or critical findings.
-8. The author can explain every module of the phase without notes (section 18.4).
 
 ---
 
@@ -706,7 +704,7 @@ A phase is done only when **all** of the following hold:
 
 | Risk | Mitigation |
 |---|---|
-| Scope too large for one person | Phase gates; portfolio-ready milestone at ~week 8 (6–8 h/day, including the Spring learning curve); ML is the first cut |
+| Scope too large for one person | Phase gates; portfolio-ready milestone at ~week 8 (6–8 h/day); ML is the first cut |
 | Nothing visible to reviewers | Public demo mode, GIFs and video from phase 1 |
 | Laptop limits (16 GB RAM, 6 GB GPU) | Compose profiles; small quantized local models; mobile on a physical Android device |
 | Pix Automático and MED rules are extensive | Simulator implements a documented subset; a deviations document lists differences from the official specifications |
@@ -766,10 +764,6 @@ Each article derives from a design doc or postmortem and links to the repository
 | 15 | The golden rule for LLMs in financial systems | AI ADR | 4 |
 | 16 | Applying bank model risk management (SR 11-7) to LLM features | AI governance docs | 4 |
 | 17 | AI-assisted reconciliation: deterministic first, LLM for the leftovers | Reconciliation design doc | 4 |
-
-### 18.4 Mastery
-
-Every PR description includes review questions; the author answers them before merging. Phase exit requires the author to walk through each module of the phase without notes.
 
 ---
 
