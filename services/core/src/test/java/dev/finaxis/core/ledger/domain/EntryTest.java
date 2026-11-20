@@ -1,5 +1,8 @@
 package dev.finaxis.core.ledger.domain;
 
+import static dev.finaxis.core.ledger.LedgerFixtures.BRL;
+import static dev.finaxis.core.ledger.LedgerFixtures.account;
+import static dev.finaxis.core.ledger.LedgerFixtures.brl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -17,7 +20,6 @@ import org.junit.jupiter.api.Test;
 
 class EntryTest {
 
-    private static final Currency BRL = Currency.getInstance("BRL");
     private static final Currency USD = Currency.getInstance("USD");
 
     private static final Account SETTLEMENT = account("platform:settlement", AccountType.ASSET, BRL);
@@ -141,13 +143,5 @@ class EntryTest {
 
     private static EntryId newId() {
         return new EntryId(UUID.randomUUID());
-    }
-
-    private static Money brl(long minorUnits) {
-        return Money.ofMinor(minorUnits, BRL);
-    }
-
-    private static Account account(String code, AccountType type, Currency currency) {
-        return new Account(new AccountId(UUID.randomUUID()), UUID.randomUUID(), code, type, currency, false, false);
     }
 }

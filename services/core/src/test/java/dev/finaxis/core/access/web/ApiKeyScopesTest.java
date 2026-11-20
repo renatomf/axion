@@ -6,16 +6,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.access.AccessApi;
+import dev.finaxis.core.access.AccessFixtures;
 import dev.finaxis.core.access.ApiKeyCaller;
-import dev.finaxis.core.access.IssueResult;
 import dev.finaxis.core.access.IssuedApiKey;
-import dev.finaxis.core.access.MemberCaller;
 import dev.finaxis.core.access.RequiresPermission;
 import dev.finaxis.core.access.RequiresStepUp;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.Permission;
-import dev.finaxis.core.tenancy.Role;
 import dev.finaxis.core.tenancy.TenancyApi;
 import java.util.Set;
 import java.util.UUID;
@@ -110,10 +108,6 @@ class ApiKeyScopesTest {
     }
 
     private IssuedApiKey issued(Set<Permission> scopes) {
-        var admin = new MemberCaller(
-                organization.test(), Environment.TEST, organization.admin(), Role.permissionsOf(Set.of(Role.ADMIN)));
-        var result = access.issue(admin, "Checkout", scopes);
-        assertThat(result).isInstanceOf(IssueResult.Issued.class);
-        return ((IssueResult.Issued) result).key();
+        return AccessFixtures.issue(access, AccessFixtures.admin(organization, Environment.TEST), "Checkout", scopes);
     }
 }

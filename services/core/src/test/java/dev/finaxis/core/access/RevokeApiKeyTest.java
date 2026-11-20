@@ -3,11 +3,10 @@ package dev.finaxis.core.access;
 import static dev.finaxis.core.tenancy.Permission.CHARGES_READ;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.shared.Environment;
-import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.NewOrganization;
-import dev.finaxis.core.tenancy.Role;
 import dev.finaxis.core.tenancy.TenancyApi;
 import java.util.Set;
 import java.util.UUID;
@@ -83,19 +82,16 @@ class RevokeApiKeyTest {
     @Transactional
     void needsNoMoreThanTheAccessRolesGrants() {
         var key = issued(Environment.TEST);
-        jdbc.sql("SET LOCAL ROLE finaxis_access").update();
+        DatabaseRole.ACCESS.actAs(jdbc);
 
         assertThat(access.revoke(admin(Environment.TEST), key.id())).isPresent();
     }
 
     private MemberCaller admin(Environment environment) {
-        TenantId tenant = environment == Environment.TEST ? organization.test() : organization.live();
-        return new MemberCaller(tenant, environment, organization.admin(), Role.permissionsOf(Set.of(Role.ADMIN)));
+        return AccessFixtures.admin(organization, environment);
     }
 
     private IssuedApiKey issued(Environment environment) {
-        var result = access.issue(admin(environment), "Checkout", Set.of(CHARGES_READ));
-        assertThat(result).isInstanceOf(IssueResult.Issued.class);
-        return ((IssueResult.Issued) result).key();
+        return AccessFixtures.issue(access, admin(environment), "Checkout", Set.of(CHARGES_READ));
     }
 }

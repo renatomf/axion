@@ -1,5 +1,7 @@
 package dev.finaxis.core.ledger;
 
+import static dev.finaxis.core.ledger.LedgerFixtures.BRL;
+import static dev.finaxis.core.ledger.LedgerFixtures.brl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -9,7 +11,6 @@ import dev.finaxis.core.shared.Money;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Currency;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -24,8 +25,6 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
 class LedgerQueriesTest {
-
-    private static final Currency BRL = Currency.getInstance("BRL");
 
     /** Descending ID order, as PostgreSQL compares UUIDs: unsigned, byte by byte. */
     private static final Comparator<PostingId> NEWEST_FIRST =
@@ -222,9 +221,5 @@ class LedgerQueriesTest {
                                folded_until = now()
                          WHERE account_id = :id
                         """).param("id", hot.value()).update();
-    }
-
-    private static Money brl(long minorUnits) {
-        return Money.ofMinor(minorUnits, BRL);
     }
 }

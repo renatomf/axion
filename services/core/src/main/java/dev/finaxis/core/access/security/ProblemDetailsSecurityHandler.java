@@ -1,5 +1,6 @@
 package dev.finaxis.core.access.security;
 
+import dev.finaxis.core.access.web.AccessProblems;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
@@ -38,17 +39,11 @@ class ProblemDetailsSecurityHandler implements AuthenticationEntryPoint, AccessD
 
     // The caller proved it holds a working key, so it may learn why it is refused.
     void tenantInactive(HttpServletRequest request, HttpServletResponse response) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, "The tenant is not active.");
-        problem.setProperty("code", "tenant_inactive");
-        reject(request, response, HttpStatus.FORBIDDEN, problem);
+        resolver.resolveException(request, response, null, AccessProblems.tenantInactive());
     }
 
     private void reject(HttpServletRequest request, HttpServletResponse response, HttpStatus status, String detail) {
-        reject(request, response, status, ProblemDetail.forStatusAndDetail(status, detail));
-    }
-
-    private void reject(
-            HttpServletRequest request, HttpServletResponse response, HttpStatus status, ProblemDetail problem) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
         resolver.resolveException(request, response, null, new ErrorResponseException(status, problem, null));
     }
 }

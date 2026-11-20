@@ -6,7 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.jayway.jsonpath.JsonPath;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.access.AccessApi;
-import dev.finaxis.core.access.IssueResult;
+import dev.finaxis.core.access.AccessFixtures;
 import dev.finaxis.core.access.IssuedApiKey;
 import dev.finaxis.core.access.MemberCaller;
 import dev.finaxis.core.access.NoPermissionRequired;
@@ -14,7 +14,6 @@ import dev.finaxis.core.access.domain.ApiKeySecret;
 import dev.finaxis.core.access.security.AuthenticationFailures.Failure;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.tenancy.NewOrganization;
-import dev.finaxis.core.tenancy.Role;
 import dev.finaxis.core.tenancy.TenancyApi;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.security.SecureRandom;
@@ -229,13 +228,10 @@ class ApiKeyAuthenticationTest {
     }
 
     private MemberCaller admin() {
-        return new MemberCaller(
-                organization.test(), Environment.TEST, organization.admin(), Role.permissionsOf(Set.of(Role.ADMIN)));
+        return AccessFixtures.admin(organization, Environment.TEST);
     }
 
     private IssuedApiKey issued() {
-        var result = access.issue(admin(), "Checkout", Set.of(CHARGES_READ));
-        assertThat(result).isInstanceOf(IssueResult.Issued.class);
-        return ((IssueResult.Issued) result).key();
+        return AccessFixtures.issue(access, admin(), "Checkout", Set.of(CHARGES_READ));
     }
 }

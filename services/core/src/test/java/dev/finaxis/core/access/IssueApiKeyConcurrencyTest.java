@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.tenancy.Permission;
-import dev.finaxis.core.tenancy.Role;
 import dev.finaxis.core.tenancy.TenancyApi;
 import java.util.ArrayList;
 import java.util.Set;
@@ -44,8 +43,7 @@ class IssueApiKeyConcurrencyTest {
     @Test
     void neverPassesTheLimitUnderConcurrentRequests() throws InterruptedException, ExecutionException {
         var organization = tenancy.createOrganization("Acme", UUID.randomUUID().toString());
-        var admin =
-                new MemberCaller(organization.test(), Environment.TEST, organization.admin(), Role.ADMIN.permissions());
+        var admin = AccessFixtures.admin(organization, Environment.TEST);
 
         var results = new ArrayList<IssueResult>();
         var ready = new CountDownLatch(REQUESTS);

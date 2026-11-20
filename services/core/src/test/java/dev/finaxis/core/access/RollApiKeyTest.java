@@ -6,10 +6,10 @@ import static dev.finaxis.core.tenancy.Permission.REFUNDS_WRITE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.access.domain.ApiKeySecret;
 import dev.finaxis.core.shared.Environment;
-import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.MemberId;
 import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.Permission;
@@ -237,24 +237,21 @@ class RollApiKeyTest {
     @Transactional
     void needsNoMoreThanTheAccessRolesGrants() {
         var old = issued(Environment.TEST, Set.of(CHARGES_READ));
-        jdbc.sql("SET LOCAL ROLE finaxis_access").update();
+        DatabaseRole.ACCESS.actAs(jdbc);
 
         assertThat(access.roll(admin(Environment.TEST), old.id(), DAY)).isInstanceOf(RollResult.Rolled.class);
     }
 
     private MemberCaller admin(Environment environment) {
-        return caller(environment, organization.admin(), Role.ADMIN);
+        return AccessFixtures.admin(organization, environment);
     }
 
     private MemberCaller caller(Environment environment, MemberId member, Role role) {
-        TenantId tenant = environment == Environment.TEST ? organization.test() : organization.live();
-        return new MemberCaller(tenant, environment, member, Role.permissionsOf(Set.of(role)));
+        return AccessFixtures.member(organization, environment, member, role);
     }
 
     private IssuedApiKey issued(Environment environment, Set<Permission> scopes) {
-        var result = access.issue(admin(environment), "Checkout", scopes);
-        assertThat(result).isInstanceOf(IssueResult.Issued.class);
-        return ((IssueResult.Issued) result).key();
+        return AccessFixtures.issue(access, admin(environment), "Checkout", scopes);
     }
 
     private static RollResult.Rolled rolled(RollResult result) {

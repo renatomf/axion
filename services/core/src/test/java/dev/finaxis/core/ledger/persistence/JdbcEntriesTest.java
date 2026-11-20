@@ -1,7 +1,10 @@
 package dev.finaxis.core.ledger.persistence;
 
+import static dev.finaxis.core.ledger.LedgerFixtures.BRL;
+import static dev.finaxis.core.ledger.LedgerFixtures.newSource;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.ledger.AccountId;
 import dev.finaxis.core.ledger.AccountType;
@@ -16,7 +19,6 @@ import dev.finaxis.core.shared.Money;
 import dev.finaxis.core.shared.UuidV7Generator;
 import java.time.Clock;
 import java.time.LocalDate;
-import java.util.Currency;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,7 +38,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class JdbcEntriesTest {
 
-    private static final Currency BRL = Currency.getInstance("BRL");
     private static final Money TEN = Money.ofMinor(1_000, BRL);
 
     private final JdbcEntries entries;
@@ -53,7 +54,7 @@ class JdbcEntriesTest {
 
     @BeforeEach
     void actAsTheLedgerRole() {
-        jdbc.sql("SET LOCAL ROLE finaxis_ledger").update();
+        DatabaseRole.LEDGER.actAs(jdbc);
     }
 
     @Test
@@ -101,10 +102,6 @@ class JdbcEntriesTest {
         var account = new Account(new AccountId(ids.next()), UUID.randomUUID(), code, type, BRL, false, false);
         accounts.insertIfAbsent(account);
         return account;
-    }
-
-    private static EntrySource newSource() {
-        return new EntrySource("charge", "ch_" + UUID.randomUUID(), "settlement");
     }
 
     /** Only the entry's row is under test here, so the request's postings are never read. */

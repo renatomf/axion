@@ -3,6 +3,7 @@ package dev.finaxis.core.tenancy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.shared.Environment;
 import java.util.UUID;
@@ -110,7 +111,7 @@ class CreateOrganizationTest {
     @Test
     @Transactional
     void needsNoMoreThanTheTenancyRolesGrants() {
-        jdbc.sql("SET LOCAL ROLE finaxis_tenancy").update();
+        DatabaseRole.TENANCY.actAs(jdbc);
 
         var created = tenancy.createOrganization("Acme", newSubject());
 

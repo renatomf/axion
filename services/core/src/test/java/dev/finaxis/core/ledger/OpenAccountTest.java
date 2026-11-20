@@ -1,5 +1,7 @@
 package dev.finaxis.core.ledger;
 
+import static dev.finaxis.core.ledger.LedgerFixtures.BRL;
+import static dev.finaxis.core.ledger.LedgerFixtures.storedBalance;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -22,7 +24,6 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 @Import(PostgresTestConfiguration.class)
 class OpenAccountTest {
 
-    private static final Currency BRL = Currency.getInstance("BRL");
     private static final Currency USD = Currency.getInstance("USD");
 
     private final LedgerApi ledger;
@@ -38,7 +39,7 @@ class OpenAccountTest {
     void opensAnAccountWithABalanceOfZero() {
         var account = ledger.openAccount(available(UUID.randomUUID(), BRL));
 
-        assertThat(balanceOf(account)).isZero();
+        assertThat(storedBalance(jdbc, account)).isZero();
     }
 
     @Test
@@ -94,13 +95,6 @@ class OpenAccountTest {
     private static AccountRequest available(UUID tenant, Currency currency) {
         return new AccountRequest(
                 tenant, "tenant:" + tenant + ":available", AccountType.LIABILITY, currency, false, false);
-    }
-
-    private long balanceOf(AccountId account) {
-        return jdbc.sql("SELECT balance FROM ledger.balances WHERE account_id = ?")
-                .param(account.value())
-                .query(Long.class)
-                .single();
     }
 
     private long accountsOf(UUID tenant) {

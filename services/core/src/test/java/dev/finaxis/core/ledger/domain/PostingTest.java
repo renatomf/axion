@@ -1,20 +1,19 @@
 package dev.finaxis.core.ledger.domain;
 
+import static dev.finaxis.core.ledger.LedgerFixtures.BRL;
+import static dev.finaxis.core.ledger.LedgerFixtures.account;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.finaxis.core.ledger.AccountId;
 import dev.finaxis.core.ledger.AccountType;
 import dev.finaxis.core.shared.Money;
 import java.util.Currency;
-import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class PostingTest {
 
-    private static final Currency BRL = Currency.getInstance("BRL");
     private static final Account SETTLEMENT = account("platform:settlement", AccountType.ASSET);
     private static final Account AVAILABLE = account("tenant:1:available", AccountType.LIABILITY);
     private static final Money TEN = Money.ofMinor(1000, BRL);
@@ -61,9 +60,5 @@ class PostingTest {
     @Test
     void rejectsABlankAccountCode() {
         assertThatThrownBy(() -> account(" ", AccountType.ASSET)).isInstanceOf(IllegalArgumentException.class);
-    }
-
-    private static Account account(String code, AccountType type) {
-        return new Account(new AccountId(UUID.randomUUID()), UUID.randomUUID(), code, type, BRL, false, false);
     }
 }

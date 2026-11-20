@@ -3,9 +3,8 @@ package dev.finaxis.core.shared;
 import java.util.regex.Pattern;
 
 /**
- * A company's taxpayer number: 12 characters and 2 numeric check digits. Alphanumeric from July
- * 2026 (IN RFB 2,229/2024), each character counting as its ASCII code minus 48. Masked by {@link
- * #toString}: a sole trader's CNPJ identifies a person.
+ * A company's taxpayer number: 12 characters and 2 numeric check digits, alphanumeric from July
+ * 2026 (IN RFB 2,229/2024). Masked by {@link #toString}: a sole trader's CNPJ identifies a person.
  *
  * @param value the 14 characters, without punctuation
  */
@@ -17,7 +16,7 @@ public record Cnpj(String value) {
     private static final int MAX_WEIGHT = 9;
 
     public Cnpj {
-        if (!PLAIN.matcher(value).matches() || isOneRepeatedCharacter(value) || !hasValidCheckDigits(value)) {
+        if (!PLAIN.matcher(value).matches() || !CheckDigits.isValid(value, MAX_WEIGHT)) {
             // The input is not echoed: it may identify a person.
             throw new IllegalArgumentException("Not a valid CNPJ");
         }
@@ -44,15 +43,5 @@ public record Cnpj(String value) {
     @Override
     public String toString() {
         return "**." + value.substring(2, 5) + "." + value.substring(5, 8) + "/" + value.substring(8, 12) + "-**";
-    }
-
-    private static boolean isOneRepeatedCharacter(String value) {
-        return value.chars().allMatch(c -> c == value.charAt(0));
-    }
-
-    private static boolean hasValidCheckDigits(String value) {
-        int[] values = value.chars().map(c -> c - '0').toArray();
-        return CheckDigits.mod11(values, 12, MAX_WEIGHT) == values[12]
-                && CheckDigits.mod11(values, 13, MAX_WEIGHT) == values[13];
     }
 }

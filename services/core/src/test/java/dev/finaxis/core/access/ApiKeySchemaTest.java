@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.tenancy.Permission;
 import java.security.SecureRandom;
@@ -122,7 +123,7 @@ class ApiKeySchemaTest {
 
     @Test
     void letsTheAccessRoleRevokeAKey() {
-        actAsTheAccessRole();
+        DatabaseRole.ACCESS.actAs(jdbc);
         var key = insertKey("Checkout", randomHash(), "a1B2", "{charges:read}");
 
         var revoked = jdbc.sql("UPDATE access.api_keys SET revoked_at = now() WHERE id = ?")
@@ -135,7 +136,7 @@ class ApiKeySchemaTest {
     @Test
     void deniesTheAccessRoleChangingTheScopesOfAKey() {
         var key = insertKey("Checkout", randomHash(), "a1B2", "{charges:read}");
-        actAsTheAccessRole();
+        DatabaseRole.ACCESS.actAs(jdbc);
 
         assertThatThrownBy(() -> jdbc.sql("UPDATE access.api_keys SET scopes = '{refunds:write}' WHERE id = ?")
                         .param(key)
@@ -147,7 +148,7 @@ class ApiKeySchemaTest {
     @Test
     void deniesTheAccessRoleMovingAKeyToAnotherTenant() {
         var key = insertKey("Checkout", randomHash(), "a1B2", "{charges:read}");
-        actAsTheAccessRole();
+        DatabaseRole.ACCESS.actAs(jdbc);
 
         assertThatThrownBy(() -> jdbc.sql("UPDATE access.api_keys SET tenant_id = ? WHERE id = ?")
                         .params(UUID.randomUUID(), key)
@@ -159,7 +160,7 @@ class ApiKeySchemaTest {
     @Test
     void deniesTheAccessRoleDeletingAKey() {
         var key = insertKey("Checkout", randomHash(), "a1B2", "{charges:read}");
-        actAsTheAccessRole();
+        DatabaseRole.ACCESS.actAs(jdbc);
 
         assertThatThrownBy(() -> jdbc.sql("DELETE FROM access.api_keys WHERE id = ?")
                         .param(key)
@@ -178,11 +179,6 @@ class ApiKeySchemaTest {
 
         assertThat(settings)
                 .containsExactlyInAnyOrder("lock_timeout=2s", "statement_timeout=5s", "transaction_timeout=30s");
-    }
-
-    /** Acts as the access role until the test's transaction ends. */
-    private void actAsTheAccessRole() {
-        jdbc.sql("SET LOCAL ROLE finaxis_access").update();
     }
 
     private UUID insertKey(String name, byte[] hash, String lastFour, String scopes) {

@@ -9,7 +9,7 @@ import org.springframework.web.ErrorResponseException;
  * The access errors of tenancy design, section 4.4, as Problem Details. Details stay generic: a
  * response says no more than its status and code.
  */
-final class AccessProblems {
+public final class AccessProblems {
 
     private AccessProblems() {}
 
@@ -18,7 +18,7 @@ final class AccessProblems {
         return problem(HttpStatus.NOT_FOUND, "not_found", "The resource was not found.");
     }
 
-    static ErrorResponseException tenantInactive() {
+    public static ErrorResponseException tenantInactive() {
         return problem(HttpStatus.FORBIDDEN, "tenant_inactive", "The tenant is not active.");
     }
 

@@ -1,5 +1,8 @@
 package dev.finaxis.core.ledger;
 
+import static dev.finaxis.core.ledger.LedgerFixtures.BRL;
+import static dev.finaxis.core.ledger.LedgerFixtures.newSource;
+import static dev.finaxis.core.ledger.LedgerFixtures.storedBalance;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -9,7 +12,6 @@ import dev.finaxis.core.ledger.application.LedgerVerification;
 import dev.finaxis.core.shared.Money;
 import java.time.LocalDate;
 import java.util.Collections;
-import java.util.Currency;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -32,7 +34,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Import(PostgresTestConfiguration.class)
 class PostEntryTest {
 
-    private static final Currency BRL = Currency.getInstance("BRL");
     private static final Money TEN = Money.ofMinor(1_000, BRL);
 
     private final LedgerApi ledger;
@@ -81,8 +82,8 @@ class PostEntryTest {
         ledger.post(settle(newSource(), TEN));
 
         // A debit raises an asset and a credit raises a liability (ledger design, section 3.2).
-        assertThat(balanceOf(settlement)).isEqualTo(1_000);
-        assertThat(balanceOf(available)).isEqualTo(1_000);
+        assertThat(storedBalance(jdbc, settlement)).isEqualTo(1_000);
+        assertThat(storedBalance(jdbc, available)).isEqualTo(1_000);
     }
 
     @Test
@@ -95,8 +96,8 @@ class PostEntryTest {
         assertThat(result).isEqualTo(new PostResult.InsufficientFunds(available));
         assertThat(entriesOf(payout.source())).isZero();
         // The settlement account was changed first, then rolled back with the rest.
-        assertThat(balanceOf(settlement)).isEqualTo(1_000);
-        assertThat(balanceOf(available)).isEqualTo(1_000);
+        assertThat(storedBalance(jdbc, settlement)).isEqualTo(1_000);
+        assertThat(storedBalance(jdbc, available)).isEqualTo(1_000);
     }
 
     @Test
@@ -125,7 +126,7 @@ class PostEntryTest {
         var result = ledger.post(payout);
 
         assertThat(result).isInstanceOf(PostResult.Posted.class);
-        assertThat(balanceOf(available)).isZero();
+        assertThat(storedBalance(jdbc, available)).isZero();
     }
 
     @Test
@@ -137,7 +138,7 @@ class PostEntryTest {
             return opened;
         });
 
-        assertThat(balanceOf(callersAccount)).isZero();
+        assertThat(storedBalance(jdbc, callersAccount)).isZero();
     }
 
     @Test
@@ -167,8 +168,8 @@ class PostEntryTest {
         ledger.post(
                 request(newSource(), List.of(PostingRequest.debit(hot, TEN), PostingRequest.credit(available, TEN))));
 
-        assertThat(balanceOf(hot)).isZero();
-        assertThat(balanceOf(available)).isEqualTo(1_000);
+        assertThat(storedBalance(jdbc, hot)).isZero();
+        assertThat(storedBalance(jdbc, available)).isEqualTo(1_000);
     }
 
     @Test
@@ -180,7 +181,7 @@ class PostEntryTest {
 
         assertThat(second).isEqualTo(new PostResult.AlreadyPosted(entryOf(first)));
         assertThat(postingsOf(entryOf(first))).isEqualTo(2);
-        assertThat(balanceOf(available)).isEqualTo(1_000);
+        assertThat(storedBalance(jdbc, available)).isEqualTo(1_000);
     }
 
     @Test
@@ -274,23 +275,12 @@ class PostEntryTest {
         return new EntryRequest(tenant, source, LocalDate.of(2026, 11, 18), "corr-1", postings);
     }
 
-    private static EntrySource newSource() {
-        return new EntrySource("charge", "ch_" + UUID.randomUUID(), "settlement");
-    }
-
     private static EntryId entryOf(PostResult result) {
         return switch (result) {
             case PostResult.Posted posted -> posted.entry();
             case PostResult.AlreadyPosted already -> already.entry();
             case PostResult.InsufficientFunds insufficient -> throw new AssertionError("Unexpected " + insufficient);
         };
-    }
-
-    private long balanceOf(AccountId account) {
-        return jdbc.sql("SELECT balance FROM ledger.balances WHERE account_id = ?")
-                .param(account.value())
-                .query(Long.class)
-                .single();
     }
 
     private long accountsWithCode(String code) {

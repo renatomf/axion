@@ -7,15 +7,13 @@ import dev.finaxis.core.KeycloakTestConfiguration;
 import dev.finaxis.core.OpenApiContract;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.access.AccessApi;
+import dev.finaxis.core.access.AccessFixtures;
 import dev.finaxis.core.access.ApiKeyId;
-import dev.finaxis.core.access.IssueResult;
 import dev.finaxis.core.access.IssuedApiKey;
-import dev.finaxis.core.access.MemberCaller;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.Permission;
-import dev.finaxis.core.tenancy.Role;
 import dev.finaxis.core.tenancy.TenancyApi;
 import java.time.Duration;
 import java.time.Instant;
@@ -617,11 +615,7 @@ class ApiKeysControllerTest {
     }
 
     private IssuedApiKey issued(NewOrganization owner, Environment environment, String name, Set<Permission> scopes) {
-        TenantId tenant = environment == Environment.TEST ? owner.test() : owner.live();
-        var admin = new MemberCaller(tenant, environment, owner.admin(), Role.ADMIN.permissions());
-        IssueResult result = access.issue(admin, name, scopes);
-        assertThat(result).isInstanceOf(IssueResult.Issued.class);
-        return ((IssueResult.Issued) result).key();
+        return AccessFixtures.issue(access, AccessFixtures.admin(owner, environment), name, scopes);
     }
 
     private static Object utc(Instant instant) {
