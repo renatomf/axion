@@ -78,11 +78,7 @@ class RevokeApiKeyTest {
                 .isEmpty();
     }
 
-    /**
-     * Acting as {@code finaxis_access} proves the code needs no privilege beyond the role's grants
-     * (migration {@code V10}): the update touches only {@code revoked_at}. The test's transaction is
-     * rolled back, so it leaves no rows behind.
-     */
+    /** As {@code finaxis_access}, the code needs no privilege beyond the role's grants. */
     @Test
     @Transactional
     void needsNoMoreThanTheAccessRolesGrants() {
@@ -92,7 +88,6 @@ class RevokeApiKeyTest {
         assertThat(access.revoke(admin(Environment.TEST), key.id())).isPresent();
     }
 
-    /** The caller tenant resolution would build for the organization's admin. */
     private MemberCaller admin(Environment environment) {
         TenantId tenant = environment == Environment.TEST ? organization.test() : organization.live();
         return new MemberCaller(tenant, environment, organization.admin(), Role.permissionsOf(Set.of(Role.ADMIN)));

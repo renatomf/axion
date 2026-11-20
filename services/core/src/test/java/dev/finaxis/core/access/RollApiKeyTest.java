@@ -232,11 +232,7 @@ class RollApiKeyTest {
                 .isEqualTo(new IssueResult.LimitReached(AccessApi.MAX_ACTIVE_KEYS));
     }
 
-    /**
-     * Acting as {@code finaxis_access} proves the code needs no privilege beyond the role's grants
-     * (migration {@code V10}): the old key's update touches only {@code expires_at}. The test's
-     * transaction is rolled back, so it leaves no rows behind.
-     */
+    /** As {@code finaxis_access}, the code needs no privilege beyond the role's grants. */
     @Test
     @Transactional
     void needsNoMoreThanTheAccessRolesGrants() {
@@ -246,7 +242,6 @@ class RollApiKeyTest {
         assertThat(access.roll(admin(Environment.TEST), old.id(), DAY)).isInstanceOf(RollResult.Rolled.class);
     }
 
-    /** The caller tenant resolution would build for the organization's admin. */
     private MemberCaller admin(Environment environment) {
         return caller(environment, organization.admin(), Role.ADMIN);
     }

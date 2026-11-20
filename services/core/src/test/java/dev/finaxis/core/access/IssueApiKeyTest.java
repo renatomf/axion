@@ -155,10 +155,7 @@ class IssueApiKeyTest {
                 .hasMessageContaining("at most 100 characters");
     }
 
-    /**
-     * Acting as {@code finaxis_access} proves the code needs no privilege beyond the role's grants
-     * (migration {@code V10}). The test's transaction is rolled back, so it leaves no rows behind.
-     */
+    /** As {@code finaxis_access}, the code needs no privilege beyond the role's grants. */
     @Test
     @Transactional
     void needsNoMoreThanTheAccessRolesGrants() {
@@ -173,7 +170,6 @@ class IssueApiKeyTest {
         return caller(environment, Role.ADMIN);
     }
 
-    /** The caller tenant resolution would build for the organization's admin, with these roles. */
     private MemberCaller caller(Environment environment, Role role) {
         TenantId tenant = environment == Environment.TEST ? organization.test() : organization.live();
         Set<Permission> permissions = Role.permissionsOf(Set.of(role));

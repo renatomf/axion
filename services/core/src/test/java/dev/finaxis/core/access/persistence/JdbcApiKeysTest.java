@@ -24,7 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * {@link JdbcApiKeys} against a real PostgreSQL, as the access role, so the tests also prove the
- * role's privileges are enough. Each test runs in a transaction that is rolled back when it ends.
+ * role's privileges are enough.
  */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)

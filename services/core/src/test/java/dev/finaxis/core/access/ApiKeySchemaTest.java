@@ -20,10 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The API keys table and the rules the database enforces on it (tenancy design, section 3.4),
- * checked against a real PostgreSQL.
- *
- * <p>No key appears here: a row needs only a hash, and random bytes stand in for it. Every test
- * runs inside one transaction that Spring's test support rolls back when the test ends.
+ * checked against a real PostgreSQL. Random bytes stand in for a key's hash.
  */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
@@ -183,11 +180,7 @@ class ApiKeySchemaTest {
                 .containsExactlyInAnyOrder("lock_timeout=2s", "statement_timeout=5s", "transaction_timeout=30s");
     }
 
-    /**
-     * Switches the current transaction to the access role, as if the service had connected as it.
-     * {@code SET LOCAL} lasts until the transaction ends, so the pooled connection returns to the
-     * owner role afterwards.
-     */
+    /** Acts as the access role until the test's transaction ends. */
     private void actAsTheAccessRole() {
         jdbc.sql("SET LOCAL ROLE finaxis_access").update();
     }

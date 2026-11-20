@@ -101,10 +101,7 @@ class ListApiKeysTest {
         assertThat(access.keys(organization.live())).isEmpty();
     }
 
-    /**
-     * Acting as {@code finaxis_access} proves the code needs no privilege beyond the role's grants
-     * (migration {@code V10}). The test's transaction is rolled back, so it leaves no rows behind.
-     */
+    /** As {@code finaxis_access}, the code needs no privilege beyond the role's grants. */
     @Test
     @Transactional
     void needsNoMoreThanTheAccessRolesGrants() {
@@ -114,7 +111,6 @@ class ListApiKeysTest {
         assertThat(access.keys(organization.test())).hasSize(1);
     }
 
-    /** Issues a key as the organization's admin, in the tenant of this environment. */
     private IssuedApiKey issued(Environment environment, String name, Set<Permission> scopes) {
         TenantId tenant = environment == Environment.TEST ? organization.test() : organization.live();
         var admin = new MemberCaller(tenant, environment, organization.admin(), Role.permissionsOf(Set.of(Role.ADMIN)));
