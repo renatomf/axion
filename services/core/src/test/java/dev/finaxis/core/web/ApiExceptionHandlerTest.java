@@ -2,11 +2,14 @@ package dev.finaxis.core.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
 import java.util.List;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -147,6 +150,26 @@ class ApiExceptionHandlerTest {
     }
 
     @Test
+    void invalidFieldIsNamedAsTheRequestSpellsIt() {
+        assertThat(validated("""
+                        {"name": "Acme", "tags": ["a"], "max_retries": -1}
+                        """))
+                .hasStatus(HttpStatus.UNPROCESSABLE_CONTENT)
+                .bodyJson()
+                .extractingPath("$.errors[*].field")
+                .isEqualTo(List.of("max_retries"));
+    }
+
+    @Test
+    void javaPathsBecomeSnakeCase() {
+        assertThat(ApiExceptionHandler.jsonPath("name")).isEqualTo("name");
+        assertThat(ApiExceptionHandler.jsonPath("tags[1]")).isEqualTo("tags[1]");
+        assertThat(ApiExceptionHandler.jsonPath("items[0].unitPrice")).isEqualTo("items[0].unit_price");
+        assertThat(ApiExceptionHandler.jsonPath("line2Address")).isEqualTo("line2_address");
+        assertThat(ApiExceptionHandler.jsonPath("metadata[orderId]")).isEqualTo("metadata[orderId]");
+    }
+
+    @Test
     void validationProblemDoesNotEchoTheRejectedValue() {
         String rejected = "do-not-echo-this-value";
 
@@ -208,8 +231,11 @@ class ApiExceptionHandlerTest {
 
     /**
      * A request body with constraints. A missing property arrives as {@code null}, which {@code
-     * @NotBlank} and {@code @NotEmpty} reject as well.
+     * @NotBlank} and {@code @NotEmpty} reject as well; {@code maxRetries} is optional, and {@code
+     * @Min}, like every standard constraint, lets a {@code null} pass.
      */
     record Form(
-            @NotBlank @Size(max = 10) String name, @NotEmpty List<@NotBlank String> tags) {}
+            @NotBlank @Size(max = 10) String name,
+            @NotEmpty List<@NotBlank String> tags,
+            @JsonProperty("max_retries") @Min(0) @Nullable Integer maxRetries) {}
 }

@@ -4,6 +4,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -49,6 +51,12 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
+    /** A lowercase letter or digit followed by an uppercase letter: where snake_case puts a {@code _}. */
+    private static final Pattern CAMEL_HUMP = Pattern.compile("([a-z0-9])([A-Z])");
+
+    /** A bracketed index or key, or a run of text between brackets. */
+    private static final Pattern PATH_SEGMENT = Pattern.compile("\\[[^\\]]*]|[^\\[]+");
+
     /**
      * Handles every exception not handled more specifically: Spring MVC picks the handler whose
      * exception type is the closest match, so this one only gets what no other handler declares.
@@ -91,13 +99,33 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
      */
     private static List<FieldProblem> fieldErrors(MethodArgumentNotValidException ex) {
         Stream<FieldProblem> fields = ex.getBindingResult().getFieldErrors().stream()
-                .map(error -> new FieldProblem(error.getField(), message(error.getDefaultMessage())));
+                .map(error -> new FieldProblem(jsonPath(error.getField()), message(error.getDefaultMessage())));
         Stream<FieldProblem> objects = ex.getBindingResult().getGlobalErrors().stream()
                 .filter(error -> !(error instanceof FieldError))
                 .map(error -> new FieldProblem(error.getObjectName(), message(error.getDefaultMessage())));
         return Stream.concat(fields, objects)
                 .sorted(Comparator.comparing(FieldProblem::field).thenComparing(FieldProblem::detail))
                 .toList();
+    }
+
+    /**
+     * A field's path as the request spells it. The validator names fields by their Java names, such
+     * as {@code gracePeriodSeconds}; the contracts spell every JSON property in snake_case, so the
+     * path is converted: {@code grace_period_seconds}. Indexes and dots are kept, so {@code
+     * items[0].unitPrice} becomes {@code items[0].unit_price}. What is inside brackets is left
+     * alone: it is an index, or a map key the client chose, not a name from the contract.
+     */
+    static String jsonPath(String javaPath) {
+        StringBuilder path = new StringBuilder();
+        Matcher segment = PATH_SEGMENT.matcher(javaPath);
+        while (segment.find()) {
+            String text = segment.group();
+            path.append(
+                    text.startsWith("[")
+                            ? text
+                            : CAMEL_HUMP.matcher(text).replaceAll("$1_$2").toLowerCase(Locale.ROOT));
+        }
+        return path.toString();
     }
 
     private static String message(@Nullable String message) {

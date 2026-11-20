@@ -23,6 +23,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,12 +40,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * {@code GET} and {@code POST /internal/tenants/{tenant_id}/api_keys}, and {@code POST
- * …/api_keys/{key_id}/revoke}, against a real PostgreSQL, every response checked against the
- * contract.
+ * …/api_keys/{key_id}/roll} and {@code …/revoke}, against a real PostgreSQL, every response checked
+ * against the contract.
  *
  * <p>The member's token is built with Spring Security's {@code jwt()}, which skips decoding and
  * validation: real tokens are proven in {@link TenantResolutionTest}, and here only the subject
- * matters, and, for issuing and revoking, a recent {@code auth_time}, which step-up requires. Each test runs in a transaction rolled back at its end, as in {@link
+ * matters, and, for issuing, rolling and revoking, a recent {@code auth_time}, which step-up requires. Each test runs in a transaction rolled back at its end, as in {@link
  * CurrentMemberControllerTest}, with which it shares a Spring context.
  */
 @SpringBootTest
@@ -397,6 +398,199 @@ class ApiKeysControllerTest {
         assertThat(access.keys(organization.test()).getFirst().revokedAt()).isEmpty();
     }
 
+    @Test
+    void rollsAKeyKeepingItsNameAndScopesForADayByDefault() {
+        IssuedApiKey key = issued(organization, Environment.TEST, "Checkout");
+        Instant before = Instant.now();
+
+        MvcTestResult result = roll(organization.test(), key.id().publicId().toString(), null, Duration.ofMinutes(1));
+
+        assertThat(result).hasStatus(HttpStatus.CREATED);
+        assertThat(result)
+                .bodyJson()
+                .extractingPath("$.replacement.id")
+                .isNotEqualTo(key.id().publicId().toString());
+        assertThat(result).bodyJson().extractingPath("$.replacement.name").isEqualTo("Checkout");
+        assertThat(result)
+                .bodyJson()
+                .extractingPath("$.replacement.scopes")
+                .isEqualTo(List.of("charges:read", "charges:write"));
+        assertThat(result)
+                .bodyJson()
+                .extractingPath("$.replacement.secret")
+                .asString()
+                .startsWith("sk_test_");
+        assertThat(result)
+                .bodyJson()
+                .extractingPath("$.rolled.id")
+                .isEqualTo(key.id().publicId().toString());
+        assertThat(expiresAt(key))
+                .isBetween(before.plus(Duration.ofHours(24)), Instant.now().plus(Duration.ofHours(24)));
+    }
+
+    @Test
+    void rollsWithTheGracePeriodTheRequestNames() {
+        IssuedApiKey key = issued(organization, Environment.TEST, "Checkout");
+        Instant before = Instant.now();
+
+        assertThat(roll(organization.test(), key.id().publicId().toString(), """
+                        {"grace_period_seconds": 604800}
+                        """, Duration.ofMinutes(1)))
+                .hasStatus(HttpStatus.CREATED);
+
+        assertThat(expiresAt(key))
+                .isBetween(before.plus(Duration.ofDays(7)), Instant.now().plus(Duration.ofDays(7)));
+    }
+
+    @Test
+    void rejectsAGracePeriodOutOfRange() {
+        String key = issued(organization, Environment.TEST, "Checkout")
+                .id()
+                .publicId()
+                .toString();
+
+        for (String body : List.of("{\"grace_period_seconds\": -1}", "{\"grace_period_seconds\": 604801}")) {
+            assertThat(roll(organization.test(), key, body, Duration.ofMinutes(1)))
+                    .hasStatus(HttpStatus.UNPROCESSABLE_CONTENT)
+                    .bodyJson()
+                    .extractingPath("$.errors[*].field")
+                    .isEqualTo(List.of("grace_period_seconds"));
+        }
+        assertThat(access.keys(organization.test()).getFirst().expiresAt()).isEmpty();
+    }
+
+    @Test
+    void refusesToRollAKeyTwiceOrARevokedKey() {
+        String rolled =
+                issued(organization, Environment.TEST, "Rolled").id().publicId().toString();
+        roll(organization.test(), rolled, null, Duration.ofMinutes(1));
+        String revoked = issued(organization, Environment.TEST, "Revoked")
+                .id()
+                .publicId()
+                .toString();
+        revoke(organization.test(), revoked, Duration.ofMinutes(1));
+
+        for (String key : List.of(rolled, revoked)) {
+            assertThat(roll(organization.test(), key, null, Duration.ofMinutes(1)))
+                    .hasStatus(HttpStatus.CONFLICT)
+                    .bodyJson()
+                    .extractingPath("$.code")
+                    .isEqualTo("key_not_rollable");
+        }
+    }
+
+    @Test
+    void findsNoKeyToRollOfAnotherTenantOrWithAnUnknownOrMalformedId() {
+        IssuedApiKey live = issued(organization, Environment.LIVE, "Live");
+        String unknown = new ApiKeyId(UUID.randomUUID()).publicId().toString();
+
+        for (String id : List.of(live.id().publicId().toString(), unknown, "key_not-an-id")) {
+            assertThat(roll(organization.test(), id, null, Duration.ofMinutes(1)))
+                    .hasStatus(HttpStatus.NOT_FOUND)
+                    .bodyJson()
+                    .extractingPath("$.code")
+                    .isEqualTo("not_found");
+        }
+        assertThat(access.keys(organization.live())).hasSize(1);
+        assertThat(access.keys(organization.live()).getFirst().expiresAt()).isEmpty();
+    }
+
+    @Test
+    void refusesToRollAKeyWithScopesTheMemberDoesNotHold() {
+        // Issued by an admin; a developer may manage keys, but not issue refunds.
+        String key = issued(organization, Environment.TEST, "Refunds", Set.of(Permission.REFUNDS_WRITE))
+                .id()
+                .publicId()
+                .toString();
+        jdbc.sql("UPDATE tenancy.member_roles SET role = 'DEVELOPER' WHERE member_id = ?")
+                .param(organization.admin().value())
+                .update();
+
+        assertThat(roll(organization.test(), key, null, Duration.ofMinutes(1)))
+                .hasStatus(HttpStatus.FORBIDDEN)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("insufficient_permission");
+    }
+
+    @Test
+    void rollsAtTheLimitOnlyWithoutAGracePeriod() {
+        String key =
+                issued(organization, Environment.TEST, "Key 0").id().publicId().toString();
+        for (int i = 1; i < AccessApi.MAX_ACTIVE_KEYS; i++) {
+            issued(organization, Environment.TEST, "Key " + i);
+        }
+
+        assertThat(roll(organization.test(), key, null, Duration.ofMinutes(1)))
+                .hasStatus(HttpStatus.UNPROCESSABLE_CONTENT)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("limit_exceeded");
+        assertThat(roll(organization.test(), key, """
+                        {"grace_period_seconds": 0}
+                        """, Duration.ofMinutes(1))).hasStatus(HttpStatus.CREATED);
+    }
+
+    @Test
+    void refusesToRollForAMemberWhoCannotManageKeys() {
+        IssuedApiKey key = issued(organization, Environment.TEST, "Checkout");
+        jdbc.sql("UPDATE tenancy.member_roles SET role = 'READ_ONLY' WHERE member_id = ?")
+                .param(organization.admin().value())
+                .update();
+
+        assertThat(roll(organization.test(), key.id().publicId().toString(), null, Duration.ofMinutes(1)))
+                .hasStatus(HttpStatus.FORBIDDEN)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("insufficient_permission");
+    }
+
+    @Test
+    void requiresARecentAuthenticationToRoll() {
+        IssuedApiKey key = issued(organization, Environment.TEST, "Checkout");
+
+        assertThat(roll(organization.test(), key.id().publicId().toString(), null, Duration.ofMinutes(6)))
+                .hasStatus(HttpStatus.FORBIDDEN)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("step_up_required");
+        assertThat(access.keys(organization.test())).hasSize(1);
+        assertThat(access.keys(organization.test()).getFirst().expiresAt()).isEmpty();
+    }
+
+    /**
+     * When a key of the organization's test tenant stops working, read through the module API. The
+     * key is found by its ID: a replacement issued in the same transaction has the same {@code
+     * created_at}, so the order of a list does not tell the two apart.
+     */
+    private Instant expiresAt(IssuedApiKey key) {
+        return access.keys(organization.test()).stream()
+                .filter(view -> view.id().equals(key.id()))
+                .findFirst()
+                .orElseThrow()
+                .expiresAt()
+                .orElseThrow();
+    }
+
+    /**
+     * Rolls a key as the member, who authenticated this long ago, with this body or none, and checks
+     * the response against the contract.
+     */
+    private MvcTestResult roll(TenantId tenant, String keyId, @Nullable String body, Duration sinceAuthentication) {
+        var request = mvc.post()
+                .uri("/internal/tenants/{tenant_id}/api_keys/{key_id}/roll", tenant.publicId(), keyId)
+                .with(jwt().jwt(token -> token.subject(subject)
+                        .claim(
+                                "auth_time",
+                                Instant.now().minus(sinceAuthentication).getEpochSecond())));
+        if (body != null) {
+            request = request.contentType(MediaType.APPLICATION_JSON).content(body);
+        }
+        MvcTestResult result = request.exchange();
+        OpenApiContract.internal().assertConforms(result);
+        return result;
+    }
+
     /**
      * Revokes a key as the member, who authenticated this long ago, and checks the response against
      * the contract.
@@ -441,11 +635,19 @@ class ApiKeysControllerTest {
         return assertThat(result);
     }
 
-    /** Issues a key through the module API, as the organization's admin, in this environment. */
+    /**
+     * Issues a key that may read and write charges through the module API, as the organization's
+     * admin, in this environment.
+     */
     private IssuedApiKey issued(NewOrganization owner, Environment environment, String name) {
+        return issued(owner, environment, name, Set.of(Permission.CHARGES_READ, Permission.CHARGES_WRITE));
+    }
+
+    /** Issues a key with these scopes through the module API, as the organization's admin. */
+    private IssuedApiKey issued(NewOrganization owner, Environment environment, String name, Set<Permission> scopes) {
         TenantId tenant = environment == Environment.TEST ? owner.test() : owner.live();
         var admin = new MemberCaller(tenant, environment, owner.admin(), Role.ADMIN.permissions());
-        IssueResult result = access.issue(admin, name, Set.of(Permission.CHARGES_READ, Permission.CHARGES_WRITE));
+        IssueResult result = access.issue(admin, name, scopes);
         assertThat(result).isInstanceOf(IssueResult.Issued.class);
         return ((IssueResult.Issued) result).key();
     }
