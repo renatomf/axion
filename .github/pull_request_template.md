@@ -40,8 +40,6 @@ Closes #
 - [ ] **Documentation:** affected docs, ADRs and API reference updated
 - [ ] **Size:** reviewable with care; a split names its reason (see `CONTRIBUTING.md`)
 
-## Review questions
+## Notes for reviewers
 
-<!-- Questions the author answers before merging. -->
-
-1.
+<!-- Where to look first, known risks, decisions left open. Remove if there are none. -->
