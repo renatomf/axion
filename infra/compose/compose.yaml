@@ -4,6 +4,7 @@
 # Services join a profile so only what a task needs is started:
 #   core  PostgreSQL for the core service
 #   auth  PostgreSQL and Keycloak, for the console and authentication tests
+#   jobs  one-shot setup jobs, run by `just up`
 name: finaxis
 
 services:
@@ -28,6 +29,26 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # One-shot job: gives finaxis_app, the role the core service logs in as, its
+  # login and password, then exits. Idempotent; `just up` runs it on every
+  # start with `compose run`, since `up --wait` counts a job that exits as failed.
+  core-database:
+    profiles: [jobs]
+    image: postgres:17.12-bookworm@sha256:40865bc877a289da75963d97d72b59633f639fc5af7a4e856bfa3714cae5b536
+    environment:
+      PGHOST: postgres
+      PGUSER: finaxis
+      PGDATABASE: finaxis
+      PGPASSWORD: ${FINAXIS_DB_PASSWORD:?set FINAXIS_DB_PASSWORD in infra/compose/.env}
+      FINAXIS_APP_DB_PASSWORD: ${FINAXIS_APP_DB_PASSWORD:?set FINAXIS_APP_DB_PASSWORD in infra/compose/.env}
+    command: [psql, --no-psqlrc, --set=ON_ERROR_STOP=1, --file=/scripts/create-login-role.sql]
+    volumes:
+      - ../postgres/create-login-role.sql:/scripts/create-login-role.sql:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   # One-shot job: creates Keycloak's own role and database on this server
   # (ADR 0005), then exits. Idempotent, so it runs on every start.
