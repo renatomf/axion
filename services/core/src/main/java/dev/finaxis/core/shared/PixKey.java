@@ -3,29 +3,12 @@ package dev.finaxis.core.shared;
 import java.util.regex.Pattern;
 
 /**
- * A Pix key: the alias, registered in the Central Bank's directory (DICT), that a payer uses to
- * reach an account instead of its bank details.
- *
- * <p>The value is in the canonical form the DICT stores, one per type, so two keys are equal exactly
- * when they reach the same entry:
- *
- * <ul>
- *   <li>{@link Type#CPF}: 11 digits, without punctuation, such as {@code 52998224725}
- *   <li>{@link Type#CNPJ}: 14 characters, without punctuation, such as {@code 12ABC34501DE35}
- *   <li>{@link Type#EMAIL}: lowercase, up to 77 characters, such as {@code maria@example.com}
- *   <li>{@link Type#PHONE}: a Brazilian mobile number in E.164, such as {@code +5511987654321}
- *   <li>{@link Type#RANDOM}: a lowercase UUID the DICT generated, such as {@code
- *       123e4567-e89b-42d3-a456-426614174000}
- * </ul>
- *
- * <p>Every type but the random key is personal data, so {@link #toString} shows only the type.
- *
- * @param type what the key is
- * @param value the key in its canonical form
+ * A Pix key in the canonical form the DICT stores, so two keys are equal exactly when they reach the
+ * same entry. Every type but the random key is personal data, so {@link #toString} shows only the
+ * type.
  */
 public record PixKey(Type type, String value) {
 
-    /** The types of Pix key. */
     public enum Type {
         CPF,
         CNPJ,
@@ -43,9 +26,8 @@ public record PixKey(Type type, String value) {
     private static final Pattern RANDOM =
             Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
 
-    /** Rejects a value that is not the canonical form of a key of the given type. */
     public PixKey {
-        // The length is checked first, so an oversized input is never matched against a pattern.
+        // Length first, so an oversized input is never matched against a pattern.
         if (value.length() > MAX_LENGTH || !isCanonical(type, value)) {
             // The input is not echoed: it may be personal data.
             throw new IllegalArgumentException("Not a valid Pix key of type " + type);
@@ -53,9 +35,8 @@ public record PixKey(Type type, String value) {
     }
 
     /**
-     * Parses a key in its canonical form, telling its type from the form alone: the forms of the five
-     * types never overlap. A CPF or CNPJ with punctuation, an email with uppercase letters and a phone
-     * number without {@code +55} are rejected; a client normalizes them before sending.
+     * Tells the type from the form alone, since the five forms never overlap. Clients normalize
+     * punctuation, case and the {@code +55} prefix before sending.
      *
      * @throws IllegalArgumentException if the text is not a Pix key in canonical form
      */
@@ -75,7 +56,6 @@ public record PixKey(Type type, String value) {
         return new PixKey(type, text);
     }
 
-    /** The key with its value hidden, such as {@code PixKey[EMAIL]}. */
     @Override
     public String toString() {
         return "PixKey[" + type + "]";

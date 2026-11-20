@@ -10,44 +10,35 @@ import java.util.List;
 import java.util.stream.IntStream;
 
 /**
- * An amount of money: a whole number of the currency's minor units (centavos for BRL) and the
- * currency.
+ * An amount in the currency's minor units (centavos for BRL): {@code long} minor units are exact and
+ * match the database's {@code BIGINT}. It may be negative or zero; a rule that needs a positive
+ * amount checks it where the rule lives.
  *
- * <p>Amounts are never held as floating point or as decimal major units: {@code long} minor units
- * are exact, match the {@code BIGINT} columns in the database and compare with {@code equals}. A
- * {@code Money} may be negative or zero, for example a balance or a difference; a rule that needs a
- * positive amount, such as a ledger posting, checks it where the rule lives.
- *
- * @param minorUnits the amount in the currency's smallest unit; {@code 10050} is R$ 100.50 in BRL
- * @param currency the ISO 4217 currency; it must have a minor unit
+ * @param currency ISO 4217, with a minor unit
  */
 public record Money(long minorUnits, Currency currency) {
 
-    /** Rejects currencies without a minor unit, such as gold ({@code XAU}), which cannot be counted. */
+    // A currency without a minor unit, such as gold (XAU), cannot be counted.
     public Money {
         if (currency.getDefaultFractionDigits() < 0) {
             throw new IllegalArgumentException("Currency " + currency + " has no minor unit");
         }
     }
 
-    /** Money from an amount already in minor units: {@code ofMinor(10050, BRL)} is R$ 100.50. */
+    /** {@code ofMinor(10050, BRL)} is R$ 100.50. */
     public static Money ofMinor(long minorUnits, Currency currency) {
         return new Money(minorUnits, currency);
     }
 
-    /** Zero in the given currency. */
     public static Money zero(Currency currency) {
         return new Money(0, currency);
     }
 
     /**
-     * Money from an amount in major units: {@code of(new BigDecimal("100.50"), BRL)} is R$ 100.50.
+     * {@code of(new BigDecimal("100.50"), BRL)} is R$ 100.50. R$ 10.005 is rejected, not rounded:
+     * silently changing a requested amount is a bug.
      *
-     * <p>The amount must fit the currency exactly. R$ 10.005 is rejected rather than rounded, because
-     * silently changing an amount a caller asked for is a bug.
-     *
-     * @throws IllegalArgumentException if the amount has more decimal places than the currency allows
-     *     or does not fit in a {@code long} of minor units
+     * @throws IllegalArgumentException if the amount does not fit the currency exactly
      */
     public static Money of(BigDecimal amount, Currency currency) {
         BigDecimal minorUnits = amount.movePointRight(currency.getDefaultFractionDigits());
@@ -60,7 +51,6 @@ public record Money(long minorUnits, Currency currency) {
         }
     }
 
-    /** The amount in major units, with the currency's decimal places: R$ 100.50 is {@code 100.50}. */
     public BigDecimal toMajorUnits() {
         return BigDecimal.valueOf(minorUnits, currency.getDefaultFractionDigits());
     }
@@ -78,11 +68,10 @@ public record Money(long minorUnits, Currency currency) {
     }
 
     /**
-     * This amount plus another in the same currency.
+     * The sum, in the same currency.
      *
      * @throws IllegalArgumentException if the currencies differ
-     * @throws ArithmeticException if the result does not fit in a {@code long}, instead of wrapping
-     *     around to a wrong amount
+     * @throws ArithmeticException on overflow, instead of wrapping around to a wrong amount
      */
     public Money plus(Money other) {
         requireSameCurrency(other);
@@ -90,10 +79,10 @@ public record Money(long minorUnits, Currency currency) {
     }
 
     /**
-     * This amount minus another in the same currency; the result may be negative.
+     * The difference, in the same currency; it may be negative.
      *
      * @throws IllegalArgumentException if the currencies differ
-     * @throws ArithmeticException if the result does not fit in a {@code long}
+     * @throws ArithmeticException on overflow
      */
     public Money minus(Money other) {
         requireSameCurrency(other);
@@ -101,26 +90,19 @@ public record Money(long minorUnits, Currency currency) {
     }
 
     /**
-     * The same amount with the opposite sign.
+     * The opposite sign.
      *
-     * @throws ArithmeticException for {@code Long.MIN_VALUE} minor units, which has no positive
-     *     counterpart
+     * @throws ArithmeticException for {@code Long.MIN_VALUE} minor units, which has no positive counterpart
      */
     public Money negate() {
         return new Money(Math.negateExact(minorUnits), currency);
     }
 
     /**
-     * This amount multiplied by a rate, such as a 2.99% fee ({@code 0.0299}), rounded to whole minor
-     * units with {@link RoundingMode#HALF_EVEN}.
+     * Multiplied by a rate such as a 2.99% fee, the only operation that rounds: {@link
+     * RoundingMode#HALF_EVEN}, so over many operations the halves balance out instead of drifting up.
      *
-     * <p>This is the only operation that rounds. Rates are {@code BigDecimal}, never {@code double},
-     * so {@code 0.0299} is exactly that number. HALF_EVEN (banker's rounding) sends an exact half to
-     * the nearest even number: 0.5 and 2.5 centavos round down, 1.5 rounds up. Over many operations
-     * the halves rounded up and down balance out, while HALF_UP would always round them up and
-     * drift in one direction.
-     *
-     * @throws ArithmeticException if the result does not fit in a {@code long}
+     * @throws ArithmeticException on overflow
      */
     public Money times(BigDecimal rate) {
         BigDecimal exact = BigDecimal.valueOf(minorUnits).multiply(rate);
@@ -128,20 +110,10 @@ public record Money(long minorUnits, Currency currency) {
     }
 
     /**
-     * Splits this amount into parts proportional to the ratios, without losing or creating a minor
-     * unit: the parts always add up to this amount. {@code allocate(70, 27, 3)} of R$ 100.00 is R$
-     * 70.00, R$ 27.00 and R$ 3.00; {@code allocate(1, 1, 1)} of R$ 1.00 is R$ 0.34, R$ 0.33 and R$
-     * 0.33.
+     * Splits into parts proportional to the ratios that always add up to this amount: {@code
+     * allocate(1, 1, 1)} of R$ 1.00 is R$ 0.34, R$ 0.33 and R$ 0.33. Largest remainder method; on a
+     * tie, the earlier part wins.
      *
-     * <p>Rounding each share with {@link #times} could leave the parts one centavo short of, or over,
-     * the total. Instead each part first gets its exact share rounded down, and the centavos left over
-     * go one each to the parts with the largest discarded fractions (the largest remainder method);
-     * on a tie, the earlier part wins. Every part is then within one minor unit of its exact share. A
-     * negative amount is split as its absolute value and negated, so the result mirrors the positive
-     * one.
-     *
-     * @param ratios the weight of each part, in order; none negative, at least one positive
-     * @return one part per ratio, in the order of the ratios
      * @throws IllegalArgumentException if there are no ratios, one is negative, or all are zero
      */
     public List<Money> allocate(long... ratios) {
@@ -190,17 +162,13 @@ public record Money(long minorUnits, Currency currency) {
                 .toList();
     }
 
-    /**
-     * Adding reais to dollars has no meaning; converting needs a rate and is a business decision, never
-     * an implicit step. Mixing currencies is a programming error, so it is an exception, not a result.
-     */
+    // Converting needs a rate and is a business decision, never an implicit step.
     private void requireSameCurrency(Money other) {
         if (!currency.equals(other.currency)) {
             throw new IllegalArgumentException("Cannot combine " + currency + " with " + other.currency);
         }
     }
 
-    /** The currency code and the amount in major units, such as {@code BRL 100.50}, for logs and tests. */
     @Override
     public String toString() {
         return currency.getCurrencyCode() + " " + toMajorUnits().toPlainString();
