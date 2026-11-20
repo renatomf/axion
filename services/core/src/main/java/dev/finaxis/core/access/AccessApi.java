@@ -70,6 +70,20 @@ public interface AccessApi {
      */
     RollResult roll(MemberCaller roller, ApiKeyId key, Duration grace);
 
+    /**
+     * Resolves the credential a caller sent on {@code /v1} to the key it names (section 4.4).
+     *
+     * <p>A text that is not a key, in shape or checksum, is rejected before any query; otherwise one
+     * indexed lookup by the secret's hash finds the key. The key's tenant and scopes come from the
+     * stored key, never from the request.
+     *
+     * @param credential the bearer token exactly as the caller sent it, which may be any text
+     * @return {@link AuthenticationResult.Authenticated} with the caller for a working key of an
+     *     active tenant, {@link AuthenticationResult.TenantInactive} for a working key of any other
+     *     tenant, or {@link AuthenticationResult.Rejected} with the reason
+     */
+    AuthenticationResult authenticate(String credential);
+
     /** The longest key name, in characters, as the schema allows. */
     int MAX_NAME_LENGTH = 100;
 

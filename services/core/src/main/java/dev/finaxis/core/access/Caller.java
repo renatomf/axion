@@ -10,9 +10,9 @@ import java.util.Set;
  * its tenant from here and from nowhere else.
  *
  * <p>The interface is {@code sealed}: the compiler knows every kind of caller, so a {@code switch}
- * over a {@code Caller} must handle them all. API key callers join in PR 1.21.
+ * over a {@code Caller} must handle them all.
  */
-public sealed interface Caller permits MemberCaller {
+public sealed interface Caller permits ApiKeyCaller, MemberCaller {
 
     /** The tenant the call acts on. */
     TenantId tenant();

@@ -132,6 +132,41 @@ public class JdbcApiKeys {
     }
 
     /**
+     * The key whose secret has this hash, whatever its tenant: authentication runs before any tenant
+     * is known, and the secret the caller sent is what names the key. The hash is unique and
+     * indexed, so this is one index lookup.
+     *
+     * @return the key, revoked and expired ones included, or empty if no key has this hash
+     */
+    public Optional<Credential> findByHash(byte[] secretHash) {
+        return jdbc.sql("""
+                        SELECT id, tenant_id, scopes, expires_at, revoked_at
+                          FROM access.api_keys
+                         WHERE secret_hash = :hash
+                        """)
+                .param("hash", secretHash)
+                .query((row, rowNumber) -> new Credential(
+                        new ApiKeyId(row.getObject("id", UUID.class)),
+                        new TenantId(row.getObject("tenant_id", UUID.class)),
+                        scopes(row),
+                        instant(row, "expires_at"),
+                        instant(row, "revoked_at")))
+                .optional();
+    }
+
+    /**
+     * What authentication needs to know about a key: whose it is, what it may do, and whether it
+     * still works. Unlike {@link ApiKeyView}, it names the tenant, which authentication learns from
+     * it.
+     */
+    public record Credential(
+            ApiKeyId id,
+            TenantId tenant,
+            Set<Permission> scopes,
+            Optional<Instant> expiresAt,
+            Optional<Instant> revokedAt) {}
+
+    /**
      * Marks the tenant's key revoked at this instant, unless it already is: the first revocation is
      * the one on record. Does nothing for a key of another tenant.
      *
@@ -181,16 +216,21 @@ public class JdbcApiKeys {
 
     /** Maps one row to a view. A {@code RowMapper} receives each row in turn; this is one. */
     private static ApiKeyView view(ResultSet row, int rowNumber) throws SQLException {
-        String[] scopes = (String[]) row.getArray("scopes").getArray();
         return new ApiKeyView(
                 new ApiKeyId(row.getObject("id", UUID.class)),
                 row.getString("name"),
                 row.getString("last_four"),
-                Arrays.stream(scopes).map(Permission::fromCode).collect(Collectors.toUnmodifiableSet()),
+                scopes(row),
                 instant(row, "created_at").orElseThrow(),
                 instant(row, "expires_at"),
                 instant(row, "revoked_at"),
                 instant(row, "last_used_at"));
+    }
+
+    /** The {@code scopes} column, a PostgreSQL text array, as permissions. */
+    private static Set<Permission> scopes(ResultSet row) throws SQLException {
+        String[] codes = (String[]) row.getArray("scopes").getArray();
+        return Arrays.stream(codes).map(Permission::fromCode).collect(Collectors.toUnmodifiableSet());
     }
 
     /** A {@code timestamptz} column as an instant; empty when the column is null. */

@@ -1,8 +1,11 @@
 package dev.finaxis.core.access.application;
 
 import dev.finaxis.core.access.AccessApi;
+import dev.finaxis.core.access.ApiKeyCaller;
 import dev.finaxis.core.access.ApiKeyId;
 import dev.finaxis.core.access.ApiKeyView;
+import dev.finaxis.core.access.AuthenticationResult;
+import dev.finaxis.core.access.AuthenticationResult.Reason;
 import dev.finaxis.core.access.IssueResult;
 import dev.finaxis.core.access.IssuedApiKey;
 import dev.finaxis.core.access.MemberCaller;
@@ -12,6 +15,9 @@ import dev.finaxis.core.access.persistence.JdbcApiKeys;
 import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.shared.UuidV7Generator;
 import dev.finaxis.core.tenancy.Permission;
+import dev.finaxis.core.tenancy.TenancyApi;
+import dev.finaxis.core.tenancy.TenantStatus;
+import dev.finaxis.core.tenancy.TenantView;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
@@ -32,13 +38,15 @@ import org.springframework.transaction.annotation.Transactional;
 public class AccessService implements AccessApi {
 
     private final JdbcApiKeys keys;
+    private final TenancyApi tenancy;
     private final Clock clock;
     private final UuidV7Generator ids;
     // Thread-safe, so one instance serves every request.
     private final SecureRandom random = new SecureRandom();
 
-    public AccessService(JdbcApiKeys keys, Clock clock) {
+    public AccessService(JdbcApiKeys keys, TenancyApi tenancy, Clock clock) {
         this.keys = keys;
+        this.tenancy = tenancy;
         this.clock = clock;
         this.ids = new UuidV7Generator(clock);
     }
@@ -127,6 +135,40 @@ public class AccessService implements AccessApi {
         IssuedApiKey replacement = insertKey(roller, old.name(), old.scopes(), now);
         return new RollResult.Rolled(
                 replacement, keys.find(roller.tenant(), key).orElseThrow());
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>A revoked key is {@code REVOKED} even within a roll's grace period: revoking ends a key at
+     * once. A key works until the instant its grace period ends, and not at that instant, as {@link
+     * JdbcApiKeys#countActive} counts it.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public AuthenticationResult authenticate(String credential) {
+        Optional<ApiKeySecret> secret = ApiKeySecret.parse(credential);
+        if (secret.isEmpty()) {
+            return new AuthenticationResult.Rejected(Reason.MALFORMED, Optional.empty());
+        }
+        Optional<JdbcApiKeys.Credential> found = keys.findByHash(secret.get().hash());
+        if (found.isEmpty()) {
+            return new AuthenticationResult.Rejected(Reason.UNKNOWN, Optional.empty());
+        }
+        JdbcApiKeys.Credential key = found.get();
+        if (key.revokedAt().isPresent()) {
+            return new AuthenticationResult.Rejected(Reason.REVOKED, Optional.of(key.id()));
+        }
+        if (key.expiresAt().filter(end -> !end.isAfter(clock.instant())).isPresent()) {
+            return new AuthenticationResult.Rejected(Reason.EXPIRED, Optional.of(key.id()));
+        }
+        // Only a working key reaches this check, so an invalid credential never learns whether a
+        // tenant is active. A key's tenant always exists: the key was issued by one of its members.
+        TenantView tenant = tenancy.tenant(key.tenant()).orElseThrow();
+        if (tenant.status() != TenantStatus.ACTIVE) {
+            return new AuthenticationResult.TenantInactive(key.id());
+        }
+        return new AuthenticationResult.Authenticated(new ApiKeyCaller(key.tenant(), key.id(), key.scopes()));
     }
 
     /** Stores a new key for the member's tenant and returns it with its secret. */
