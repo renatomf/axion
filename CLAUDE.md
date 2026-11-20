@@ -13,32 +13,16 @@ Sources of truth, to read before planning any work:
 
 When this file and the design doc disagree, the design doc wins; point out the conflict.
 
-## Step-by-step mode
+## Working rules
 
-The author is new to Spring. Until told otherwise:
-
-- Work in very small increments. Each commit introduces **one concept** (e.g. add a dependency, then a first controller, then its first test).
+- Each commit introduces **one concept**.
 - Slice a roadmap item only for one of the reasons in [`CONTRIBUTING.md`](CONTRIBUTING.md#pull-request-size), never to fit a size; a PR that splits or adds slices updates the roadmap itself.
-- Prefer explicit, readable code over clever code; explain any framework "magic" the change relies on in the conversation, never in code comments. Code follows the comment standard in [`engineering-standards.md`](docs/architecture/engineering-standards.md#comments-and-documentation).
+- Prefer explicit, readable code over clever code. Code follows the comment standard in [`engineering-standards.md`](docs/architecture/engineering-standards.md#comments-and-documentation).
 - Verify before claiming: run the build, tests or scripts and report the real output.
-
-## Explanations to the author
-
-After each commit or PR, explain in the conversation:
-
-1. **What** was done.
-2. **Each component** created or changed: its responsibility and how it fits into the system.
-3. **Why** this approach, including the alternatives rejected.
-4. **How it works**, in plain language.
-5. **Files**, grouped by type (code, tests, documentation, configuration), one per line as a clickable relative link, marked new or changed, with what changed in it and why. When files move, add a from → to table.
-6. **Review questions** for the author to answer before merging.
-
-Teaching explanations stay in the conversation. Repository artifacts stay professional.
 
 ## Language
 
-- Conversation with the author: **Brazilian Portuguese (pt-BR)**.
-- Everything committed to the repository: **English** (see `CONTRIBUTING.md`).
+- Everything committed to the repository is in **English** (see `CONTRIBUTING.md`).
 
 ## Boundaries
 
