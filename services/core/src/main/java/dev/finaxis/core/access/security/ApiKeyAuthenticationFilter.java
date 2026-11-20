@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.InsufficientAuthenticationException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -28,8 +29,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * <p>For each request, in the {@code /v1} filter chain:
  *
  * <ul>
- *   <li>no {@code Authorization} header: the filter does nothing, and the chain's rule that every
- *       request be authenticated answers {@code 401};
+ *   <li>no {@code Bearer} credential in the {@code Authorization} header, or no header: {@code
+ *       401}, since every {@code /v1} request needs a key;
  *   <li>a header that is not a single {@code Bearer} credential: {@code 401};
  *   <li>a credential {@link AccessApi#authenticate} rejects, whatever the reason: {@code 401}, the
  *       same answer, so a caller cannot learn whether a key exists, expired or was revoked;
@@ -76,7 +77,10 @@ final class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
         if (credential == null) {
-            chain.doFilter(request, response);
+            // The chain's rule that every request be authenticated would answer the same 401; the
+            // filter answers it itself so that this rejection is recorded like the others.
+            failures.record(Failure.MISSING, Optional.empty());
+            rejections.commence(request, response, new InsufficientAuthenticationException("No API key"));
             return;
         }
         switch (access.authenticate(credential)) {

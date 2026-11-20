@@ -30,6 +30,8 @@ final class AuthenticationFailures {
 
     /** Why a request was refused, as the {@code reason} tag shows it, in lower case. */
     enum Failure {
+        /** No {@code Bearer} credential: no {@code Authorization} header, or another scheme. */
+        MISSING,
         /** Not an API key, or not a single {@code Bearer} credential. */
         MALFORMED,
         /** Shaped like a key, but no key has this secret. */

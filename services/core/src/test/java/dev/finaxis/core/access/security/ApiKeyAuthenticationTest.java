@@ -145,10 +145,14 @@ class ApiKeyAuthenticationTest {
         probeWith("Bearer " + neverIssued);
         probeWith("Bearer sk_test_not-a-real-key");
         probeWith("Bearer a, Bearer b");
+        assertThat(mvc.get().uri("/v1/probe")).hasStatus(HttpStatus.UNAUTHORIZED);
+        probeWith("Basic " + revoked.secret());
 
-        // The two malformed are the key that is not one and the header with two credentials.
+        // The two malformed are the key that is not one and the header with two credentials; the
+        // two missing, the request without a header and the one with another scheme.
         assertThat(increaseSince(before))
                 .containsExactlyInAnyOrderEntriesOf(Map.of(
+                        Failure.MISSING, 2.0,
                         Failure.MALFORMED, 2.0,
                         Failure.UNKNOWN, 1.0,
                         Failure.REVOKED, 1.0,
