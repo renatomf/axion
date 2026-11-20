@@ -1,6 +1,7 @@
 package dev.finaxis.core;
 
 import dev.finaxis.core.shared.TenantId;
+import dev.finaxis.core.tenancy.persistence.TenantTransactionBinding;
 import java.util.Locale;
 import org.springframework.jdbc.core.simple.JdbcClient;
 

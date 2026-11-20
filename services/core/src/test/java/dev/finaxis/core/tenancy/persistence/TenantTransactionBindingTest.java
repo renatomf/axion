@@ -1,7 +1,8 @@
-package dev.finaxis.core;
+package dev.finaxis.core.tenancy.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.shared.TenantId;

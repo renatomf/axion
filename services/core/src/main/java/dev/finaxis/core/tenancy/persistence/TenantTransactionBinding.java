@@ -1,4 +1,4 @@
-package dev.finaxis.core;
+package dev.finaxis.core.tenancy.persistence;
 
 import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.shared.TenantId;
@@ -14,9 +14,9 @@ import org.springframework.transaction.TransactionExecutionListener;
  * so a pooled connection never carries it into the next transaction.
  */
 @Component
-class TenantTransactionBinding implements TransactionExecutionListener {
+public class TenantTransactionBinding implements TransactionExecutionListener {
 
-    static final String TENANT_SETTING = "finaxis.tenant_id";
+    public static final String TENANT_SETTING = "finaxis.tenant_id";
 
     private final JdbcClient jdbc;
 
