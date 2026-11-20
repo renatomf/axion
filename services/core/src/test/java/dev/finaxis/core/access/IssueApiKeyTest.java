@@ -7,7 +7,6 @@ import static dev.finaxis.core.tenancy.Permission.REFUNDS_WRITE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.access.domain.ApiKeySecret;
 import dev.finaxis.core.shared.Environment;
@@ -24,7 +23,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * {@link AccessApi#issue} against a real PostgreSQL. Each test creates its own organization, so it
@@ -41,7 +39,7 @@ class IssueApiKeyTest {
 
     @Autowired
     IssueApiKeyTest(AccessApi access, TenancyApi tenancy, JdbcClient jdbc) {
-        this.access = access;
+        this.access = new TenantBoundAccess(access);
         this.tenancy = tenancy;
         this.jdbc = jdbc;
     }
@@ -154,17 +152,6 @@ class IssueApiKeyTest {
         assertThatThrownBy(() -> access.issue(admin(Environment.TEST), name, Set.of(CHARGES_READ)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("at most 100 characters");
-    }
-
-    /** As {@code finaxis_access}, the code needs no privilege beyond the role's grants. */
-    @Test
-    @Transactional
-    void needsNoMoreThanTheAccessRolesGrants() {
-        DatabaseRole.ACCESS.actAs(jdbc, organization.test());
-
-        var result = access.issue(admin(Environment.TEST), "Checkout", Set.of(CHARGES_READ));
-
-        assertThat(result).isInstanceOf(IssueResult.Issued.class);
     }
 
     private MemberCaller admin(Environment environment) {

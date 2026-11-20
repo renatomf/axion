@@ -1,5 +1,6 @@
 package dev.finaxis.core.tenancy.application;
 
+import dev.finaxis.core.ModuleRoles;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.shared.UuidV7Generator;
@@ -28,6 +29,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class TenancyService implements TenancyApi {
 
+    private static final String ROLE = "finaxis_tenancy";
+
     // Fixed by migration V7__create_platform_organization.
     private static final TenantId PLATFORM_TEST = new TenantId(UUID.fromString("00000000-0000-7000-8000-000000000002"));
 
@@ -36,12 +39,15 @@ public class TenancyService implements TenancyApi {
     private final JdbcOrganizations organizations;
     private final JdbcTenants tenants;
     private final JdbcMembers members;
+    private final ModuleRoles roles;
     private final UuidV7Generator ids;
 
-    public TenancyService(JdbcOrganizations organizations, JdbcTenants tenants, JdbcMembers members, Clock clock) {
+    public TenancyService(
+            JdbcOrganizations organizations, JdbcTenants tenants, JdbcMembers members, ModuleRoles roles, Clock clock) {
         this.organizations = organizations;
         this.tenants = tenants;
         this.members = members;
+        this.roles = roles;
         this.ids = new UuidV7Generator(clock);
     }
 
@@ -55,35 +61,39 @@ public class TenancyService implements TenancyApi {
                 new TenantId(ids.next()),
                 new TenantId(ids.next()),
                 new MemberId(ids.next()));
-        organizations.insertOrganization(created.organization(), name);
-        organizations.insertTenant(created.test(), created.organization(), Environment.TEST, TenantStatus.ACTIVE);
-        organizations.insertTenant(created.live(), created.organization(), Environment.LIVE, TenantStatus.ACTIVE);
-        organizations.insertMember(created.admin(), created.organization(), adminSubject);
-        organizations.insertRole(created.admin(), Role.ADMIN);
-        return created;
+        return roles.call(ROLE, () -> {
+            organizations.insertOrganization(created.organization(), name);
+            organizations.insertTenant(created.test(), created.organization(), Environment.TEST, TenantStatus.ACTIVE);
+            organizations.insertTenant(created.live(), created.organization(), Environment.LIVE, TenantStatus.ACTIVE);
+            organizations.insertMember(created.admin(), created.organization(), adminSubject);
+            organizations.insertRole(created.admin(), Role.ADMIN);
+            return created;
+        });
     }
 
     @Override
     @Transactional(readOnly = true)
     public Optional<TenantView> tenant(TenantId tenant) {
-        return tenants.find(tenant);
+        return roles.call(ROLE, () -> tenants.find(tenant));
     }
 
     // Two queries, whatever the number of organizations: no N+1.
     @Override
     @Transactional(readOnly = true)
     public List<Membership> memberships(String userSubject) {
-        return withTenants(members.findBySubject(userSubject));
+        return roles.call(ROLE, () -> withTenants(members.findBySubject(userSubject)));
     }
 
     // Runs on every tenant-scoped request of a member: two indexed queries.
     @Override
     @Transactional(readOnly = true)
     public Optional<Membership> membership(String userSubject, TenantId tenant) {
-        return withTenants(members.findBySubjectAndTenant(userSubject, tenant).stream()
-                        .toList())
-                .stream()
-                .findFirst();
+        return roles.call(
+                ROLE,
+                () -> withTenants(members.findBySubjectAndTenant(userSubject, tenant).stream()
+                                .toList())
+                        .stream()
+                        .findFirst());
     }
 
     private List<Membership> withTenants(List<MemberRow> rows) {

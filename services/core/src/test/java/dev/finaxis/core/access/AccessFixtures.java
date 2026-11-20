@@ -26,9 +26,9 @@ public final class AccessFixtures {
         return member(organization, environment, organization.admin(), Role.ADMIN);
     }
 
-    /** Issues a key, failing the test unless it is issued. */
+    /** Issues a key as the issuer's tenant, failing the test unless it is issued. */
     public static IssuedApiKey issue(AccessApi access, MemberCaller issuer, String name, Set<Permission> scopes) {
-        IssueResult result = access.issue(issuer, name, scopes);
+        IssueResult result = new TenantBoundAccess(access).issue(issuer, name, scopes);
         assertThat(result).isInstanceOf(IssueResult.Issued.class);
         return ((IssueResult.Issued) result).key();
     }

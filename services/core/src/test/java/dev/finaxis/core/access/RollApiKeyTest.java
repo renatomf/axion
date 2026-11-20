@@ -6,7 +6,6 @@ import static dev.finaxis.core.tenancy.Permission.REFUNDS_WRITE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.access.domain.ApiKeySecret;
 import dev.finaxis.core.shared.Environment;
@@ -24,7 +23,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * {@link AccessApi#roll} against a real PostgreSQL. Each test creates its own organization, so it
@@ -43,7 +41,7 @@ class RollApiKeyTest {
 
     @Autowired
     RollApiKeyTest(AccessApi access, TenancyApi tenancy, JdbcClient jdbc) {
-        this.access = access;
+        this.access = new TenantBoundAccess(access);
         this.tenancy = tenancy;
         this.jdbc = jdbc;
     }
@@ -230,16 +228,6 @@ class RollApiKeyTest {
 
         assertThat(access.issue(admin(Environment.TEST), "Checkout", Set.of(CHARGES_READ)))
                 .isEqualTo(new IssueResult.LimitReached(AccessApi.MAX_ACTIVE_KEYS));
-    }
-
-    /** As {@code finaxis_access}, the code needs no privilege beyond the role's grants. */
-    @Test
-    @Transactional
-    void needsNoMoreThanTheAccessRolesGrants() {
-        var old = issued(Environment.TEST, Set.of(CHARGES_READ));
-        DatabaseRole.ACCESS.actAs(jdbc, organization.test());
-
-        assertThat(access.roll(admin(Environment.TEST), old.id(), DAY)).isInstanceOf(RollResult.Rolled.class);
     }
 
     private MemberCaller admin(Environment environment) {

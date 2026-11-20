@@ -1,5 +1,6 @@
 package dev.finaxis.core.access.application;
 
+import dev.finaxis.core.ModuleRoles;
 import dev.finaxis.core.access.AccessApi;
 import dev.finaxis.core.access.ApiKeyCaller;
 import dev.finaxis.core.access.ApiKeyId;
@@ -33,15 +34,19 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AccessService implements AccessApi {
 
+    private static final String ROLE = "finaxis_access";
+
     private final JdbcApiKeys keys;
     private final TenancyApi tenancy;
+    private final ModuleRoles roles;
     private final Clock clock;
     private final UuidV7Generator ids;
     private final SecureRandom random = new SecureRandom();
 
-    public AccessService(JdbcApiKeys keys, TenancyApi tenancy, Clock clock) {
+    public AccessService(JdbcApiKeys keys, TenancyApi tenancy, ModuleRoles roles, Clock clock) {
         this.keys = keys;
         this.tenancy = tenancy;
+        this.roles = roles;
         this.clock = clock;
         this.ids = new UuidV7Generator(clock);
     }
@@ -56,7 +61,42 @@ public class AccessService implements AccessApi {
         if (!missing.isEmpty()) {
             return new IssueResult.ScopesNotHeld(missing);
         }
+        return roles.call(ROLE, () -> issueWithinLimit(issuer, name, scopes));
+    }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<ApiKeyView> keys(TenantId tenant) {
+        return roles.call(ROLE, () -> keys.findByTenant(tenant));
+    }
+
+    @Override
+    @Transactional
+    public Optional<ApiKeyView> revoke(MemberCaller revoker, ApiKeyId key) {
+        return roles.call(ROLE, () -> {
+            keys.revoke(revoker.tenant(), key, now());
+            return keys.find(revoker.tenant(), key);
+        });
+    }
+
+    @Override
+    @Transactional
+    public RollResult roll(MemberCaller roller, ApiKeyId key, Duration grace) {
+        requireGrace(grace);
+        return roles.call(ROLE, () -> rollKey(roller, key, grace));
+    }
+
+    @Override
+    @Transactional
+    public AuthenticationResult authenticate(String credential) {
+        Optional<ApiKeySecret> secret = ApiKeySecret.parse(credential);
+        if (secret.isEmpty()) {
+            return new AuthenticationResult.Rejected(Reason.MALFORMED, Optional.empty());
+        }
+        return roles.call(ROLE, () -> authenticateKey(secret.get()));
+    }
+
+    private IssueResult issueWithinLimit(MemberCaller issuer, String name, Set<Permission> scopes) {
         // Concurrent issues are counted one after another, so they cannot pass the limit together.
         keys.lockTenantKeys(issuer.tenant());
         Instant now = now();
@@ -67,23 +107,7 @@ public class AccessService implements AccessApi {
         return new IssueResult.Issued(insertKey(issuer, name, scopes, now));
     }
 
-    @Override
-    @Transactional(readOnly = true)
-    public List<ApiKeyView> keys(TenantId tenant) {
-        return keys.findByTenant(tenant);
-    }
-
-    @Override
-    @Transactional
-    public Optional<ApiKeyView> revoke(MemberCaller revoker, ApiKeyId key) {
-        keys.revoke(revoker.tenant(), key, now());
-        return keys.find(revoker.tenant(), key);
-    }
-
-    @Override
-    @Transactional
-    public RollResult roll(MemberCaller roller, ApiKeyId key, Duration grace) {
-        requireGrace(grace);
+    private RollResult rollKey(MemberCaller roller, ApiKeyId key, Duration grace) {
         keys.lockTenantKeys(roller.tenant());
         Optional<ApiKeyView> found = keys.find(roller.tenant(), key);
         if (found.isEmpty()) {
@@ -116,14 +140,8 @@ public class AccessService implements AccessApi {
                 replacement, keys.find(roller.tenant(), key).orElseThrow());
     }
 
-    @Override
-    @Transactional
-    public AuthenticationResult authenticate(String credential) {
-        Optional<ApiKeySecret> secret = ApiKeySecret.parse(credential);
-        if (secret.isEmpty()) {
-            return new AuthenticationResult.Rejected(Reason.MALFORMED, Optional.empty());
-        }
-        Optional<JdbcApiKeys.Credential> found = keys.findByHash(secret.get().hash());
+    private AuthenticationResult authenticateKey(ApiKeySecret secret) {
+        Optional<JdbcApiKeys.Credential> found = keys.findByHash(secret.hash());
         if (found.isEmpty()) {
             return new AuthenticationResult.Rejected(Reason.UNKNOWN, Optional.empty());
         }
@@ -141,7 +159,7 @@ public class AccessService implements AccessApi {
             return new AuthenticationResult.TenantInactive();
         }
         if (key.useIsDue(now)) {
-            keys.recordUse(secret.get().hash(), now);
+            keys.recordUse(secret.hash(), now);
         }
         return new AuthenticationResult.Authenticated(new ApiKeyCaller(key.tenant(), key.id(), key.scopes()));
     }

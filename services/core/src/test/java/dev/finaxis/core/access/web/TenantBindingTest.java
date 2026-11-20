@@ -9,6 +9,7 @@ import dev.finaxis.core.access.AccessFixtures;
 import dev.finaxis.core.access.IssuedApiKey;
 import dev.finaxis.core.access.NoPermissionRequired;
 import dev.finaxis.core.access.RequiresPermission;
+import dev.finaxis.core.access.TenantBoundAccess;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.tenancy.NewOrganization;
@@ -60,7 +61,7 @@ class TenantBindingTest {
     @Autowired
     TenantBindingTest(MockMvcTester mvc, AccessApi access, TenancyApi tenancy) {
         this.mvc = mvc;
-        this.access = access;
+        this.access = new TenantBoundAccess(access);
         this.tenancy = tenancy;
     }
 

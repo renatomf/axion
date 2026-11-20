@@ -11,6 +11,7 @@ import dev.finaxis.core.access.ApiKeyCaller;
 import dev.finaxis.core.access.IssuedApiKey;
 import dev.finaxis.core.access.RequiresPermission;
 import dev.finaxis.core.access.RequiresStepUp;
+import dev.finaxis.core.access.TenantBoundAccess;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.Permission;
@@ -66,7 +67,7 @@ class ApiKeyScopesTest {
     @Autowired
     ApiKeyScopesTest(MockMvcTester mvc, AccessApi access, TenancyApi tenancy) {
         this.mvc = mvc;
-        this.access = access;
+        this.access = new TenantBoundAccess(access);
         this.tenancy = tenancy;
     }
 

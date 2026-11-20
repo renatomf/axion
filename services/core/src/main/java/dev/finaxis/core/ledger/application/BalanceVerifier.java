@@ -1,5 +1,6 @@
 package dev.finaxis.core.ledger.application;
 
+import dev.finaxis.core.ModuleRoles;
 import dev.finaxis.core.ledger.persistence.JdbcLedgerChecks;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -22,16 +23,20 @@ public class BalanceVerifier {
 
     public static final String VIOLATIONS = "finaxis.ledger.invariant.violations";
 
+    private static final String ROLE = "finaxis_ledger";
+
     private static final Logger LOG = LoggerFactory.getLogger(BalanceVerifier.class);
 
     private final JdbcLedgerChecks checks;
+    private final ModuleRoles roles;
     private final Counter unbalancedEntries;
     private final Counter driftedBalances;
     private final Counter unbalancedCurrencies;
 
     // Registered at zero, so an alert fires on the first violation.
-    public BalanceVerifier(JdbcLedgerChecks checks, MeterRegistry meters) {
+    public BalanceVerifier(JdbcLedgerChecks checks, ModuleRoles roles, MeterRegistry meters) {
         this.checks = checks;
+        this.roles = roles;
         this.unbalancedEntries = violations(meters, "I1");
         this.driftedBalances = violations(meters, "I6");
         this.unbalancedCurrencies = violations(meters, "I7");
@@ -42,8 +47,10 @@ public class BalanceVerifier {
     @Scheduled(initialDelay = 15, fixedDelay = 15, timeUnit = TimeUnit.MINUTES)
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public LedgerVerification verify() {
-        var found = new LedgerVerification(
-                checks.unbalancedEntries(), checks.driftedBalances(), checks.unbalancedCurrencies());
+        var found = roles.call(
+                ROLE,
+                () -> new LedgerVerification(
+                        checks.unbalancedEntries(), checks.driftedBalances(), checks.unbalancedCurrencies()));
         report("I1", unbalancedEntries, found.unbalancedEntries());
         report("I6", driftedBalances, found.driftedBalances());
         report("I7", unbalancedCurrencies, found.unbalancedCurrencies());

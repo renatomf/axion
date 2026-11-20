@@ -10,6 +10,7 @@ import dev.finaxis.core.access.AccessApi;
 import dev.finaxis.core.access.AccessFixtures;
 import dev.finaxis.core.access.ApiKeyId;
 import dev.finaxis.core.access.IssuedApiKey;
+import dev.finaxis.core.access.TenantBoundAccess;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.NewOrganization;
@@ -34,7 +35,6 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The API key endpoints of {@code /internal}, every response checked against the contract. Tokens
@@ -43,7 +43,6 @@ import org.springframework.transaction.annotation.Transactional;
 @SpringBootTest
 @Import({PostgresTestConfiguration.class, KeycloakTestConfiguration.class})
 @AutoConfigureMockMvc
-@Transactional
 class ApiKeysControllerTest {
 
     private static final Instant MOMENT = Instant.parse("2026-11-19T12:00:00Z");
@@ -59,7 +58,7 @@ class ApiKeysControllerTest {
     @Autowired
     ApiKeysControllerTest(MockMvcTester mvc, AccessApi access, TenancyApi tenancy, JdbcClient jdbc) {
         this.mvc = mvc;
-        this.access = access;
+        this.access = new TenantBoundAccess(access);
         this.tenancy = tenancy;
         this.jdbc = jdbc;
     }
