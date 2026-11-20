@@ -32,7 +32,7 @@ Estimates assume the Spring learning curve. Quality is never traded for schedule
 - **Per PR:** short goal statement → commits on a feature branch → PR from the template → explanation to the author (what, components, why, how it works, files, review questions) → author review → fixes as new commits → the author rebases the branch onto `main` locally and merges with a merge commit (keeps every commit signed).
 - **Design first:** every block that introduces a significant feature starts with its design doc PR.
 - **GitHub:** one milestone per phase, one issue per PR (`Closes #n`).
-- **Numbering:** a PR takes the number of its roadmap item, `<phase>.<item>` (for example `1.21`, item 21 of phase 1). An item too large for one PR is split into lettered slices, `1.21a`, `1.21b`, `1.21c`, each its own issue and PR; the issue is titled `PR 1.21b: <title>`. Each issue's *Out* section names the slices still to come, so the plan of an item lives in its issues, and the slices not yet merged may be renumbered there when the plan changes. In the tables below, each merged slice gets a row (`↳`) under its item, with a link to its pull request; an item merged into another keeps its row, marked as merged (see 0.15).
+- **Numbering:** a PR takes the number of its roadmap item, `<phase>.<item>` (for example `1.21`, item 21 of phase 1). An item is delivered in lettered slices, `1.21a`, `1.21b`, `1.21c`, each its own issue and PR; the issue is titled `PR 1.21b: <title>`. From item 1.22 on, every item takes letters, even one delivered in a single PR (`1.22a`); earlier items took them only when split. Each issue's *Out* section names the slices still to come, so the plan of an item lives in its issues, and the slices not yet merged may be renumbered there when the plan changes. In the tables below, each merged slice gets a row (`↳`) under its item, with a link to its pull request; an item merged into another keeps its row, marked as merged (see 0.15).
 - **Definition of Done:** tests, updated docs, security checklist, green CI, size limit respected.
 
 ---
@@ -132,6 +132,7 @@ Estimates assume the Spring learning curve. Quality is never traded for schedule
 | 1.21 | API key authentication | Filter for `/v1`; tenant context derived from the credential |
 | ↳ 1.21a | API key authentication | `AccessApi.authenticate` and its outcomes, in the access module ([#121](https://github.com/renatomf/finaxis/pull/121)) |
 | ↳ 1.21b | API key authentication on `/v1` | The `/v1` filter chain; one `401` for every rejected key, `403 tenant_inactive` ([#123](https://github.com/renatomf/finaxis/pull/123)) |
+| ↳ 1.21c | API key scopes on `/v1` endpoints | `@RequiresPermission` checked against the key's scopes; the endpoint receives the `ApiKeyCaller` ([#127](https://github.com/renatomf/finaxis/pull/127)) |
 | 1.22 | Row-Level Security | RLS policies and per-module DB roles |
 | 1.23 | Tenant isolation harness | A test that walks every OpenAPI operation attempting cross-tenant access |
 | 1.24 | Rate limiting | Per-tenant and per-key limits, `429` with `Retry-After` |
