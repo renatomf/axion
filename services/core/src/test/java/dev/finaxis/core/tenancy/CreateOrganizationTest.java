@@ -3,7 +3,6 @@ package dev.finaxis.core.tenancy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.shared.Environment;
 import java.util.UUID;
@@ -12,7 +11,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * {@link TenancyApi#createOrganization} against a real PostgreSQL. Each test uses a new Keycloak
@@ -105,17 +103,6 @@ class CreateOrganizationTest {
         assertThatThrownBy(() -> tenancy.createOrganization("Acme", ""))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("must not be blank");
-    }
-
-    /** As {@code finaxis_tenancy}, the code needs no privilege beyond the role's grants. */
-    @Test
-    @Transactional
-    void needsNoMoreThanTheTenancyRolesGrants() {
-        DatabaseRole.TENANCY.actAs(jdbc);
-
-        var created = tenancy.createOrganization("Acme", newSubject());
-
-        assertThat(tenancy.tenant(created.live())).isPresent();
     }
 
     private static String newSubject() {

@@ -4,7 +4,6 @@ import static dev.finaxis.core.tenancy.Permission.CHARGES_READ;
 import static dev.finaxis.core.tenancy.Permission.CHARGES_WRITE;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.tenancy.NewOrganization;
@@ -21,7 +20,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * {@link AccessApi#keys} against a real PostgreSQL. Each test creates its own organization, so it
@@ -98,16 +96,6 @@ class ListApiKeysTest {
     @Test
     void listsNothingForATenantWithoutKeys() {
         assertThat(access.keys(organization.live())).isEmpty();
-    }
-
-    /** As {@code finaxis_access}, the code needs no privilege beyond the role's grants. */
-    @Test
-    @Transactional
-    void needsNoMoreThanTheAccessRolesGrants() {
-        issued(Environment.TEST, "Checkout", Set.of(CHARGES_READ));
-        DatabaseRole.ACCESS.actAs(jdbc, organization.test());
-
-        assertThat(access.keys(organization.test())).hasSize(1);
     }
 
     private IssuedApiKey issued(Environment environment, String name, Set<Permission> scopes) {

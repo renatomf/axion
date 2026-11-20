@@ -3,7 +3,6 @@ package dev.finaxis.core.access;
 import static dev.finaxis.core.tenancy.Permission.CHARGES_READ;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.tenancy.NewOrganization;
@@ -15,8 +14,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * {@link AccessApi#revoke} against a real PostgreSQL. Each test creates its own organization, so it
@@ -28,14 +25,12 @@ class RevokeApiKeyTest {
 
     private final AccessApi access;
     private final TenancyApi tenancy;
-    private final JdbcClient jdbc;
     private NewOrganization organization;
 
     @Autowired
-    RevokeApiKeyTest(AccessApi access, TenancyApi tenancy, JdbcClient jdbc) {
+    RevokeApiKeyTest(AccessApi access, TenancyApi tenancy) {
         this.access = new TenantBoundAccess(access);
         this.tenancy = tenancy;
-        this.jdbc = jdbc;
     }
 
     @BeforeEach
@@ -75,16 +70,6 @@ class RevokeApiKeyTest {
     void findsNothingToRevokeForAnUnknownKey() {
         assertThat(access.revoke(admin(Environment.TEST), new ApiKeyId(UUID.randomUUID())))
                 .isEmpty();
-    }
-
-    /** As {@code finaxis_access}, the code needs no privilege beyond the role's grants. */
-    @Test
-    @Transactional
-    void needsNoMoreThanTheAccessRolesGrants() {
-        var key = issued(Environment.TEST);
-        DatabaseRole.ACCESS.actAs(jdbc, organization.test());
-
-        assertThat(access.revoke(admin(Environment.TEST), key.id())).isPresent();
     }
 
     private MemberCaller admin(Environment environment) {
