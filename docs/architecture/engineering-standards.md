@@ -50,7 +50,7 @@ The design also lists Semgrep; it is not adopted yet and has no roadmap item.
 | Money as `BIGINT` minor units; timestamps as `timestamptz`; status as `text` with `CHECK`; UUIDv7 primary keys | Review |
 | snake_case names; one schema per module; `_id` and `_at` suffixes; every foreign key indexed | Review |
 | Flyway migrations, versioned and forward-only; an applied migration is never edited; breaking changes follow expand/contract | Flyway: unparseable names fail the build, edited migrations fail checksum validation at startup (Build); Review for expand/contract |
-| Least-privilege role per module; Row-Level Security for tenant data; the application never connects as owner or superuser | Planned (PRs 1.09, 1.22) |
+| Least-privilege role per module; Row-Level Security for tenant data; the application never connects as owner or superuser | Role privilege tests per module (PRs 1.09, 1.22c); policy tests per table (PRs 1.22b, 1.22h); login role tests (PR 1.22d) |
 | Keyset (cursor) pagination, never `OFFSET` on large tables; no N+1 queries; `EXPLAIN` reviewed for critical queries; every index justified | Review; query tests from the ledger queries (PR 1.14) |
 
 ## Frontend (Next.js / TypeScript)
