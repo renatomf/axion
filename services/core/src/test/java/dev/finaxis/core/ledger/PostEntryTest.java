@@ -202,16 +202,22 @@ class PostEntryTest {
 
     @Test
     void rejectsASourceReusedForAnotherTenant() {
-        var request = settle(newSource(), TEN);
-        ledger.post(request);
+        var source = newSource();
+        ledger.post(settle(source, TEN));
+        var other = UUID.randomUUID();
+        var otherLedger = new TenantBoundLedger(api, other);
+        var otherSettlement = otherLedger.openAccount(
+                new AccountRequest(other, "platform:settlement", AccountType.ASSET, BRL, true, false));
+        var otherAvailable = otherLedger.openAccount(
+                new AccountRequest(other, "tenant:available", AccountType.LIABILITY, BRL, false, false));
         var otherTenant = new EntryRequest(
-                UUID.randomUUID(),
-                request.source(),
-                request.effectiveDate(),
-                request.correlationId(),
-                request.postings());
+                other,
+                source,
+                LocalDate.of(2026, 11, 18),
+                "corr-1",
+                List.of(PostingRequest.debit(otherSettlement, TEN), PostingRequest.credit(otherAvailable, TEN)));
 
-        assertThatThrownBy(() -> new TenantBoundLedger(api, otherTenant.tenantId()).post(otherTenant))
+        assertThatThrownBy(() -> otherLedger.post(otherTenant))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("already posted for another tenant");
     }

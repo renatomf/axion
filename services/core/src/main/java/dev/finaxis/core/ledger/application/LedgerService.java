@@ -129,12 +129,13 @@ public class LedgerService implements LedgerApi {
             return new PostResult.Posted(entry.id());
         }
         transaction.releaseSavepoint(savepoint);
-        // The source was posted before. Entries are never deleted, so it is there to read.
-        var existing = entries.findBySource(request.source()).orElseThrow();
-        // A source fact belongs to one tenant, so the same source for another tenant is a bug.
-        if (!existing.tenantId().equals(request.tenantId())) {
-            throw new IllegalStateException("Source " + request.source() + " was already posted for another tenant");
-        }
+        // The source was posted before, and entries are never deleted. Not found, or found for another
+        // tenant, it was posted for another tenant, whose entry Row-Level Security hides. A source fact
+        // belongs to one tenant, so that is a bug.
+        var existing = entries.findBySource(request.source())
+                .filter(found -> found.tenantId().equals(request.tenantId()))
+                .orElseThrow(() -> new IllegalStateException(
+                        "Source " + request.source() + " was already posted for another tenant"));
         if (!sameLegs(entries.findPostings(existing.id()), request.postings())) {
             throw new IllegalStateException("Source " + request.source() + " was already posted with other postings");
         }

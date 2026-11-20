@@ -29,4 +29,14 @@ public enum DatabaseRole {
                 .query()
                 .singleRow();
     }
+
+    /** As {@link #actAs(JdbcClient, TenantId)}, with the platform tenant of the tenant's environment. */
+    public void actAs(JdbcClient jdbc, TenantId tenant, TenantId platform) {
+        actAs(jdbc, tenant);
+        jdbc.sql("SELECT set_config(?, ?, true)")
+                .param(TenantTransactionBinding.PLATFORM_TENANT_SETTING)
+                .param(platform.value().toString())
+                .query()
+                .singleRow();
+    }
 }
