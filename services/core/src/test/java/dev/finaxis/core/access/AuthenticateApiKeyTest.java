@@ -120,7 +120,7 @@ class AuthenticateApiKeyTest {
                 .param(organization.test().value())
                 .update();
 
-        assertThat(access.authenticate(key.secret())).isEqualTo(new TenantInactive(key.id()));
+        assertThat(access.authenticate(key.secret())).isEqualTo(new TenantInactive());
     }
 
     @Test

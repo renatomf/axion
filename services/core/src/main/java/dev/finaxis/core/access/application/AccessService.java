@@ -138,7 +138,7 @@ public class AccessService implements AccessApi {
         // Checked after the key, so an invalid credential never learns whether a tenant is active.
         TenantView tenant = tenancy.tenant(key.tenant()).orElseThrow();
         if (tenant.status() != TenantStatus.ACTIVE) {
-            return new AuthenticationResult.TenantInactive(key.id());
+            return new AuthenticationResult.TenantInactive();
         }
         if (key.useIsDue(now)) {
             keys.recordUse(key.id(), now);
