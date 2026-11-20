@@ -236,6 +236,43 @@ class LedgerSchemaTest {
         assertThat(updated).isOne();
     }
 
+    @Test
+    void letsTheJobsRoleReadTheLedger() {
+        var entry = insertEntryWithOnePosting();
+        DatabaseRole.LEDGER_JOBS.actAs(jdbc);
+
+        var read = jdbc.sql("""
+                        SELECT count(*)
+                          FROM ledger.entries e
+                          JOIN ledger.postings p ON p.entry_id = e.id
+                          JOIN ledger.accounts a ON a.id = p.account_id
+                          LEFT JOIN ledger.balances b ON b.account_id = a.id
+                         WHERE e.id = ?
+                        """).param(entry).query(Long.class).single();
+
+        assertThat(read).isOne();
+    }
+
+    @Test
+    void deniesTheJobsRoleUpdatingBalances() {
+        var account = insertAccount(UUID.randomUUID(), "LIABILITY", "CREDIT", "BRL");
+        insertBalance(account, 0);
+        DatabaseRole.LEDGER_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> jdbc.sql("UPDATE ledger.balances SET balance = 100 WHERE account_id = ?")
+                        .param(account)
+                        .update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void deniesTheJobsRoleInsertingEntries() {
+        DatabaseRole.LEDGER_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> insertEntry(UUID.randomUUID())).rootCause().hasMessageContaining("permission denied");
+    }
+
     private void committed(Runnable work) {
         work.run();
         session.commit();

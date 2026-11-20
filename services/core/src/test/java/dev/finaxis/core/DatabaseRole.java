@@ -8,7 +8,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 public enum DatabaseRole {
     ACCESS,
     TENANCY,
-    LEDGER;
+    LEDGER,
+    LEDGER_JOBS;
 
     /** Acts as this role until the current transaction ends. */
     public void actAs(JdbcClient jdbc) {

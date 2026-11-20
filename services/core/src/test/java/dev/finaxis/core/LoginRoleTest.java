@@ -16,7 +16,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 @Import(PostgresTestConfiguration.class)
 class LoginRoleTest {
 
-    private static final List<String> MODULE_ROLES = List.of("finaxis_tenancy", "finaxis_access", "finaxis_ledger");
+    private static final List<String> MODULE_ROLES =
+            List.of("finaxis_tenancy", "finaxis_access", "finaxis_ledger", "finaxis_ledger_jobs");
 
     private final JdbcClient jdbc;
 

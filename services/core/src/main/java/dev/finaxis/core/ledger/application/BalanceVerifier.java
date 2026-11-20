@@ -23,7 +23,7 @@ public class BalanceVerifier {
 
     public static final String VIOLATIONS = "finaxis.ledger.invariant.violations";
 
-    private static final String ROLE = "finaxis_ledger";
+    private static final String ROLE = "finaxis_ledger_jobs";
 
     private static final Logger LOG = LoggerFactory.getLogger(BalanceVerifier.class);
 
