@@ -1,9 +1,12 @@
 package dev.finaxis.core.access.web;
 
+import dev.finaxis.core.access.ApiKeyCaller;
+import dev.finaxis.core.access.Caller;
 import dev.finaxis.core.access.MemberCaller;
 import dev.finaxis.core.access.NoPermissionRequired;
 import dev.finaxis.core.access.RequiresPermission;
 import dev.finaxis.core.access.RequiresStepUp;
+import dev.finaxis.core.access.security.ApiKeyAuthentication;
 import dev.finaxis.core.shared.PublicId;
 import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.Membership;
@@ -30,16 +33,21 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.HandlerMapping;
 
 /**
- * Establishes the {@link MemberCaller} of a tenant-scoped request and checks its permission, after
- * Spring MVC has chosen the controller method and before it runs (tenancy design, sections 5.1 and
- * 5.2).
+ * Establishes the {@link Caller} of a tenant-scoped request and checks its permission, after Spring
+ * MVC has chosen the controller method and before it runs (tenancy design, sections 5.1 and 5.2).
  *
  * <p>A {@link HandlerInterceptor} is Spring MVC's hook around a controller method. Unlike a servlet
  * filter, it knows which method will handle the request, so it can read that method's annotations
  * and the path variables of its mapping. An exception thrown here goes to the same error handler as
  * one thrown by the controller.
  *
- * <p>For a method with {@link RequiresPermission}, in this order:
+ * <p>The caller depends on how the security filter chain authenticated the request. An API key on
+ * {@code /v1} already carries its {@link ApiKeyCaller}: its tenant, which the filter found active,
+ * and its scopes. A key without the required scope gets {@code 403 insufficient_permission}, and so
+ * does a key on a method with {@link RequiresStepUp}, since a key cannot authenticate again.
+ *
+ * <p>A member's access token on {@code /internal} names no tenant, so for a method with {@link
+ * RequiresPermission}, in this order:
  *
  * <ol>
  *   <li>the {@code {tenant_id}} of the path is parsed; a malformed ID answers {@code 404};
@@ -92,17 +100,28 @@ final class PermissionInterceptor implements HandlerInterceptor {
             LOG.error("Endpoint {} declares no permission and is denied", method.getShortLogMessage());
             throw AccessProblems.insufficientPermission();
         }
-        Jwt token = accessToken();
-        MemberCaller caller = member(request, token, required.value());
-        if (method.hasMethodAnnotation(RequiresStepUp.class)
-                && !RecentAuthentication.isRecent(token.getClaimAsInstant(AUTH_TIME), clock)) {
-            throw AccessProblems.stepUpRequired();
-        }
+        boolean stepUp = method.hasMethodAnnotation(RequiresStepUp.class);
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        Caller caller = switch (authentication) {
+            case ApiKeyAuthentication key -> apiKey(key.getPrincipal(), required.value(), stepUp);
+            case JwtAuthenticationToken token -> member(request, token.getToken(), required.value(), stepUp);
+            case null, default ->
+                throw new IllegalStateException(
+                        "A tenant-scoped request must be authenticated with an API key or an access token");
+        };
         request.setAttribute(CALLER_ATTRIBUTE, caller);
         return true;
     }
 
-    private MemberCaller member(HttpServletRequest request, Jwt token, Permission required) {
+    /** The key's own caller, if its scopes include the required permission. */
+    private static ApiKeyCaller apiKey(ApiKeyCaller caller, Permission required, boolean stepUp) {
+        if (!caller.permissions().contains(required) || stepUp) {
+            throw AccessProblems.insufficientPermission();
+        }
+        return caller;
+    }
+
+    private MemberCaller member(HttpServletRequest request, Jwt token, Permission required, boolean stepUp) {
         TenantId tenant = tenantInPath(request);
         // MemberTokenValidation rejects a token without a subject, so it is never null here.
         String subject = Objects.requireNonNull(token.getSubject());
@@ -117,6 +136,9 @@ final class PermissionInterceptor implements HandlerInterceptor {
         Set<Permission> permissions = Role.permissionsOf(membership.roles());
         if (!permissions.contains(required)) {
             throw AccessProblems.insufficientPermission();
+        }
+        if (stepUp && !RecentAuthentication.isRecent(token.getClaimAsInstant(AUTH_TIME), clock)) {
+            throw AccessProblems.stepUpRequired();
         }
         return new MemberCaller(tenant, view.environment(), membership.member(), permissions);
     }
@@ -138,18 +160,5 @@ final class PermissionInterceptor implements HandlerInterceptor {
         } catch (IllegalArgumentException malformed) {
             throw AccessProblems.notFound();
         }
-    }
-
-    /**
-     * The member's validated access token. Only {@code /internal} reaches a tenant-scoped endpoint
-     * for now, and its filter chain authenticates every request with one; API keys on {@code /v1}
-     * arrive in PR 1.21.
-     */
-    private static Jwt accessToken() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (!(authentication instanceof JwtAuthenticationToken token)) {
-            throw new IllegalStateException("A tenant-scoped request must be authenticated with an access token");
-        }
-        return token.getToken();
     }
 }

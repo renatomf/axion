@@ -11,7 +11,7 @@ import org.springframework.web.method.support.ModelAndViewContainer;
 
 /**
  * Passes the {@link Caller} that {@link PermissionInterceptor} established to a controller method
- * that declares a parameter of type {@code Caller} or {@code MemberCaller}.
+ * that declares a parameter of type {@code Caller}, {@code MemberCaller} or {@code ApiKeyCaller}.
  *
  * <p>A {@link HandlerMethodArgumentResolver} is how Spring MVC fills controller parameters, the same
  * way it fills {@code @PathVariable} or {@code @RequestBody} ones. The caller never comes from the
