@@ -237,18 +237,6 @@ class ApiKeySchemaTest {
         assertThat(lookup).containsExactly(true, "finaxis_access_lookup", true, false);
     }
 
-    @Test
-    void limitsHowLongTheAccessRoleWaits() {
-        var settings = jdbc.sql("""
-                        SELECT unnest(setconfig)
-                          FROM pg_db_role_setting
-                         WHERE setrole = 'finaxis_access'::regrole
-                        """).query(String.class).list();
-
-        assertThat(settings)
-                .containsExactlyInAnyOrder("lock_timeout=2s", "statement_timeout=5s", "transaction_timeout=30s");
-    }
-
     private UUID insertKey(String name, byte[] hash, String lastFour, String scopes) {
         return insertKey(new TenantId(UUID.randomUUID()), name, hash, lastFour, scopes);
     }

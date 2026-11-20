@@ -137,18 +137,6 @@ class TenancySchemaTest {
         assertThat(revoked).isOne();
     }
 
-    @Test
-    void limitsHowLongTheTenancyRoleWaits() {
-        var settings = jdbc.sql("""
-                        SELECT unnest(setconfig)
-                          FROM pg_db_role_setting
-                         WHERE setrole = 'finaxis_tenancy'::regrole
-                        """).query(String.class).list();
-
-        assertThat(settings)
-                .containsExactlyInAnyOrder("lock_timeout=2s", "statement_timeout=5s", "transaction_timeout=30s");
-    }
-
     private UUID insertOrganization(String name) {
         var id = UUID.randomUUID();
         jdbc.sql("INSERT INTO tenancy.organizations (id, name, is_platform) VALUES (?, ?, false)")

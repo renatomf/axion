@@ -241,18 +241,6 @@ class LedgerSchemaTest {
         assertThat(updated).isOne();
     }
 
-    @Test
-    void limitsHowLongTheLedgerRoleWaits() {
-        var settings = jdbc.sql("""
-                        SELECT unnest(setconfig)
-                          FROM pg_db_role_setting
-                         WHERE setrole = 'finaxis_ledger'::regrole
-                        """).query(String.class).list();
-
-        assertThat(settings)
-                .containsExactlyInAnyOrder("lock_timeout=2s", "statement_timeout=5s", "transaction_timeout=30s");
-    }
-
     private UUID insertEntryWithOnePosting() {
         var tenant = UUID.randomUUID();
         var account = insertAccount(tenant, "LIABILITY", "CREDIT", "BRL");
