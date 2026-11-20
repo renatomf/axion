@@ -5,11 +5,7 @@ import dev.finaxis.core.ledger.AccountType;
 import java.util.Currency;
 import java.util.UUID;
 
-/**
- * A named bucket of money in one currency (ledger design, section 3.1). Never changed once created.
- *
- * @param hot balance updated by a scheduled job, for accounts in almost every entry (section 5.3)
- */
+/** A named bucket of money in one currency (ledger design, section 3.1). Never changed once created. */
 public record Account(
         AccountId id,
         UUID tenantId,
