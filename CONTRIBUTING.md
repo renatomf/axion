@@ -106,6 +106,7 @@ The APIs are contract-first: the OpenAPI 3.1 documents in [`services/core/openap
 - Errors are RFC 9457 Problem Details, built by [`ApiExceptionHandler`](services/core/src/main/java/dev/finaxis/core/web/ApiExceptionHandler.java), each with a stable snake_case `code` clients branch on. An unknown exception is a `500` whose details are only logged. Expected business outcomes are values, mapped by the endpoint to a problem with its own code.
 - Request bodies are records with Bean Validation constraints, taken as `@Valid @RequestBody`: an unreadable body is `400 bad_request`, a broken constraint `422 validation_failed` with the offending fields. Rejected values are never echoed.
 - Endpoint tests check every response against its contract with [`OpenApiContract`](services/core/src/test/java/dev/finaxis/core/OpenApiContract.java), strictly: a property the contract does not list fails the test.
+- A new operation needs a cross-tenant attempt in [`TenantIsolationTest`](services/core/src/test/java/dev/finaxis/core/TenantIsolationTest.java), which reads the operations from the contracts and fails for one it cannot attempt.
 - `just lint-api` runs [Spectral](https://docs.stoplight.io/docs/spectral) ([`.spectral.yaml`](.spectral.yaml)); warnings fail.
 
 ### Security rules
