@@ -109,16 +109,15 @@ public class JdbcApiKeys {
     }
 
     /**
-     * Every key of the tenant, revoked and expired ones included, newest first. IDs are UUIDv7,
-     * which start with their creation time, so ordering by ID orders by issue, and the primary key's
-     * index breaks ties between keys issued in the same millisecond.
+     * Every key of the tenant, revoked and expired ones included, newest first. Ordered by {@code
+     * created_at}, not by ID: two UUIDv7 of the same millisecond are in random order.
      */
     public List<ApiKeyView> findByTenant(TenantId tenant) {
         return jdbc.sql("""
                         SELECT id, name, last_four, scopes, created_at, expires_at, revoked_at, last_used_at
                           FROM access.api_keys
                          WHERE tenant_id = :tenant
-                         ORDER BY id DESC
+                         ORDER BY created_at DESC, id DESC
                         """)
                 .param("tenant", tenant.value())
                 .query(JdbcApiKeys::view)
