@@ -62,7 +62,7 @@ class SecurityConfigurationTest {
     @Test
     @WithMockUser
     void authenticatedRequestWithoutAnExplicitRuleIsForbidden() {
-        assertThat(mvc.get().uri("/v1/charges"))
+        assertThat(mvc.get().uri("/actuator/env"))
                 .hasStatus(HttpStatus.FORBIDDEN)
                 .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .bodyJson()

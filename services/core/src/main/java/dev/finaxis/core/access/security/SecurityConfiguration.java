@@ -1,5 +1,6 @@
 package dev.finaxis.core.access.security;
 
+import dev.finaxis.core.access.AccessApi;
 import jakarta.servlet.DispatcherType;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
@@ -11,6 +12,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
@@ -25,12 +27,14 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
  * <ol>
  *   <li>{@link #internalFilterChain}: {@code /internal/**}, the API of the console's BFF, open to
  *       members with a valid access token from Keycloak;
+ *   <li>{@link #publicApiFilterChain}: {@code /v1/**}, the public API, open to tenants' systems
+ *       with a working API key;
  *   <li>{@link #securityFilterChain}: every other request.
  * </ol>
  *
  * <p>Access is denied by default: a request is allowed only if a rule below opens it. A new endpoint
  * therefore stays closed until it gets an explicit rule, instead of being open because someone forgot
- * one. Outside {@code /internal}, only the health endpoint is public, for load balancers and
+ * one. Outside the two APIs, only the health endpoint is public, for load balancers and
  * container orchestrators.
  */
 @Configuration(proxyBeanMethods = false)
@@ -66,15 +70,40 @@ class SecurityConfiguration {
     }
 
     /**
-     * Every request {@link #internalFilterChain} does not match, {@code /v1} included. This chain
-     * has no bearer token filter, so an access token sent here authenticates nothing and gets a
-     * {@code 401}; API keys arrive in PR 1.21.
+     * Tenants' systems on {@code /v1}: {@link ApiKeyAuthenticationFilter} authenticates the API key
+     * in the {@code Authorization} header, and every request must be authenticated. Only API keys
+     * are accepted here: an access token is not a key and gets a {@code 401}. Which scopes an
+     * endpoint needs is checked after the chain, against its {@code @RequiresPermission}.
+     *
+     * <p>{@code addFilterBefore} places the filter before Spring Security's anonymous filter, which
+     * marks a request that nothing authenticated as anonymous, so the rule below sees the key.
+     *
+     * @param access authenticates the key
+     */
+    @Bean
+    @Order(2)
+    SecurityFilterChain publicApiFilterChain(
+            HttpSecurity http,
+            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver,
+            AccessApi access) {
+        http.securityMatcher("/v1/**");
+        http.authorizeHttpRequests(requests -> requests.anyRequest().authenticated());
+
+        ProblemDetailsSecurityHandler rejections = new ProblemDetailsSecurityHandler(resolver);
+        http.addFilterBefore(new ApiKeyAuthenticationFilter(access, rejections), AnonymousAuthenticationFilter.class);
+
+        return build(http, rejections);
+    }
+
+    /**
+     * Every request neither API matches. This chain authenticates nothing, so anything but the
+     * health endpoint gets a {@code 401}.
      *
      * @param resolver Spring MVC's exception resolver, which applies the {@code web} module's error
      *     format; the qualifier picks it out of the several resolvers in the context
      */
     @Bean
-    @Order(2)
+    @Order(3)
     SecurityFilterChain securityFilterChain(
             HttpSecurity http, @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver) {
         http.authorizeHttpRequests(requests -> requests
