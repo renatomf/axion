@@ -24,6 +24,9 @@ gradle-pitest-plugin = "1.19.0"
 spring-boot-dependencies = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "spring-boot" }
 # Spring MVC on an embedded Tomcat server; includes the base Spring Boot starter.
 spring-boot-starter-webmvc = { module = "org.springframework.boot:spring-boot-starter-webmvc" }
+# Bean Validation (Hibernate Validator): constraints such as @NotBlank on request bodies, checked by
+# Spring MVC before a controller method runs.
+spring-boot-starter-validation = { module = "org.springframework.boot:spring-boot-starter-validation" }
 # Production-ready endpoints (health, info, metrics) under /actuator.
 spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
 # Spring Security: a chain of servlet filters that authenticates and authorizes every request.

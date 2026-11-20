@@ -43,6 +43,8 @@ dependencies {
     // Spring MVC on an embedded Tomcat server, plus Spring core,
     // auto-configuration and logging (Logback via SLF4J).
     implementation(libs.spring.boot.starter.webmvc)
+    // Bean Validation of request bodies (@Valid, @NotBlank...), with Hibernate Validator.
+    implementation(libs.spring.boot.starter.validation)
     // Operational endpoints under /actuator, starting with health.
     implementation(libs.spring.boot.starter.actuator)
     // Authentication and authorization for every HTTP request, as servlet filters.

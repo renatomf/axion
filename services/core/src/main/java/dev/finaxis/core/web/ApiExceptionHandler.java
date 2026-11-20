@@ -1,7 +1,10 @@
 package dev.finaxis.core.web;
 
+import java.util.Comparator;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,6 +13,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
@@ -39,6 +44,9 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     static final String CODE = "code";
 
+    /** The code of a request whose fields fail validation; its problem lists them in {@code errors}. */
+    static final String VALIDATION_FAILED = "validation_failed";
+
     private static final Logger LOG = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
     /**
@@ -54,6 +62,50 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, "An unexpected error occurred.");
         return handleExceptionInternal(ex, problem, new HttpHeaders(), status, request);
     }
+
+    /**
+     * A request body annotated {@code @Valid} whose constraints fail, such as a blank name under
+     * {@code @NotBlank}. Spring MVC checks the constraints after reading the body and before the
+     * controller method runs, and throws {@link MethodArgumentNotValidException}; the method never
+     * runs.
+     *
+     * <p>The answer is {@code 422 validation_failed}, not Spring's default {@code 400}: the body was
+     * read, so the request is well formed, but its content is unacceptable (RFC 9110, section
+     * 15.5.21). {@code errors} names each failing field and why, sorted so the response does not
+     * depend on the order the validator happens to report them in. The rejected value is never
+     * echoed: it could be a secret, or text crafted to mislead whoever reads the response.
+     */
+    @Override
+    protected @Nullable ResponseEntity<Object> handleMethodArgumentNotValid(
+            MethodArgumentNotValidException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        HttpStatus unprocessable = HttpStatus.UNPROCESSABLE_CONTENT;
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(unprocessable, "The request has invalid fields.");
+        problem.setProperty(CODE, VALIDATION_FAILED);
+        problem.setProperty("errors", fieldErrors(ex));
+        return handleExceptionInternal(ex, problem, headers, unprocessable, request);
+    }
+
+    /**
+     * One {@link FieldProblem} per failed constraint. A constraint on the whole object, rather than
+     * on one field, is reported under the object's name.
+     */
+    private static List<FieldProblem> fieldErrors(MethodArgumentNotValidException ex) {
+        Stream<FieldProblem> fields = ex.getBindingResult().getFieldErrors().stream()
+                .map(error -> new FieldProblem(error.getField(), message(error.getDefaultMessage())));
+        Stream<FieldProblem> objects = ex.getBindingResult().getGlobalErrors().stream()
+                .filter(error -> !(error instanceof FieldError))
+                .map(error -> new FieldProblem(error.getObjectName(), message(error.getDefaultMessage())));
+        return Stream.concat(fields, objects)
+                .sorted(Comparator.comparing(FieldProblem::field).thenComparing(FieldProblem::detail))
+                .toList();
+    }
+
+    private static String message(@Nullable String message) {
+        return message == null ? "is invalid" : message;
+    }
+
+    /** A {@code FieldError} of the contract: written by Jackson as {@code {"field": …, "detail": …}}. */
+    record FieldProblem(String field, String detail) {}
 
     /**
      * Every response built by {@link ResponseEntityExceptionHandler} passes through this method, so
