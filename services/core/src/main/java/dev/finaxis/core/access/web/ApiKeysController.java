@@ -20,15 +20,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * The API keys of a tenant, for the console's developer area (tenancy design, section 7; contract in
- * {@code openapi/internal.yaml}).
- *
- * <p>Before a method here runs, {@link PermissionInterceptor} has resolved the {@code {tenant_id}}
- * of the path through the member's own memberships and checked the method's permission; the
- * resolved {@link MemberCaller} arrives as a parameter. The tenant is read from the caller and from
- * nowhere else.
- */
 @RestController
 class ApiKeysController {
 
@@ -38,10 +29,7 @@ class ApiKeysController {
         this.access = access;
     }
 
-    /**
-     * Lists every key of the tenant. No step-up: a list holds no secret and changes nothing, unlike
-     * issuing, rolling or revoking a key.
-     */
+    // No step-up: a list holds no secret and changes nothing.
     @RequiresPermission(Permission.API_KEYS_MANAGE)
     @GetMapping("/internal/tenants/{tenant_id}/api_keys")
     ApiKeyListResponse list(MemberCaller caller) {
@@ -49,14 +37,6 @@ class ApiKeysController {
                 access.keys(caller.tenant()).stream().map(ApiKeyResponse::of).toList());
     }
 
-    /**
-     * Issues a key for the tenant and returns it with its secret, the only time the secret is shown.
-     *
-     * <p>The interceptor checks the permission and the step-up before Spring MVC reads the body, so a
-     * member who may not issue keys learns nothing about what a valid body looks like. {@code @Valid}
-     * then checks the body's constraints; a body that breaks one never reaches this method. The
-     * outcomes the module returns as values become a key or a Problem Details response here.
-     */
     @RequiresPermission(Permission.API_KEYS_MANAGE)
     @RequiresStepUp
     @PostMapping("/internal/tenants/{tenant_id}/api_keys")
@@ -69,15 +49,7 @@ class ApiKeysController {
         };
     }
 
-    /**
-     * Revokes one of the tenant's keys and returns it as lists show it. Revoking it again returns
-     * the same key, with its first {@code revoked_at}, so the request has no body and needs no
-     * idempotency key to be retried safely.
-     *
-     * <p>{@code @PathVariable} gives the method the {@code {key_id}} segment of the path as text. The
-     * method parses it itself: a malformed ID, like a key of another tenant, answers {@code 404},
-     * which a conversion failure in Spring MVC would answer as {@code 400}.
-     */
+    // Revoking twice returns the first revocation, so a retry is safe without an idempotency key.
     @RequiresPermission(Permission.API_KEYS_MANAGE)
     @RequiresStepUp
     @PostMapping("/internal/tenants/{tenant_id}/api_keys/{key_id}/revoke")
@@ -85,16 +57,7 @@ class ApiKeysController {
         return access.revoke(caller, keyIn(keyId)).map(ApiKeyResponse::of).orElseThrow(AccessProblems::notFound);
     }
 
-    /**
-     * Rolls one of the tenant's keys: issues a replacement with the same name and scopes, and
-     * returns it with its secret, beside the old key, which keeps working until the end of the grace
-     * period.
-     *
-     * <p>{@code @RequestBody(required = false)} lets the request have no body: Spring MVC then passes
-     * {@code null}, and the default grace period applies. A body that is present is checked by
-     * {@code @Valid} as when issuing. Rolling a key twice is refused, so a retried request answers
-     * {@code 409} rather than issuing a second replacement.
-     */
+    // A key rolls once, so a retry answers 409 instead of issuing a second replacement.
     @RequiresPermission(Permission.API_KEYS_MANAGE)
     @RequiresStepUp
     @PostMapping("/internal/tenants/{tenant_id}/api_keys/{key_id}/roll")
@@ -113,7 +76,7 @@ class ApiKeysController {
         };
     }
 
-    /** The key a path names; a malformed ID names no key, so it answers {@code 404}. */
+    // A malformed ID answers 404, like another tenant's key, not 400.
     private static ApiKeyId keyIn(String text) {
         try {
             return new ApiKeyId(PublicId.parse(ApiKeyId.PREFIX, text).uuid());

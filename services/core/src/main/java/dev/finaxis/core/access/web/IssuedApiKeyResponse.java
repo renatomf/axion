@@ -6,14 +6,7 @@ import dev.finaxis.core.tenancy.Permission;
 import java.time.Instant;
 import java.util.List;
 
-/**
- * An {@code IssuedApiKey} of {@code openapi/internal.yaml}: a key just issued, with its secret. This
- * response is the only place the secret ever leaves the core; afterwards, lists show the key as an
- * {@link ApiKeyResponse}, without it.
- *
- * <p>A record's generated {@code toString} would print every component, the secret included, so it
- * is overridden to mask it, as {@link IssuedApiKey} does.
- */
+// The only place a key's secret leaves the core.
 record IssuedApiKeyResponse(
         String id,
         String name,
@@ -27,12 +20,13 @@ record IssuedApiKeyResponse(
                 key.id().publicId().toString(),
                 key.name(),
                 key.lastFour(),
-                // Alphabetical, as in a list, so the response does not depend on how a set iterates.
+                // Sorted, as in a list.
                 key.scopes().stream().map(Permission::code).sorted().toList(),
                 key.createdAt(),
                 key.secret());
     }
 
+    // The generated toString would print the secret.
     @Override
     public String toString() {
         return "IssuedApiKeyResponse[id=" + id + ", secret=…" + lastFour + "]";

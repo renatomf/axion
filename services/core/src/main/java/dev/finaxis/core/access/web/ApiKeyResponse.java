@@ -7,14 +7,6 @@ import java.time.Instant;
 import java.util.List;
 import org.jspecify.annotations.Nullable;
 
-/**
- * An {@code ApiKey} of {@code openapi/internal.yaml}: a key as lists show it, never with its secret.
- *
- * <p>The contract spells properties in snake_case; {@code @JsonProperty} gives Jackson the JSON name
- * of each component whose Java name differs. Dates are written as RFC 3339 text, such as {@code
- * 2026-11-19T12:00:00Z}, Jackson's default for an {@link Instant}. A date that has not happened is
- * written as {@code null}, not left out, as the contract requires.
- */
 record ApiKeyResponse(
         String id,
         String name,
@@ -30,7 +22,7 @@ record ApiKeyResponse(
                 key.id().publicId().toString(),
                 key.name(),
                 key.lastFour(),
-                // Alphabetical, so the response does not depend on how a set happens to iterate.
+                // Sorted, so the response does not depend on set iteration order.
                 key.scopes().stream().map(Permission::code).sorted().toList(),
                 key.createdAt(),
                 key.expiresAt().orElse(null),

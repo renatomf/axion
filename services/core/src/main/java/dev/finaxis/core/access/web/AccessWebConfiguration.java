@@ -8,13 +8,6 @@ import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
-/**
- * Adds the permission check and the {@code Caller} parameter to Spring MVC.
- *
- * <p>Spring Boot configures Spring MVC itself and then calls every {@link WebMvcConfigurer} bean, so
- * this class adds to Boot's setup instead of replacing it. The interceptor covers the two APIs only;
- * Spring Boot's own {@code /error} page and the actuator stay outside it.
- */
 @Configuration(proxyBeanMethods = false)
 class AccessWebConfiguration implements WebMvcConfigurer {
 
@@ -28,6 +21,7 @@ class AccessWebConfiguration implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        // The two APIs only: the error page and the actuator stay outside.
         registry.addInterceptor(new PermissionInterceptor(tenancy, clock)).addPathPatterns("/internal/**", "/v1/**");
     }
 

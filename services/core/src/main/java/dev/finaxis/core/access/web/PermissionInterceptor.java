@@ -33,47 +33,21 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.HandlerMapping;
 
 /**
- * Establishes the {@link Caller} of a tenant-scoped request and checks its permission, after Spring
- * MVC has chosen the controller method and before it runs (tenancy design, sections 5.1 and 5.2).
+ * Establishes the {@link Caller} of a request and checks the permission its endpoint declares
+ * (tenancy design, sections 5.1 and 5.2).
  *
- * <p>A {@link HandlerInterceptor} is Spring MVC's hook around a controller method. Unlike a servlet
- * filter, it knows which method will handle the request, so it can read that method's annotations
- * and the path variables of its mapping. An exception thrown here goes to the same error handler as
- * one thrown by the controller.
- *
- * <p>The caller depends on how the security filter chain authenticated the request. An API key on
- * {@code /v1} already carries its {@link ApiKeyCaller}: its tenant, which the filter found active,
- * and its scopes. A key without the required scope gets {@code 403 insufficient_permission}, and so
- * does a key on a method with {@link RequiresStepUp}, since a key cannot authenticate again.
- *
- * <p>A member's access token on {@code /internal} names no tenant, so for a method with {@link
- * RequiresPermission}, in this order:
- *
- * <ol>
- *   <li>the {@code {tenant_id}} of the path is parsed; a malformed ID answers {@code 404};
- *   <li>the member's membership is looked up through that tenant, using only the token's {@code
- *       sub}; a tenant that does not exist or that the member does not belong to answers {@code
- *       404}, so nobody learns which tenants exist;
- *   <li>a tenant that is not active answers {@code 403 tenant_inactive};
- *   <li>roles become permissions; without the required one, {@code 403 insufficient_permission};
- *   <li>if the method also carries {@link RequiresStepUp}, a member whose {@code auth_time} is more
- *       than five minutes old, or missing, gets {@code 403 step_up_required}. This comes last:
- *       authenticating again would not help a member who lacks the permission.
- * </ol>
- *
- * <p>The caller is then kept as a request attribute, where {@link CallerArgumentResolver} finds it.
- * A method with neither annotation is denied: the architecture test should have stopped it, and
- * denying keeps an endpoint closed even if the test were skipped.
+ * <p>An API key brings its own caller and never passes {@link RequiresStepUp}. A member's token
+ * names no tenant, so the tenant in the path is checked against the member's memberships, in this
+ * order: unknown or foreign tenant, {@code 404}; inactive tenant, {@code 403 tenant_inactive};
+ * missing permission, {@code 403 insufficient_permission}; old login, {@code 403
+ * step_up_required}. An endpoint that declares no permission is denied.
  */
 final class PermissionInterceptor implements HandlerInterceptor {
 
-    /** The request attribute holding the established caller. */
     static final String CALLER_ATTRIBUTE = PermissionInterceptor.class.getName() + ".caller";
 
-    /** The path variable that names the tenant, as in {@code /internal/tenants/{tenant_id}/…}. */
     static final String TENANT_ID = "tenant_id";
 
-    /** The token claim with the moment the member last authenticated, in seconds. */
     static final String AUTH_TIME = "auth_time";
 
     private static final Logger LOG = LoggerFactory.getLogger(PermissionInterceptor.class);
@@ -89,7 +63,7 @@ final class PermissionInterceptor implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         if (!(handler instanceof HandlerMethod method)) {
-            // Not a controller method, such as the handler of an unknown path, which answers 404.
+            // Not a controller method, such as an unknown path.
             return true;
         }
         if (method.hasMethodAnnotation(NoPermissionRequired.class)) {
@@ -113,7 +87,6 @@ final class PermissionInterceptor implements HandlerInterceptor {
         return true;
     }
 
-    /** The key's own caller, if its scopes include the required permission. */
     private static ApiKeyCaller apiKey(ApiKeyCaller caller, Permission required, boolean stepUp) {
         if (!caller.permissions().contains(required) || stepUp) {
             throw AccessProblems.insufficientPermission();
@@ -123,7 +96,7 @@ final class PermissionInterceptor implements HandlerInterceptor {
 
     private MemberCaller member(HttpServletRequest request, Jwt token, Permission required, boolean stepUp) {
         TenantId tenant = tenantInPath(request);
-        // MemberTokenValidation rejects a token without a subject, so it is never null here.
+        // MemberTokenValidation rejects a token without a subject.
         String subject = Objects.requireNonNull(token.getSubject());
         Membership membership = tenancy.membership(subject, tenant).orElseThrow(AccessProblems::notFound);
         TenantView view = membership.tenants().stream()
@@ -143,10 +116,6 @@ final class PermissionInterceptor implements HandlerInterceptor {
         return new MemberCaller(tenant, view.environment(), membership.member(), permissions);
     }
 
-    /**
-     * The tenant the path names. Spring MVC stores the path variables of the chosen mapping as a
-     * request attribute before interceptors run.
-     */
     private static TenantId tenantInPath(HttpServletRequest request) {
         @SuppressWarnings("unchecked")
         Map<String, String> variables =

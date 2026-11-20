@@ -9,11 +9,8 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * A Bean Validation constraint: the text must be a name the access module accepts for a key, by
- * its own rule ({@link dev.finaxis.core.access.AccessApi#isValidName}). The standard {@code
- * NotBlank} and {@code Size} would disagree with it at the edges: {@code NotBlank} accepts a name of
- * Unicode spaces that {@link String#isBlank} rejects, and {@code Size} counts an emoji as two
- * characters. A {@code null} passes, as with every standard constraint; {@code @NotNull} rejects it.
+ * The module's own name rule, {@link dev.finaxis.core.access.AccessApi#isValidName}. {@code
+ * NotBlank} and {@code Size} disagree with it on Unicode spaces and on emoji.
  */
 @Documented
 @Constraint(validatedBy = ApiKeyNameValidator.class)

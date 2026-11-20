@@ -8,10 +8,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
 
-/**
- * Checks {@link ApiKeyScope}. Hibernate Validator creates it by reflection, from its own package,
- * so the class is public; it is not a Spring bean.
- */
+// Public: Hibernate Validator instantiates it by reflection.
 public final class ApiKeyScopeValidator implements ConstraintValidator<ApiKeyScope, String> {
 
     private static final Set<String> SCOPES = Arrays.stream(Permission.values())
