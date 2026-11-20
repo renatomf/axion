@@ -12,6 +12,7 @@ import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -39,6 +40,10 @@ public final class OpenApiContract {
 
     private static final YAMLMapper YAML = new YAMLMapper();
 
+    // The operations a path item may hold, in the order OpenAPI 3.1 lists them.
+    private static final List<String> METHODS =
+            List.of("get", "put", "post", "delete", "options", "head", "patch", "trace");
+
     private static final Map<String, JsonNode> DOCUMENTS = new ConcurrentHashMap<>();
 
     // Resolves schemas from the strict documents, not from the files on disk.
@@ -61,6 +66,36 @@ public final class OpenApiContract {
 
     public static OpenApiContract v1() {
         return new OpenApiContract("v1.yaml");
+    }
+
+    /** An operation of a contract: its {@code operationId}, method and path template. */
+    public record Operation(String id, String method, String path) {
+
+        @Override
+        public String toString() {
+            return id + " (" + method + " " + path + ")";
+        }
+    }
+
+    /** Every operation the contract documents, in the order of its paths. */
+    public List<Operation> operations() {
+        JsonNode paths = document(file).path("paths");
+        List<Operation> operations = new ArrayList<>();
+        for (String path : paths.propertyNames()) {
+            for (String method : METHODS) {
+                JsonNode operation = paths.path(path).path(method);
+                if (operation.isMissingNode()) {
+                    continue;
+                }
+                String id = operation.path("operationId").asString("");
+                if (id.isEmpty()) {
+                    throw new AssertionError(
+                            method.toUpperCase(Locale.ROOT) + " " + path + " has no operationId in " + file);
+                }
+                operations.add(new Operation(id, method.toUpperCase(Locale.ROOT), path));
+            }
+        }
+        return List.copyOf(operations);
     }
 
     public void assertConforms(MvcTestResult result) {
