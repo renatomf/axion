@@ -1,28 +1,23 @@
 # Contributing to Finaxis
 
-This document is the single source of truth for how work is done in this repository.
+How work is done in this repository: setup, commands, rules and workflow. Design decisions live in [`docs/design-docs/`](docs/design-docs) and [`docs/adr/`](docs/adr); this file links to them instead of repeating them.
 
 ## Setup
 
-Development happens on Linux (or WSL2 on Windows, with the repository on the Linux filesystem). Verify your toolchain:
+Development happens on Linux, or WSL2 with the repository on the Linux filesystem.
 
 ```bash
-./scripts/check-toolchain.sh
+./scripts/check-toolchain.sh   # verify the toolchain
+pnpm install                   # repository tooling and git hooks
 ```
 
-Gitleaks and editorconfig-checker are single binaries: download them from their official GitHub releases, verify the published SHA-256 checksum, and place them on your `PATH` (e.g. `~/.local/bin`).
-
-Install the repository tooling and git hooks:
-
-```bash
-pnpm install
-```
+Gitleaks and editorconfig-checker are single binaries: download them from their official GitHub releases, verify the published SHA-256 checksum, and put them on your `PATH` (e.g. `~/.local/bin`).
 
 Commits must be signed (SSH or GPG): `main` rejects unsigned commits.
 
 ### Git hooks
 
-[Lefthook](https://lefthook.dev) runs these checks locally ([`lefthook.yml`](lefthook.yml)):
+[Lefthook](https://lefthook.dev) runs these before a commit exists ([`lefthook.yml`](lefthook.yml)):
 
 | Hook | Check |
 |---|---|
@@ -30,266 +25,165 @@ Commits must be signed (SSH or GPG): `main` rejects unsigned commits.
 | `pre-commit` | editorconfig-checker validates staged files against [`.editorconfig`](.editorconfig) |
 | `commit-msg` | commitlint validates the message against [Commits](#commits) |
 
-Do not bypass hooks with `--no-verify`. If a hook reports a false positive, fix its configuration in a pull request instead.
+Never bypass a hook with `--no-verify`; fix a false positive in the hook's configuration, in a pull request.
 
-### Core service build
+## Core service
 
-[`services/core`](services/core) builds with Gradle through the wrapper; no local Gradle install is needed. The wrapper downloads the pinned Gradle version and verifies its SHA-256 checksum.
+[`services/core`](services/core) builds with the Gradle wrapper, which downloads the pinned Gradle version and verifies its checksum.
 
 ```bash
 cd services/core
-./gradlew build      # compile, test and package build/libs/finaxis-core.jar
-./gradlew bootRun    # start the service from the build
-./gradlew test       # run the tests only
-./gradlew pitest     # mutation testing of the ledger (a few minutes; not part of build)
+./gradlew build           # compile, every quality gate, the tests, and build/libs/finaxis-core.jar
+./gradlew spotlessApply   # format the code before committing
+./gradlew bootRun         # start the service with the local profile
+./gradlew pitest          # mutation testing of the ledger, a few minutes; not part of build
 ```
 
-Tests use JUnit Jupiter and AssertJ, from Spring Boot's test starter. Rules that must hold for every input, such as `Money` arithmetic, are also checked with property-based tests in [jqwik](https://jqwik.net): each `@Property` runs against generated inputs and, on failure, reports the smallest input that breaks it and the seed that reproduces the run. Tests that start the application run against a real PostgreSQL in Docker, started by [Testcontainers](https://testcontainers.com) ([`PostgresTestConfiguration`](services/core/src/test/java/dev/finaxis/core/PostgresTestConfiguration.java)), so Docker must be running; `just up` is not needed. Tests of member authentication also start a real Keycloak with the `finaxis` realm ([`KeycloakTestConfiguration`](services/core/src/test/java/dev/finaxis/core/KeycloakTestConfiguration.java)), which adds test-only clients and a synthetic member to it. Test reports are written to `build/reports/tests/test/index.html`.
+- **Tests** use JUnit, AssertJ and, for rules that must hold for every input, [jqwik](https://jqwik.net) properties. Tests that start the application run against a real PostgreSQL, and member authentication tests against a real Keycloak, both started by Testcontainers: Docker must be running; `just up` is not needed. Reports: `build/reports/tests/test/index.html`.
+- **Mutation testing** ([PIT](https://pitest.org)) fails when the ledger's tests catch fewer than 90% of the mutations; survivors are listed in `build/reports/pitest/index.html`.
+- **Versions** are declared only in [`gradle/libs.versions.toml`](services/core/gradle/libs.versions.toml); Spring Boot's bill of materials manages the versions of its libraries. To upgrade Gradle, run `./gradlew wrapper --gradle-version <version> --gradle-distribution-sha256-sum <checksum>` with the checksum from [gradle.org/release-checksums](https://gradle.org/release-checksums/), then run it again so the wrapper JAR and scripts are updated too.
 
-The ledger's tests are themselves tested with [PIT](https://pitest.org) mutation testing: `pitest` makes small changes to the ledger's compiled code, such as flipping a comparison or removing a call, and runs the ledger tests against each one. A change the tests do not notice "survives" and points at behavior no test checks. The task fails when fewer than 90% of the changes are caught; the report, listing every survivor, is written to `build/reports/pitest/index.html`.
+### Quality gates
 
-The service is a Spring Boot application; its entry point is [`Application`](services/core/src/main/java/dev/finaxis/core/Application.java). Spring Boot's own versions come from its bill of materials, imported as a Gradle platform, so libraries it manages are declared in the catalog without a version.
+`./gradlew build` fails on any of these:
 
-| File | Purpose |
-|---|---|
-| [`gradle/wrapper/gradle-wrapper.properties`](services/core/gradle/wrapper/gradle-wrapper.properties) | Pinned Gradle version and its checksum |
-| [`settings.gradle.kts`](services/core/settings.gradle.kts) | Build name and the only allowed repositories |
-| [`gradle/libs.versions.toml`](services/core/gradle/libs.versions.toml) | Version catalog: every version the build uses |
-| [`build.gradle.kts`](services/core/build.gradle.kts) | Plugins, the Java toolchain and dependencies |
-| [`gradle.properties`](services/core/gradle.properties) | Gradle options (configuration and build caches) |
-
-### Code quality gates
-
-`./gradlew build` fails on any of these; there is no separate step to remember:
-
-| Gate | Tool | Fails the build on |
+| Gate | Tool | Fails on |
 |---|---|---|
-| Formatting | [Spotless](https://github.com/diffplug/spotless) with [Palantir Java Format](https://github.com/palantir/palantir-java-format) | Unformatted code or unused imports |
-| Bug patterns | [Error Prone](https://errorprone.info) | Common Java mistakes, checked while compiling main and test code |
-| Null safety | [NullAway](https://github.com/uber/NullAway) with [JSpecify](https://jspecify.dev) annotations | A possible null dereference anywhere under `dev.finaxis` |
+| Formatting | Spotless, Palantir Java Format | Unformatted code or unused imports |
+| Bug patterns | Error Prone | Common Java mistakes, in main and test code |
+| Null safety | NullAway, JSpecify | A possible null dereference: types are non-null unless `@Nullable`, through `@NullMarked` in each `package-info.java` |
 | Zero warnings | `javac -Xlint:all -Werror` | Any javac or Error Prone warning |
+| Module structure | Spring Modulith, `ModuleStructureTest` | A cycle between modules, or a module using a type another does not expose |
+| Coding rules | ArchUnit, `ArchitectureTest` | Field injection; Spring or persistence in `domain`; the system clock instead of an injected `Clock`; an endpoint without a declared permission |
 
-```bash
-./gradlew spotlessApply    # format the code before committing
-```
+A `@SuppressWarnings` needs a comment saying why.
 
-Types are non-null by default: every package carries `@NullMarked` in its `package-info.java`, and a reference that may be null is annotated `@Nullable` (`org.jspecify.annotations`). Suppressing a check (`@SuppressWarnings`) needs a comment explaining why.
+### Modules
 
-### Module boundaries
+The core is a modular monolith ([ADR 0002](docs/adr/0002-modular-monolith.md)): each direct subpackage of `dev.finaxis.core` is a module. A module exposes only the types in its own package. A module with business logic splits the rest into `domain` (plain Java), `application` (the implementation of its API, which owns the transactions) and `persistence` (the SQL), as `ledger` does. `shared` is open to every module. A new module is a new subpackage with a `package-info.java`.
 
-The core is a modular monolith ([ADR-0002](docs/adr/0002-modular-monolith.md)): each direct subpackage of `dev.finaxis.core` is a module, such as `shared` (the shared kernel), `observability`, `web` (HTTP API conventions), `access` (who may call the core) or `ledger` (the double-entry record of money movements). Two tests fail the build when the structure is broken; neither starts the application:
+### Comments
 
-| Test | Tool | Fails on |
-|---|---|---|
-| [`ModuleStructureTest`](services/core/src/test/java/dev/finaxis/core/ModuleStructureTest.java) | [Spring Modulith](https://spring.io/projects/spring-modulith) | A dependency cycle between modules; a module using a type another module does not expose |
-| [`ArchitectureTest`](services/core/src/test/java/dev/finaxis/core/ArchitectureTest.java) | [ArchUnit](https://www.archunit.org) | Field injection; Spring or persistence types in a `domain` package; reading the system clock instead of an injected `Clock` |
+Code follows the [comment standard](docs/architecture/engineering-standards.md#comments-and-documentation): Javadoc on module APIs, comments only for a reason the code cannot state, nothing that explains the language or a framework.
 
-A module exposes only the types in its own package; its subpackages are internal. A module with business logic keeps its public interface and the types it takes and returns in its own package, and splits the rest into `domain` (plain Java model and rules), `application` (the interface's implementation, which owns the transactions) and `persistence` (the SQL), as `ledger` does. The `shared` module is open: all of its types are visible to every module. A new module is a new subpackage with a `package-info.java`.
+### Configuration
 
-### Core service configuration
-
-Configuration lives in [`src/main/resources`](services/core/src/main/resources). [`application.yml`](services/core/src/main/resources/application.yml) holds safe defaults for every environment; a profile file `application-<profile>.yml` overrides them when that profile is active.
+[`application.yml`](services/core/src/main/resources/application.yml) holds safe defaults; `application-<profile>.yml` overrides them.
 
 | Profile | Active when | Differences |
 |---|---|---|
-| default | No profile is set (e.g. `java -jar build/libs/finaxis-core.jar`) | Safe defaults; the database is set with `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME` and `SPRING_DATASOURCE_PASSWORD`, and the Keycloak realm with `FINAXIS_MEMBERS_ISSUER` (required: the service does not start without it) |
-| `local` | `./gradlew bootRun`, or `SPRING_PROFILES_ACTIVE=local` | Connects to the PostgreSQL started by `just up`, with the settings in `infra/compose/.env`, and accepts tokens of the Keycloak started by `just up auth` (needed only for requests with a token); health shows component details; logs are plain text |
+| default | No profile is set, as in the container image | Database from `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`; Keycloak realm from `FINAXIS_MEMBERS_ISSUER`, required |
+| `local` | `./gradlew bootRun`, or `SPRING_PROFILES_ACTIVE=local` | The PostgreSQL of `just up` and the Keycloak of `just up auth`, with the settings of `infra/compose/.env`; detailed health; plain-text logs |
 
-The service listens on port 8080. Only the Actuator health endpoint is exposed:
-
-```bash
-curl localhost:8080/actuator/health             # {"status":"UP",...}
-curl localhost:8080/actuator/health/liveness    # the process is alive
-curl localhost:8080/actuator/health/readiness   # the service accepts traffic
-```
-
-Exposing another Actuator endpoint is a security decision: it needs a reason in the pull request.
-
-Versions are declared only in the version catalog. To upgrade Gradle, run `./gradlew wrapper --gradle-version <version> --gradle-distribution-sha256-sum <checksum>` with the checksum published at [gradle.org/release-checksums](https://gradle.org/release-checksums/), then run the same command a second time so the wrapper JAR and scripts are updated too.
+The service listens on port 8080. Only the health endpoint is exposed (`/actuator/health`, `/liveness`, `/readiness`); exposing another Actuator endpoint is a security decision and needs a reason in the pull request.
 
 ### Database migrations
 
-The schema is managed by [Flyway](https://documentation.red-gate.com/flyway). Migrations are SQL files in [`src/main/resources/db/migration`](services/core/src/main/resources/db/migration), applied in version order when the service starts; Flyway records each one in the `flyway_schema_history` table.
+[Flyway](https://documentation.red-gate.com/flyway) applies the SQL files of [`db/migration`](services/core/src/main/resources/db/migration) in version order at startup.
 
-- Name files `V<version>__<description>.sql` (two underscores), e.g. `V2__create_ledger_schema.sql`. A name Flyway cannot parse fails the build instead of being skipped.
-- Migrations are forward-only: an applied migration is never edited or deleted. A change is a new migration.
-- Breaking changes follow expand/contract: add the new structure, migrate the code, then remove the old structure in a later migration.
-- Each module creates its own schema and database role in its own migrations; the `public` schema is closed to every role but the owner.
+- Name files `V<version>__<description>.sql`; a name Flyway cannot parse fails the build.
+- Migrations are forward-only: an applied one is never edited or deleted.
+- Breaking changes follow expand/contract: add the new structure, move the code, remove the old in a later migration.
+- Each module creates its own schema and database role; `public` is closed to every role but the owner.
 
 ### Logging
 
-The service writes console logs as JSON, one object per line, in Spring Boot's [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html) format. The `local` profile writes plain text instead.
+Logs are JSON, one object per line, in Spring Boot's Elastic Common Schema format; the `local` profile writes plain text. Every line written during a request carries `correlation_id`, taken from a valid `X-Correlation-Id` header (1 to 64 letters, digits, `.`, `_` or `-`) or generated, and returned in the same header.
 
-Every HTTP request has a correlation ID, set by [`CorrelationIdFilter`](services/core/src/main/java/dev/finaxis/core/observability/CorrelationIdFilter.java):
+Log through SLF4J, never `System.out`. Never log secrets, credentials or personal data (CPF, CNPJ, names, Pix keys), although all data here is synthetic.
 
-- A caller may send `X-Correlation-Id`; it is reused if it is 1–64 characters of letters, digits, `.`, `_` or `-`. Otherwise the service generates a UUID.
-- The ID is returned in the `X-Correlation-Id` response header and added as `correlation_id` to every log line written while the request is handled.
+### APIs
 
-```bash
-curl -i -H 'X-Correlation-Id: my-request-1' localhost:8080/actuator/health
-```
-
-Log through SLF4J (`LoggerFactory.getLogger(...)`), never `System.out`. Never log secrets, credentials or personal data (CPF, CNPJ, names, Pix keys), even though all data in this project is synthetic.
-
-### API errors
-
-Every error response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) Problem Details document (`application/problem+json`), built in one place: [`ApiExceptionHandler`](services/core/src/main/java/dev/finaxis/core/web/ApiExceptionHandler.java) in the `web` module.
-
-```bash
-curl -i localhost:8080/v1/charges
-# HTTP/1.1 401
-# Content-Type: application/problem+json
-# {"detail":"Authentication is required.","instance":"/v1/charges","status":401,"title":"Unauthorized","code":"unauthorized"}
-```
-
-- `code` is stable and snake_case; clients branch on it, never on `title` or `detail`, which are for humans and may change. A handler may set a specific code (such as `idempotency_key_reused`); otherwise it is the HTTP status name (`not_found`, `method_not_allowed`).
-- `type` is omitted, which RFC 9457 reads as `about:blank`.
-- An exception no handler knows is a bug or an infrastructure failure: it becomes a `500` with the detail `An unexpected error occurred.` and code `internal_server_error`. The exception is logged with the correlation ID; its message and stack trace never reach the response.
-- Expected business outcomes are values, not exceptions (overview design, section 19.1); the endpoint maps them to a problem with a specific code.
-
-### API contracts
-
-The core's APIs are designed contract-first: the OpenAPI 3.1 documents in [`services/core/openapi/`](services/core/openapi) are the source of truth, and code follows them.
+The APIs are contract-first: the OpenAPI 3.1 documents in [`services/core/openapi/`](services/core/openapi) are the source of truth.
 
 | File | Contract |
 |---|---|
-| [`v1.yaml`](services/core/openapi/v1.yaml) | Public `/v1` API, called by tenants' systems with an API key |
-| [`internal.yaml`](services/core/openapi/internal.yaml) | `/internal` API, called by the console's BFF and the intelligence service with a service token |
-| [`components.yaml`](services/core/openapi/components.yaml) | Building blocks both contracts reference: the `Problem` schema and the common error responses |
+| [`v1.yaml`](services/core/openapi/v1.yaml) | Public `/v1` API, for tenants' systems with an API key |
+| [`internal.yaml`](services/core/openapi/internal.yaml) | `/internal` API, for the console's BFF with a member's access token |
+| [`components.yaml`](services/core/openapi/components.yaml) | What both reference: the `Problem` schema and the common error responses |
 
-- A pull request that adds or changes an endpoint changes its contract first, in the same pull request.
-- Operations reference shared building blocks instead of copying them, for example `$ref: components.yaml#/responses/Unauthorized`.
-- **Request validation.** A request body is a record annotated with Bean Validation constraints (`@NotBlank`, `@Size`…) and taken as `@Valid @RequestBody`. A body that cannot be read answers `400 bad_request`; one whose fields break a constraint answers `422 validation_failed`, with `errors` naming each field and why (`components.yaml#/responses/ValidationFailed`). Rejected values are never echoed. Rules that need the database or the caller, such as a limit, are checked by the module and have codes of their own.
-- **Contract tests.** An endpoint's tests check every response they get against its contract with [`OpenApiContract`](services/core/src/test/java/dev/finaxis/core/OpenApiContract.java): the operation, the status and the media type must be documented, and the body must match the schema. Objects are checked strictly, so a property the contract does not list fails the test; document it first.
-- [Spectral](https://docs.stoplight.io/docs/spectral) lints both contracts ([`.spectral.yaml`](.spectral.yaml)): the standard OpenAPI rules, plus paths under `/v1` or `/internal` with snake_case segments, snake_case properties, and error responses (`4xx`, `5xx`) only as `application/problem+json`. Warnings fail the lint.
+- A pull request that adds or changes an endpoint changes its contract first.
+- Errors are RFC 9457 Problem Details, built by [`ApiExceptionHandler`](services/core/src/main/java/dev/finaxis/core/web/ApiExceptionHandler.java), each with a stable snake_case `code` clients branch on. An unknown exception is a `500` whose details are only logged. Expected business outcomes are values, mapped by the endpoint to a problem with its own code.
+- Request bodies are records with Bean Validation constraints, taken as `@Valid @RequestBody`: an unreadable body is `400 bad_request`, a broken constraint `422 validation_failed` with the offending fields. Rejected values are never echoed.
+- Endpoint tests check every response against its contract with [`OpenApiContract`](services/core/src/test/java/dev/finaxis/core/OpenApiContract.java), strictly: a property the contract does not list fails the test.
+- `just lint-api` runs [Spectral](https://docs.stoplight.io/docs/spectral) ([`.spectral.yaml`](.spectral.yaml)); warnings fail.
 
-```bash
-just lint-api
-```
+### Security rules
 
-### API security
+How authentication and authorization work is in the [tenancy and access design](docs/design-docs/2026-11-19-tenancy-and-access.md), sections 4 and 5. A contribution must:
 
-Every request passes through [Spring Security](https://docs.spring.io/spring-security/reference/) before any controller runs, configured in one place: [`SecurityConfiguration`](services/core/src/main/java/dev/finaxis/core/access/security/SecurityConfiguration.java) in the `access` module.
+- **Open nothing by default.** Every request is denied unless a rule of [`SecurityConfiguration`](services/core/src/main/java/dev/finaxis/core/access/security/SecurityConfiguration.java) opens it; a new rule is reviewed like any other code.
+- **Declare each endpoint's permission** with `@RequiresPermission(…)`, or `@NoPermissionRequired(reason = …)` when an authenticated caller is enough. `@RequiresStepUp` goes beside `@RequiresPermission` on operations that need a recent login.
+- **Take the tenant from the caller only:** a tenant-scoped method takes a `Caller`, `MemberCaller` or `ApiKeyCaller` parameter and never reads the tenant from the request.
+- **Never write an API key**, or anything shaped like one, in the repository: [`.gitleaks.toml`](.gitleaks.toml) rejects the format, and tests generate their keys at run time.
 
-- **Deny by default.** A request is allowed only if a rule opens it. Today two rules do: the health endpoint (`/actuator/health` and its probes) is public, and `/internal` is open to members with a valid access token. A new endpoint elsewhere answers `401` until its pull request adds an explicit rule, and that rule is reviewed like any other code.
-- **Members on `/internal`.** The core is an OAuth 2.0 resource server for the `finaxis` realm, in its own filter chain. A token is accepted only if it is a JWT signed with `RS256` by one of the realm's keys, with `iss` the realm, `aud` containing `finaxis-core`, `azp` one of `finaxis.members.clients`, a non-blank `sub`, and `exp` (required) and `nbf` holding with 30 seconds of clock skew ([`MemberTokenValidation`](services/core/src/main/java/dev/finaxis/core/access/security/MemberTokenValidation.java)). The token is read from the `Authorization: Bearer` header only. Anything else, an API key included, gets the same `401`. `/v1` has no bearer token filter, so an access token there is a `401` too.
-- **The member's identity.** The core identifies a member by the token's `sub` and looks up their organizations and roles in the `tenancy` module on every request, so a change of roles applies on the next request. `GET /internal/me` returns the caller's organizations, roles and tenants.
-- **Every endpoint declares its permission.** A controller method carries `@RequiresPermission(…)` with the one permission it needs, or `@NoPermissionRequired(reason = …)` when an authenticated caller is enough, as for `/internal/me`. A method with neither is denied at runtime, and `ArchitectureTest` fails the build.
-- **Tenant-scoped endpoints.** A member's tenant-scoped route has `{tenant_id}` in its path (`/internal/tenants/{tenant_id}/…`) and takes a `Caller` or `MemberCaller` parameter; it never reads the tenant from the request itself. Before the method runs, [`PermissionInterceptor`](services/core/src/main/java/dev/finaxis/core/access/web/PermissionInterceptor.java) resolves the tenant only through the member's own memberships: a malformed, unknown or foreign tenant gets `404` (code `not_found`), an inactive one `403` (`tenant_inactive`), and a missing permission `403` (`insufficient_permission`).
-- **Step-up.** An operation that needs a recent authentication (issuing, rolling or revoking API keys, changing webhook endpoints, managing members) also carries `@RequiresStepUp`, which is only valid beside `@RequiresPermission`. A member whose token's `auth_time` is more than 5 minutes old, or missing, gets `403` (`step_up_required`) with the RFC 9470 `WWW-Authenticate` challenge (`max_age="300"`). Keycloak's password grant issues no `auth_time`, so tests that need a recent authentication build the token with Spring Security's `jwt()`, as [`StepUpTest`](services/core/src/test/java/dev/finaxis/core/access/web/StepUpTest.java) does.
-- **API key format.** A key is `sk_test_` or `sk_live_`, then 30 random base62 characters and a 6-character CRC32 checksum ([`ApiKeySecret`](services/core/src/main/java/dev/finaxis/core/access/domain/ApiKeySecret.java)). The core keeps only its SHA-256 hash, and a printed `ApiKeySecret` shows only its prefix and last four characters. [`.gitleaks.toml`](.gitleaks.toml) adds a rule for the format, which cannot check the checksum: never write a key, or anything shaped like one, in the repository; tests generate theirs at run time.
-- An unauthenticated request gets a `401` (code `unauthorized`); an authenticated one without a matching rule, a `403` (code `forbidden`). Both are Problem Details, and their detail never says why, so a missing path and a closed one look the same.
-- **Stateless:** no HTTP session, no cookies, no login form, HTTP Basic or `/logout`. Callers authenticate on every request, members with access tokens and, from PR 1.21, systems with API keys. Without cookies there is nothing for CSRF to abuse, so CSRF protection is off; the BFF, which uses cookies, has its own.
-- Every response, errors included, carries `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Cache-Control: no-store`. `Strict-Transport-Security` is sent on HTTPS requests only; TLS ends at the reverse proxy (overview design, section 4.2).
+## Local infrastructure
 
-### Local infrastructure
-
-Local services run in Docker Compose ([`infra/compose/compose.yaml`](infra/compose/compose.yaml)). The root [`justfile`](justfile) is the entry point; run `just` to list every recipe.
+Local services run in Docker Compose ([`infra/compose/compose.yaml`](infra/compose/compose.yaml)), through the root [`justfile`](justfile); `just` lists every recipe.
 
 ```bash
-just up         # start the core profile and wait until it is healthy
-just up auth    # start the auth profile instead
-just down       # stop every profile; data is kept in the postgres-data volume
+just up               # the core profile: PostgreSQL 17 on 127.0.0.1:5432
+just up auth          # the auth profile: PostgreSQL and Keycloak 26 on http://localhost:8180
+just down             # stop every profile; data stays in the postgres-data volume
+just keycloak-reset   # re-import the realm file, dropping Keycloak's database and its users
+just image            # build the container image finaxis-core:dev
 ```
 
-| Profile | Services | Reachable at |
-|---|---|---|
-| `core` | PostgreSQL 17 (database and user `finaxis`) | `127.0.0.1:5432` |
-| `auth` | PostgreSQL 17 and Keycloak 26, for the console and authentication | `127.0.0.1:5432`, `http://localhost:8180` |
-
-Settings come from `infra/compose/.env`, which is git-ignored. `just up` creates it from [`.env.example`](infra/compose/.env.example) on first use, and later adds any setting the example gained since, with its example value; values already in `.env` are never changed. Edit it to change a password or, if a port is already taken on your machine, `FINAXIS_DB_PORT` or `KEYCLOAK_PORT`.
-
-- Ports are bound to `127.0.0.1`, so the services are not reachable from the network.
-- Images are pinned by digest (`image: name:tag@sha256:...`).
-- The `finaxis` user is the database owner, for local administration only. The service will connect with least-privilege roles, introduced with its first schemas.
-- To start from an empty database, remove the volume: `docker compose --file infra/compose/compose.yaml --profile "*" down --volumes`.
+- Settings come from the git-ignored `infra/compose/.env`. `just up` creates it from [`.env.example`](infra/compose/.env.example) and adds settings the example gained later, never changing existing values. Change `FINAXIS_DB_PORT` or `KEYCLOAK_PORT` there if a port is taken.
+- Ports are bound to `127.0.0.1`, and images are pinned by digest.
+- The `finaxis` database user is the owner, for local administration only; the service connects with the modules' least-privilege roles.
+- To start from an empty database: `docker compose --file infra/compose/compose.yaml --profile "*" down --volumes`.
 
 ### Keycloak
 
-Keycloak authenticates people ([ADR 0005](docs/adr/0005-keycloak-for-human-identity.md); [tenancy and access design](docs/design-docs/2026-11-19-tenancy-and-access.md), section 4.1). It needs about 1 GB of memory, so it runs only in the `auth` profile.
+Keycloak authenticates people ([ADR 0005](docs/adr/0005-keycloak-for-human-identity.md)); the realm's rules are in the tenancy design, section 4.1.
 
-- **Realm as code.** The `finaxis` realm is [`infra/keycloak/realms/finaxis.json`](infra/keycloak/realms/finaxis.json), imported when Keycloak starts. Change the realm in that file, never only in the admin console, so the change is reviewed.
-- **Applying a change.** Import skips a realm that already exists. `just keycloak-reset` drops Keycloak's database and starts it again, so the file is imported anew; it also removes every user created since.
-- **No secrets in the file.** The `finaxis-console` client secret is the `${FINAXIS_CONSOLE_CLIENT_SECRET}` placeholder, filled from `infra/compose/.env` at import.
-- **Storage.** Keycloak keeps its data in its own `keycloak` database and role on the same PostgreSQL server, created by the one-shot `keycloak-database` service; it never touches the core's schemas.
-- **Admin console.** `http://localhost:8180/admin`, user `admin` with `KEYCLOAK_ADMIN_PASSWORD`. This temporary administrator belongs to the `master` realm and is for local use only.
-
-The realm enforces:
-
-| Setting | Value |
-|---|---|
-| Second factor | Required at every login: a passkey if the user has one, TOTP otherwise; a user without either enrolls TOTP at the first login |
-| Passwords | 12 to 128 characters, neither the username nor the email; no self-registration |
-| Brute force | Temporary lockout after 5 failures, from 1 up to 15 minutes; 1 minute after two failures less than a second apart |
-| Tokens | RS256; access tokens live 5 minutes; refresh tokens are single-use |
-| Sessions | 30 minutes idle, 10 hours maximum |
-| `finaxis-console` | Confidential; authorization code with PKCE (S256) only; redirect URI `http://localhost:3000/auth/callback`; tokens carry the audience `finaxis-core` and no roles |
-
-To try a login, create a user in the admin console (realm `finaxis`, **Users**, **Add user**, then a password under **Credentials**) and open `http://localhost:8180/realms/finaxis/account`; Keycloak asks for a TOTP app at the first login. Use synthetic names and emails only.
+- The `finaxis` realm is code: [`infra/keycloak/realms/finaxis.json`](infra/keycloak/realms/finaxis.json). Change it there, never only in the admin console, and apply it with `just keycloak-reset`. Its client secret is a placeholder filled from `.env`.
+- The admin console is `http://localhost:8180/admin`, user `admin` with `KEYCLOAK_ADMIN_PASSWORD`, for local use only.
+- To try a login, add a user in realm `finaxis` (**Users**, **Add user**, a password under **Credentials**) and open `http://localhost:8180/realms/finaxis/account`; Keycloak asks for a TOTP app at the first login. Use synthetic names and emails only.
 
 ### Container image
 
-The core ships as a container image built from [`services/core/Dockerfile`](services/core/Dockerfile):
-
-```bash
-just image   # builds finaxis-core:dev
-```
-
-- **Multi-stage:** a JDK stage packages the JAR with Gradle; the final stage holds only the Java runtime and the application. Tests are not run in the image build; CI runs them in the Core workflow.
-- **Distroless runtime** (`gcr.io/distroless/java25-debian13:nonroot`): no shell, no package manager, and the process runs as user `65532`, never root. To inspect a running container, use `docker logs` and the health endpoint; `docker exec` has nothing to run.
-- **Layers by change frequency:** libraries, Spring Boot's loader and the service's code are separate layers, so a code change rebuilds only the last one.
-- Base images are pinned by digest; Dependabot bumps tag and digest together.
-- The image runs with the default profile: give it the database through `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME` and `SPRING_DATASOURCE_PASSWORD`. The image has no `HEALTHCHECK` (there is no shell or `curl` inside); orchestrators probe `/actuator/health/liveness` and `/actuator/health/readiness` over HTTP.
+[`services/core/Dockerfile`](services/core/Dockerfile) builds a multi-stage image whose runtime is distroless (`gcr.io/distroless/java25-debian13:nonroot`): no shell, and the process runs as user `65532`. It runs with the default profile, so it needs the database variables above; orchestrators probe `/actuator/health/liveness` and `/readiness` over HTTP, since the image has no `HEALTHCHECK`.
 
 ## Continuous integration
 
-GitHub Actions runs these checks on every pull request and on `main` ([`.github/workflows/`](.github/workflows)):
+GitHub Actions runs on every pull request and on `main` ([`.github/workflows/`](.github/workflows)):
 
 | Workflow | Check |
 |---|---|
-| Core | `./gradlew build` in `services/core`: every [code quality gate](#code-quality-gates) and the tests; test reports are kept as an artifact when it fails |
-| API contracts | Spectral lints the [API contracts](#api-contracts) |
-| Core image | Builds the [container image](#container-image) and scans it with Trivy, also weekly: high or critical Dockerfile misconfigurations, and high or critical vulnerabilities that have a fix |
-| Gitleaks | Scans the full git history for secrets, with the built-in rules and those of [`.gitleaks.toml`](.gitleaks.toml) |
-| CodeQL | Static analysis (SAST) of workflows and Java code; findings appear under **Security → Code scanning** |
+| Core | `./gradlew build`: every quality gate and the tests |
+| API contracts | Spectral lints the contracts |
+| Core image | Builds the image and scans it with Trivy, also weekly |
+| Gitleaks | Scans the full history for secrets |
+| CodeQL | Static analysis of workflows and Java code |
 
-The Mutation workflow runs `./gradlew pitest` every night and on demand from the Actions tab, not on pull requests; its report is kept as an artifact.
+Mutation testing runs nightly and on demand, not on pull requests. Dependabot opens weekly grouped updates ([`.github/dependabot.yml`](.github/dependabot.yml)).
 
-The Core workflow validates the Gradle wrapper JAR against known checksums and caches Gradle dependencies; only `main` writes the cache.
-
-Dependabot ([`.github/dependabot.yml`](.github/dependabot.yml)) opens weekly, grouped update PRs for GitHub Actions, the root pnpm tooling, the core Gradle build, the core's base images and the local infrastructure images.
-
-Workflow rules:
-
-- Actions are pinned to a full commit SHA, with the version in a comment (`uses: owner/action@<sha> # vX.Y.Z`). Tags can be moved; SHAs cannot.
-- Permissions are read-only by default (`permissions: contents: read`); a job asks only for what it needs.
-- Downloaded tools are verified against their published SHA-256 checksum.
+Workflow rules: actions pinned to a full commit SHA with the version in a comment; read-only permissions by default, a job asking only for what it needs; downloaded tools verified against their published checksum.
 
 Security vulnerabilities are reported privately; see [`SECURITY.md`](SECURITY.md).
 
 ## Workflow
 
-Every change follows the same path:
+1. **Issue:** one per pull request, in the milestone of its phase.
+2. **Branch:** from an up-to-date `main`, named `<type>/<short-description>`, such as `feat/ledger-domain`.
+3. **Commits:** small, one concept each (see [Commits](#commits)).
+4. **Pull request:** from the template, with `Closes #<issue>`.
+5. **Review:** fixes are new commits; history is not rewritten during review.
+6. **Merge:** the branch is rebased locally onto `main` and merged with a merge commit. GitHub's "rebase and merge" drops commit signatures, so it is not used.
 
-1. **Issue:** one issue per pull request, assigned to the milestone of its phase.
-2. **Branch:** created from an up-to-date `main`, named `<type>/<short-description>` (e.g. `feat/ledger-domain`).
-3. **Commits:** small and atomic, one concept per commit (see [Commits](#commits)).
-4. **Pull request:** opened from the template, with `Closes #<issue>` in the description.
-5. **Review:** the author reviews the change and answers the review questions in the description. Fixes are added as new commits; history is not rewritten during review.
-6. **Merge:** the branch is rebased locally onto `main`, then merged with a **merge commit**. GitHub's "rebase and merge" rewrites commits and drops their signatures, so it is not used.
-
-Changes that introduce a significant feature start with a design doc PR.
+A significant feature starts with a design doc pull request.
 
 ## Pull request size
 
-- One PR is one small, complete slice: code, tests and docs together.
-- Phases 0 and 1 target about **50–200 changed lines** per PR; the hard limit is about 400.
-- **3–8 commits** per PR.
-- Generated or verbatim third-party text (e.g. license files, lockfiles) does not count toward the limit, but should be called out in the description.
+- One pull request is one small, complete slice: code, tests and docs together.
+- Phases 0 and 1 target about **50–200 changed lines**, with a hard limit of about 400, in **3–8 commits**.
+- Generated or verbatim third-party text, such as lockfiles, does not count, but is called out in the description.
 
 ## Commits
 
-Messages follow [Conventional Commits](https://www.conventionalcommits.org/):
+[Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
 <type>(<optional scope>): <imperative summary, lower case, no period>
@@ -297,31 +191,20 @@ Messages follow [Conventional Commits](https://www.conventionalcommits.org/):
 <optional body: what and why, wrapped at 72 characters>
 ```
 
-| Type | Use for |
-|---|---|
-| `feat` | A new capability |
-| `fix` | A bug fix |
-| `docs` | Documentation only |
-| `test` | Tests only |
-| `refactor` | Code change that neither fixes a bug nor adds a feature |
-| `build` | Build system and dependencies |
-| `ci` | CI configuration |
-| `chore` | Repository maintenance |
+Types: `feat`, `fix`, `docs`, `test`, `refactor` (neither a fix nor a feature), `build`, `ci`, `chore`.
 
 ## Definition of Done
 
-A pull request is ready to merge when:
-
 - [ ] Tests cover the change and pass.
 - [ ] Documentation affected by the change is updated.
-- [ ] The security checklist in the PR template is complete.
-- [ ] CI is green (once CI exists).
+- [ ] The security checklist of the pull request template is complete.
+- [ ] CI is green.
 - [ ] The size limit is respected.
 
 ## Language
 
-Code, documentation, ADRs, commits, issues and pull requests are written in **English**. Domain terms that are proper names stay in Portuguese (`Pix`, `Boleto`, `Cnab`).
+Code, documentation, commits, issues and pull requests are in **English**. Domain terms that are proper names stay in Portuguese (`Pix`, `Boleto`, `Cnab`).
 
 ## AI assistance
 
-This project is built with AI assistance. AI-generated changes go through the same workflow and review as any other change; the author reviews every change before merging. Instructions for the AI assistant are in [`CLAUDE.md`](CLAUDE.md).
+This project is built with AI assistance. AI-generated changes go through the same workflow and review as any other; the author reviews every change before merging. Instructions for the assistant are in [`CLAUDE.md`](CLAUDE.md).
