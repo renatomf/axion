@@ -128,8 +128,55 @@ paths:
                 $ref: "components.yaml#/schemas/Problem"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
+  /internal/tenants/{tenant_id}/api_keys/{key_id}/revoke:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      operationId: revokeApiKey
+      tags: [API keys]
+      summary: Revoke an API key
+      description: >-
+        Revokes one of the tenant's keys: it stops working on the next
+        request, and for good. Revoking a key that is already revoked changes
+        nothing and returns it again, with its first `revoked_at`, so a
+        retried request is harmless. The request has no body. Requires
+        `api_keys:manage` and an authentication in the last 5 minutes;
+        otherwise the `403` has the code `step_up_required` and an RFC 9470
+        `WWW-Authenticate` challenge.
+      responses:
+        "200":
+          description: The key, now revoked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKey"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The caller may not manage API keys (`insufficient_permission`), or
+            must authenticate again (`step_up_required`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
 components:
   parameters:
+    KeyId:
+      name: key_id
+      in: path
+      required: true
+      description: >-
+        One of the tenant's API keys. A key of another tenant, existing or
+        not, answers `404`.
+      schema:
+        type: string
+        pattern: "^key_[0-7][0-9a-hjkmnp-tv-z]{25}$"
     TenantId:
       name: tenant_id
       in: path

@@ -7,6 +7,7 @@ import dev.finaxis.core.KeycloakTestConfiguration;
 import dev.finaxis.core.OpenApiContract;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.access.AccessApi;
+import dev.finaxis.core.access.ApiKeyId;
 import dev.finaxis.core.access.IssueResult;
 import dev.finaxis.core.access.IssuedApiKey;
 import dev.finaxis.core.access.MemberCaller;
@@ -37,12 +38,13 @@ import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * {@code GET} and {@code POST /internal/tenants/{tenant_id}/api_keys} against a real PostgreSQL,
- * every response checked against the contract.
+ * {@code GET} and {@code POST /internal/tenants/{tenant_id}/api_keys}, and {@code POST
+ * …/api_keys/{key_id}/revoke}, against a real PostgreSQL, every response checked against the
+ * contract.
  *
  * <p>The member's token is built with Spring Security's {@code jwt()}, which skips decoding and
  * validation: real tokens are proven in {@link TenantResolutionTest}, and here only the subject
- * matters, and, for issuing, a recent {@code auth_time}, which step-up requires. Each test runs in a transaction rolled back at its end, as in {@link
+ * matters, and, for issuing and revoking, a recent {@code auth_time}, which step-up requires. Each test runs in a transaction rolled back at its end, as in {@link
  * CurrentMemberControllerTest}, with which it shares a Spring context.
  */
 @SpringBootTest
@@ -306,6 +308,109 @@ class ApiKeysControllerTest {
                 .bodyJson()
                 .extractingPath("$.code")
                 .isEqualTo("step_up_required");
+    }
+
+    @Test
+    void revokesAKeyAndListsItAsRevoked() {
+        IssuedApiKey key = issued(organization, Environment.TEST, "Checkout");
+
+        MvcTestResult result = revoke(organization.test(), key.id().publicId().toString(), Duration.ofMinutes(1));
+
+        assertThat(result).hasStatus(HttpStatus.OK);
+        assertThat(result)
+                .bodyJson()
+                .extractingPath("$.id")
+                .isEqualTo(key.id().publicId().toString());
+        assertThat(result).bodyJson().extractingPath("$.revoked_at").isNotNull();
+        list(organization.test())
+                .hasStatus(HttpStatus.OK)
+                .bodyJson()
+                .extractingPath("$.data[0].revoked_at")
+                .isNotNull();
+    }
+
+    @Test
+    void keepsTheFirstRevocationWhenRevokedAgain() throws Exception {
+        String key = issued(organization, Environment.TEST, "Checkout")
+                .id()
+                .publicId()
+                .toString();
+        MvcTestResult first = revoke(organization.test(), key, Duration.ofMinutes(1));
+
+        MvcTestResult second = revoke(organization.test(), key, Duration.ofMinutes(1));
+
+        assertThat(second).hasStatus(HttpStatus.OK);
+        // The same body, down to revoked_at: the second request changed nothing.
+        assertThat(second).bodyJson().isStrictlyEqualTo(first.getResponse().getContentAsString());
+    }
+
+    @Test
+    void hidesAKeyOfAnotherTenantWhenRevoking() {
+        // The organization's live environment is another tenant than the one in the path.
+        IssuedApiKey live = issued(organization, Environment.LIVE, "Live");
+
+        assertThat(revoke(organization.test(), live.id().publicId().toString(), Duration.ofMinutes(1)))
+                .hasStatus(HttpStatus.NOT_FOUND)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("not_found");
+        assertThat(access.keys(organization.live()).getFirst().revokedAt()).isEmpty();
+    }
+
+    @Test
+    void findsNoKeyToRevokeForAnUnknownOrMalformedId() {
+        String unknown = new ApiKeyId(UUID.randomUUID()).publicId().toString();
+
+        for (String id :
+                List.of(unknown, "key_not-an-id", organization.test().publicId().toString())) {
+            assertThat(revoke(organization.test(), id, Duration.ofMinutes(1)))
+                    .hasStatus(HttpStatus.NOT_FOUND)
+                    .bodyJson()
+                    .extractingPath("$.code")
+                    .isEqualTo("not_found");
+        }
+    }
+
+    @Test
+    void refusesToRevokeForAMemberWhoCannotManageKeys() {
+        IssuedApiKey key = issued(organization, Environment.TEST, "Checkout");
+        jdbc.sql("UPDATE tenancy.member_roles SET role = 'READ_ONLY' WHERE member_id = ?")
+                .param(organization.admin().value())
+                .update();
+
+        assertThat(revoke(organization.test(), key.id().publicId().toString(), Duration.ofMinutes(1)))
+                .hasStatus(HttpStatus.FORBIDDEN)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("insufficient_permission");
+    }
+
+    @Test
+    void requiresARecentAuthenticationToRevoke() {
+        IssuedApiKey key = issued(organization, Environment.TEST, "Checkout");
+
+        assertThat(revoke(organization.test(), key.id().publicId().toString(), Duration.ofMinutes(6)))
+                .hasStatus(HttpStatus.FORBIDDEN)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("step_up_required");
+        assertThat(access.keys(organization.test()).getFirst().revokedAt()).isEmpty();
+    }
+
+    /**
+     * Revokes a key as the member, who authenticated this long ago, and checks the response against
+     * the contract.
+     */
+    private MvcTestResult revoke(TenantId tenant, String keyId, Duration sinceAuthentication) {
+        MvcTestResult result = mvc.post()
+                .uri("/internal/tenants/{tenant_id}/api_keys/{key_id}/revoke", tenant.publicId(), keyId)
+                .with(jwt().jwt(token -> token.subject(subject)
+                        .claim(
+                                "auth_time",
+                                Instant.now().minus(sinceAuthentication).getEpochSecond())))
+                .exchange();
+        OpenApiContract.internal().assertConforms(result);
+        return result;
     }
 
     /**
