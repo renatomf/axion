@@ -1,5 +1,6 @@
 package dev.finaxis.core.ledger.application;
 
+import dev.finaxis.core.ModuleRoles;
 import dev.finaxis.core.ledger.AccountId;
 import dev.finaxis.core.ledger.AccountRequest;
 import dev.finaxis.core.ledger.Balance;
@@ -34,18 +35,23 @@ import org.springframework.transaction.interceptor.TransactionAspectSupport;
 @Service
 public class LedgerService implements LedgerApi {
 
+    private static final String ROLE = "finaxis_ledger";
+
     private static final Comparator<AccountId> LOCK_ORDER = Comparator.comparing(AccountId::value);
 
     private final JdbcAccounts accounts;
     private final JdbcEntries entries;
     private final JdbcBalances balances;
+    private final ModuleRoles roles;
     private final Clock clock;
     private final UuidV7Generator ids;
 
-    public LedgerService(JdbcAccounts accounts, JdbcEntries entries, JdbcBalances balances, Clock clock) {
+    public LedgerService(
+            JdbcAccounts accounts, JdbcEntries entries, JdbcBalances balances, ModuleRoles roles, Clock clock) {
         this.accounts = accounts;
         this.entries = entries;
         this.balances = balances;
+        this.roles = roles;
         this.clock = clock;
         this.ids = new UuidV7Generator(clock);
     }
@@ -53,6 +59,36 @@ public class LedgerService implements LedgerApi {
     @Override
     @Transactional
     public AccountId openAccount(AccountRequest request) {
+        return roles.call(ROLE, () -> open(request));
+    }
+
+    @Override
+    @Transactional
+    public PostResult post(EntryRequest request) {
+        return roles.call(ROLE, () -> postEntry(request));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Balance balanceOf(AccountId account) {
+        return roles.call(ROLE, () -> {
+            var balance = balances.find(account)
+                    .orElseThrow(() -> new IllegalArgumentException("Unknown account " + account.value()));
+            return new Balance(account, balance, clock.instant());
+        });
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<PostingView> history(AccountId account, Cursor cursor, int limit) {
+        if (limit < 1 || limit > MAX_HISTORY_LIMIT) {
+            throw new IllegalArgumentException(
+                    "History limit must be between 1 and " + MAX_HISTORY_LIMIT + ": " + limit);
+        }
+        return roles.call(ROLE, () -> historyPage(account, cursor, limit));
+    }
+
+    private AccountId open(AccountRequest request) {
         var account = new Account(
                 new AccountId(ids.next()),
                 request.tenantId(),
@@ -76,9 +112,7 @@ public class LedgerService implements LedgerApi {
     // Ledger design, section 5.1. A concurrent call with the same source waits at the claim. A short
     // balance rolls back to a savepoint, keeping the caller's work; an exception marks the whole
     // transaction for rollback, so the caller's change cannot commit without its entry.
-    @Override
-    @Transactional
-    public PostResult post(EntryRequest request) {
+    private PostResult postEntry(EntryRequest request) {
         var entry = entryOf(new EntryId(ids.next()), request);
         var transaction = TransactionAspectSupport.currentTransactionStatus();
         var savepoint = transaction.createSavepoint();
@@ -107,22 +141,8 @@ public class LedgerService implements LedgerApi {
         return new PostResult.AlreadyPosted(existing.id());
     }
 
-    @Override
-    @Transactional(readOnly = true)
-    public Balance balanceOf(AccountId account) {
-        var balance = balances.find(account)
-                .orElseThrow(() -> new IllegalArgumentException("Unknown account " + account.value()));
-        return new Balance(account, balance, clock.instant());
-    }
-
     // One posting more than the limit tells whether there is a next page, so no cursor leads to an empty one.
-    @Override
-    @Transactional(readOnly = true)
-    public Page<PostingView> history(AccountId account, Cursor cursor, int limit) {
-        if (limit < 1 || limit > MAX_HISTORY_LIMIT) {
-            throw new IllegalArgumentException(
-                    "History limit must be between 1 and " + MAX_HISTORY_LIMIT + ": " + limit);
-        }
+    private Page<PostingView> historyPage(AccountId account, Cursor cursor, int limit) {
         if (accounts.findAllById(Set.of(account)).isEmpty()) {
             throw new IllegalArgumentException("Unknown account " + account.value());
         }
