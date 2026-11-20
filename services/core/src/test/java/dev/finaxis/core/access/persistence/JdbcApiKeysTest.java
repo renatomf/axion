@@ -89,6 +89,29 @@ class JdbcApiKeysTest {
     }
 
     @Test
+    void findsAKeyByTheHashOfItsSecret() {
+        var hash = randomHash();
+        var id = insert(tenant, Set.of(Permission.CHARGES_READ, Permission.CHARGES_WRITE), hash);
+        insert(tenant, Set.of(Permission.CHARGES_READ));
+        set("revoked_at", id, NOW);
+
+        var found = keys.findByHash(hash).orElseThrow();
+
+        assertThat(found.id()).isEqualTo(id);
+        assertThat(found.tenant()).isEqualTo(tenant);
+        assertThat(found.scopes()).containsExactlyInAnyOrder(Permission.CHARGES_READ, Permission.CHARGES_WRITE);
+        assertThat(found.revokedAt()).contains(NOW);
+        assertThat(found.expiresAt()).isEmpty();
+    }
+
+    @Test
+    void findsNoKeyForAnUnknownHash() {
+        insert(tenant, Set.of(Permission.CHARGES_READ));
+
+        assertThat(keys.findByHash(randomHash())).isEmpty();
+    }
+
+    @Test
     void locksTheTenantsKeysUntilTheTransactionEnds() {
         keys.lockTenantKeys(tenant);
 
@@ -100,11 +123,19 @@ class JdbcApiKeysTest {
     }
 
     private ApiKeyId insert(TenantId owner, Set<Permission> scopes) {
+        return insert(owner, scopes, randomHash());
+    }
+
+    private ApiKeyId insert(TenantId owner, Set<Permission> scopes, byte[] hash) {
         var id = new ApiKeyId(UUID.randomUUID());
-        var hash = new byte[32];
-        RANDOM.nextBytes(hash);
         keys.insert(id, owner, "Checkout", hash, "a1B2", scopes, new MemberId(UUID.randomUUID()), NOW);
         return id;
+    }
+
+    private static byte[] randomHash() {
+        var hash = new byte[32];
+        RANDOM.nextBytes(hash);
+        return hash;
     }
 
     private void set(String column, ApiKeyId id, Instant value) {
