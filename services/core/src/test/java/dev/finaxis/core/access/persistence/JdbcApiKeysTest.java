@@ -107,32 +107,36 @@ class JdbcApiKeysTest {
 
     @Test
     void recordsTheFirstUseOfAKey() {
-        var id = insert(tenant, Set.of(Permission.CHARGES_READ));
+        var hash = randomHash();
+        var id = insert(tenant, Set.of(Permission.CHARGES_READ), hash);
 
-        assertThat(keys.recordUse(id, NOW)).isTrue();
+        assertThat(keys.recordUse(hash, NOW)).isTrue();
         assertThat(lastUsedAt(id)).isEqualTo(NOW);
     }
 
     @Test
     void recordsAUseOnlyOnceTheLastIsAnHourOld() {
-        var recent = insert(tenant, Set.of(Permission.CHARGES_READ));
-        var anHourOld = insert(tenant, Set.of(Permission.CHARGES_READ));
+        var recentHash = randomHash();
+        var anHourOldHash = randomHash();
+        var recent = insert(tenant, Set.of(Permission.CHARGES_READ), recentHash);
+        var anHourOld = insert(tenant, Set.of(Permission.CHARGES_READ), anHourOldHash);
         set("last_used_at", recent, NOW.minus(Duration.ofMinutes(59)));
         set("last_used_at", anHourOld, NOW.minus(Duration.ofHours(1)));
 
-        assertThat(keys.recordUse(recent, NOW)).isFalse();
-        assertThat(keys.recordUse(anHourOld, NOW)).isTrue();
+        assertThat(keys.recordUse(recentHash, NOW)).isFalse();
+        assertThat(keys.recordUse(anHourOldHash, NOW)).isTrue();
         assertThat(lastUsedAt(recent)).isEqualTo(NOW.minus(Duration.ofMinutes(59)));
         assertThat(lastUsedAt(anHourOld)).isEqualTo(NOW);
     }
 
     @Test
     void neverMovesTheLastUseBackwards() {
-        var id = insert(tenant, Set.of(Permission.CHARGES_READ));
+        var hash = randomHash();
+        var id = insert(tenant, Set.of(Permission.CHARGES_READ), hash);
         set("last_used_at", id, NOW);
 
         // A request whose clock lags behind the one that last wrote.
-        assertThat(keys.recordUse(id, NOW.minus(Duration.ofMinutes(5)))).isFalse();
+        assertThat(keys.recordUse(hash, NOW.minus(Duration.ofMinutes(5)))).isFalse();
         assertThat(lastUsedAt(id)).isEqualTo(NOW);
     }
 
@@ -154,6 +158,13 @@ class JdbcApiKeysTest {
         insert(tenant, Set.of(Permission.CHARGES_READ));
 
         assertThat(keys.findByHash(randomHash())).isEmpty();
+    }
+
+    @Test
+    void recordsNoUseForAnUnknownHash() {
+        insert(tenant, Set.of(Permission.CHARGES_READ));
+
+        assertThat(keys.recordUse(randomHash(), NOW)).isFalse();
     }
 
     @Test

@@ -8,10 +8,12 @@ import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.tenancy.Permission;
 import java.security.SecureRandom;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -167,6 +169,27 @@ class ApiKeySchemaTest {
                         .update())
                 .rootCause()
                 .hasMessageContaining("permission denied");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"find_api_key(bytea)", "record_api_key_use(bytea, timestamptz, timestamptz)"})
+    void restrictsTheKeyLookupToTheAccessRole(String function) {
+        var lookup = jdbc.sql("""
+                        SELECT p.prosecdef, pg_get_userbyid(p.proowner) AS owner,
+                               has_function_privilege('finaxis_access', p.oid, 'EXECUTE') AS access,
+                               has_function_privilege('finaxis_tenancy', p.oid, 'EXECUTE') AS tenancy
+                          FROM pg_proc p
+                         WHERE p.oid = CAST(:function AS regprocedure)
+                        """)
+                .param("function", "access." + function)
+                .query((row, rowNumber) -> List.of(
+                        row.getBoolean("prosecdef"),
+                        row.getString("owner"),
+                        row.getBoolean("access"),
+                        row.getBoolean("tenancy")))
+                .single();
+
+        assertThat(lookup).containsExactly(true, "finaxis_access_lookup", true, false);
     }
 
     @Test
