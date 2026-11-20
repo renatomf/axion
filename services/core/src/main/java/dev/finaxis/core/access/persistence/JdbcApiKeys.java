@@ -108,12 +108,11 @@ public class JdbcApiKeys {
                 .optional();
     }
 
-    // Any tenant: authentication runs before a tenant is known.
+    // Any tenant: authentication runs before a tenant is known, so the lookup bypasses the tenant policy.
     public Optional<Credential> findByHash(byte[] secretHash) {
         return jdbc.sql("""
                         SELECT id, tenant_id, scopes, expires_at, revoked_at, last_used_at
-                          FROM access.api_keys
-                         WHERE secret_hash = :hash
+                          FROM access.find_api_key(:hash)
                         """)
                 .param("hash", secretHash)
                 .query((row, rowNumber) -> new Credential(
@@ -140,20 +139,15 @@ public class JdbcApiKeys {
         }
     }
 
-    // The condition is in the UPDATE too: concurrent requests that all find the key due write once,
-    // and last_used_at never moves backwards.
-    public boolean recordUse(ApiKeyId id, Instant usedAt) {
-        return jdbc.sql("""
-                        UPDATE access.api_keys
-                           SET last_used_at = :usedAt
-                         WHERE id = :id
-                           AND (last_used_at IS NULL OR last_used_at <= :dueFrom)
-                        """)
-                        .param("usedAt", utc(usedAt))
-                        .param("id", id.value())
-                        .param("dueFrom", utc(usedAt.minus(LAST_USE_PRECISION)))
-                        .update()
-                == 1;
+    // By hash, like findByHash. The condition is in the update too: concurrent requests that all find
+    // the key due write once, and last_used_at never moves backwards.
+    public boolean recordUse(byte[] secretHash, Instant usedAt) {
+        return jdbc.sql("SELECT access.record_api_key_use(:hash, :usedAt, :dueFrom)")
+                .param("hash", secretHash)
+                .param("usedAt", utc(usedAt))
+                .param("dueFrom", utc(usedAt.minus(LAST_USE_PRECISION)))
+                .query(Boolean.class)
+                .single();
     }
 
     // The first revocation is the one on record; a concurrent second one finds it and writes nothing.

@@ -46,8 +46,8 @@ class JdbcApiKeysTest {
     }
 
     @BeforeEach
-    void actAsTheAccessRole() {
-        DatabaseRole.ACCESS.actAs(jdbc);
+    void actAsTheAccessRoleForTheTenant() {
+        DatabaseRole.ACCESS.actAs(jdbc, tenant);
     }
 
     @Test
@@ -80,7 +80,10 @@ class JdbcApiKeysTest {
         var revoked = insert(tenant, Set.of(Permission.CHARGES_READ));
         var expired = insert(tenant, Set.of(Permission.CHARGES_READ));
         var inGracePeriod = insert(tenant, Set.of(Permission.CHARGES_READ));
-        insert(new TenantId(UUID.randomUUID()), Set.of(Permission.CHARGES_READ));
+        var other = new TenantId(UUID.randomUUID());
+        DatabaseRole.ACCESS.actAs(jdbc, other);
+        insert(other, Set.of(Permission.CHARGES_READ));
+        DatabaseRole.ACCESS.actAs(jdbc, tenant);
         set("revoked_at", revoked, NOW.minus(Duration.ofHours(1)));
         set("expires_at", expired, NOW);
         set("expires_at", inGracePeriod, NOW.plus(Duration.ofHours(1)));
@@ -107,32 +110,36 @@ class JdbcApiKeysTest {
 
     @Test
     void recordsTheFirstUseOfAKey() {
-        var id = insert(tenant, Set.of(Permission.CHARGES_READ));
+        var hash = randomHash();
+        var id = insert(tenant, Set.of(Permission.CHARGES_READ), hash);
 
-        assertThat(keys.recordUse(id, NOW)).isTrue();
+        assertThat(keys.recordUse(hash, NOW)).isTrue();
         assertThat(lastUsedAt(id)).isEqualTo(NOW);
     }
 
     @Test
     void recordsAUseOnlyOnceTheLastIsAnHourOld() {
-        var recent = insert(tenant, Set.of(Permission.CHARGES_READ));
-        var anHourOld = insert(tenant, Set.of(Permission.CHARGES_READ));
+        var recentHash = randomHash();
+        var anHourOldHash = randomHash();
+        var recent = insert(tenant, Set.of(Permission.CHARGES_READ), recentHash);
+        var anHourOld = insert(tenant, Set.of(Permission.CHARGES_READ), anHourOldHash);
         set("last_used_at", recent, NOW.minus(Duration.ofMinutes(59)));
         set("last_used_at", anHourOld, NOW.minus(Duration.ofHours(1)));
 
-        assertThat(keys.recordUse(recent, NOW)).isFalse();
-        assertThat(keys.recordUse(anHourOld, NOW)).isTrue();
+        assertThat(keys.recordUse(recentHash, NOW)).isFalse();
+        assertThat(keys.recordUse(anHourOldHash, NOW)).isTrue();
         assertThat(lastUsedAt(recent)).isEqualTo(NOW.minus(Duration.ofMinutes(59)));
         assertThat(lastUsedAt(anHourOld)).isEqualTo(NOW);
     }
 
     @Test
     void neverMovesTheLastUseBackwards() {
-        var id = insert(tenant, Set.of(Permission.CHARGES_READ));
+        var hash = randomHash();
+        var id = insert(tenant, Set.of(Permission.CHARGES_READ), hash);
         set("last_used_at", id, NOW);
 
         // A request whose clock lags behind the one that last wrote.
-        assertThat(keys.recordUse(id, NOW.minus(Duration.ofMinutes(5)))).isFalse();
+        assertThat(keys.recordUse(hash, NOW.minus(Duration.ofMinutes(5)))).isFalse();
         assertThat(lastUsedAt(id)).isEqualTo(NOW);
     }
 
@@ -150,10 +157,27 @@ class JdbcApiKeysTest {
     }
 
     @Test
+    void findsAKeyAndRecordsItsUseWithNoTenantBound() {
+        var hash = randomHash();
+        var id = insert(tenant, Set.of(Permission.CHARGES_READ), hash);
+        jdbc.sql("SELECT set_config('finaxis.tenant_id', '', true)").query().singleRow();
+
+        assertThat(keys.findByHash(hash)).map(JdbcApiKeys.Credential::id).contains(id);
+        assertThat(keys.recordUse(hash, NOW)).isTrue();
+    }
+
+    @Test
     void findsNoKeyForAnUnknownHash() {
         insert(tenant, Set.of(Permission.CHARGES_READ));
 
         assertThat(keys.findByHash(randomHash())).isEmpty();
+    }
+
+    @Test
+    void recordsNoUseForAnUnknownHash() {
+        insert(tenant, Set.of(Permission.CHARGES_READ));
+
+        assertThat(keys.recordUse(randomHash(), NOW)).isFalse();
     }
 
     @Test

@@ -141,7 +141,7 @@ public class AccessService implements AccessApi {
             return new AuthenticationResult.TenantInactive();
         }
         if (key.useIsDue(now)) {
-            keys.recordUse(key.id(), now);
+            keys.recordUse(secret.get().hash(), now);
         }
         return new AuthenticationResult.Authenticated(new ApiKeyCaller(key.tenant(), key.id(), key.scopes()));
     }

@@ -160,7 +160,7 @@ class IssueApiKeyTest {
     @Test
     @Transactional
     void needsNoMoreThanTheAccessRolesGrants() {
-        DatabaseRole.ACCESS.actAs(jdbc);
+        DatabaseRole.ACCESS.actAs(jdbc, organization.test());
 
         var result = access.issue(admin(Environment.TEST), "Checkout", Set.of(CHARGES_READ));
 

@@ -46,4 +46,13 @@ class DatabaseMigrationTest {
         assertThat(publicCanUse).isFalse();
         assertThat(publicCanCreate).isFalse();
     }
+
+    @Test
+    void exemptsNoRoleFromRowLevelSecurity() {
+        var exempt = jdbc.sql("SELECT rolname FROM pg_roles WHERE rolname LIKE 'finaxis%' AND rolbypassrls")
+                .query(String.class)
+                .list();
+
+        assertThat(exempt).isEmpty();
+    }
 }

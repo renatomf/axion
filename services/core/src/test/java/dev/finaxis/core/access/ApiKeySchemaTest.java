@@ -6,12 +6,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
+import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.Permission;
 import java.security.SecureRandom;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -29,6 +33,8 @@ import org.springframework.transaction.annotation.Transactional;
 class ApiKeySchemaTest {
 
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final TenantId TENANT_A = new TenantId(UUID.randomUUID());
+    private static final TenantId TENANT_B = new TenantId(UUID.randomUUID());
 
     private final JdbcClient jdbc;
 
@@ -123,8 +129,8 @@ class ApiKeySchemaTest {
 
     @Test
     void letsTheAccessRoleRevokeAKey() {
-        DatabaseRole.ACCESS.actAs(jdbc);
-        var key = insertKey("Checkout", randomHash(), "a1B2", "{charges:read}");
+        var key = insertKey(TENANT_A);
+        DatabaseRole.ACCESS.actAs(jdbc, TENANT_A);
 
         var revoked = jdbc.sql("UPDATE access.api_keys SET revoked_at = now() WHERE id = ?")
                 .param(key)
@@ -170,6 +176,68 @@ class ApiKeySchemaTest {
     }
 
     @Test
+    void showsTheAccessRoleNoKeyWithNoTenantBound() {
+        var key = insertKey(TENANT_A);
+        DatabaseRole.ACCESS.actAs(jdbc);
+
+        assertThat(tenantOf(key)).isEmpty();
+    }
+
+    @Test
+    void hidesAnotherTenantsKeysFromTheAccessRole() {
+        var own = insertKey(TENANT_A);
+        var others = insertKey(TENANT_B);
+        DatabaseRole.ACCESS.actAs(jdbc, TENANT_A);
+
+        var revoked = jdbc.sql("UPDATE access.api_keys SET revoked_at = now() WHERE id = ?")
+                .param(others)
+                .update();
+
+        assertThat(tenantOf(own)).contains(TENANT_A.value());
+        assertThat(tenantOf(others)).isEmpty();
+        assertThat(revoked).isZero();
+    }
+
+    @Test
+    void deniesTheAccessRoleInsertingAKeyForAnotherTenant() {
+        DatabaseRole.ACCESS.actAs(jdbc, TENANT_A);
+
+        assertThatThrownBy(() -> insertKey(TENANT_B))
+                .rootCause()
+                .hasMessageContaining("violates row-level security policy");
+    }
+
+    @Test
+    void deniesTheAccessRoleInsertingAKeyWithNoTenantBound() {
+        DatabaseRole.ACCESS.actAs(jdbc);
+
+        assertThatThrownBy(() -> insertKey(TENANT_A))
+                .rootCause()
+                .hasMessageContaining("violates row-level security policy");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"find_api_key(bytea)", "record_api_key_use(bytea, timestamptz, timestamptz)"})
+    void restrictsTheKeyLookupToTheAccessRole(String function) {
+        var lookup = jdbc.sql("""
+                        SELECT p.prosecdef, pg_get_userbyid(p.proowner) AS owner,
+                               has_function_privilege('finaxis_access', p.oid, 'EXECUTE') AS access,
+                               has_function_privilege('finaxis_tenancy', p.oid, 'EXECUTE') AS tenancy
+                          FROM pg_proc p
+                         WHERE p.oid = CAST(:function AS regprocedure)
+                        """)
+                .param("function", "access." + function)
+                .query((row, rowNumber) -> List.of(
+                        row.getBoolean("prosecdef"),
+                        row.getString("owner"),
+                        row.getBoolean("access"),
+                        row.getBoolean("tenancy")))
+                .single();
+
+        assertThat(lookup).containsExactly(true, "finaxis_access_lookup", true, false);
+    }
+
+    @Test
     void limitsHowLongTheAccessRoleWaits() {
         var settings = jdbc.sql("""
                         SELECT unnest(setconfig)
@@ -182,14 +250,29 @@ class ApiKeySchemaTest {
     }
 
     private UUID insertKey(String name, byte[] hash, String lastFour, String scopes) {
+        return insertKey(new TenantId(UUID.randomUUID()), name, hash, lastFour, scopes);
+    }
+
+    private UUID insertKey(TenantId tenant) {
+        return insertKey(tenant, "Checkout", randomHash(), "a1B2", "{charges:read}");
+    }
+
+    private UUID insertKey(TenantId tenant, String name, byte[] hash, String lastFour, String scopes) {
         var id = UUID.randomUUID();
         jdbc.sql("""
                         INSERT INTO access.api_keys (id, tenant_id, name, secret_hash, last_four, scopes, created_by)
                         VALUES (?, ?, ?, ?, ?, ?::text[], ?)
                         """)
-                .params(id, UUID.randomUUID(), name, hash, lastFour, scopes, UUID.randomUUID())
+                .params(id, tenant.value(), name, hash, lastFour, scopes, UUID.randomUUID())
                 .update();
         return id;
+    }
+
+    private Optional<UUID> tenantOf(UUID key) {
+        return jdbc.sql("SELECT tenant_id FROM access.api_keys WHERE id = ?")
+                .param(key)
+                .query(UUID.class)
+                .optional();
     }
 
     private static byte[] randomHash() {

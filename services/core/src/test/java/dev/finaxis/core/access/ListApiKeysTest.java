@@ -105,7 +105,7 @@ class ListApiKeysTest {
     @Transactional
     void needsNoMoreThanTheAccessRolesGrants() {
         issued(Environment.TEST, "Checkout", Set.of(CHARGES_READ));
-        DatabaseRole.ACCESS.actAs(jdbc);
+        DatabaseRole.ACCESS.actAs(jdbc, organization.test());
 
         assertThat(access.keys(organization.test())).hasSize(1);
     }
