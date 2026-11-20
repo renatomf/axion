@@ -1,6 +1,4 @@
-/**
- * Cross-cutting observability: what every request and log line carries so problems can be traced.
- */
+/** What every request and log line carries, so problems can be traced. */
 @NullMarked
 package dev.finaxis.core.observability;
 

@@ -15,22 +15,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Gives every HTTP request a correlation ID and adds it to every log line written while the request
- * is handled.
- *
- * <p>The ID comes from the {@value #HEADER} request header when the caller sends a valid one, so a
- * client can follow its own request through our logs; otherwise a new one is generated. It is
- * returned in the same response header and stored in the logging MDC under {@value #MDC_KEY}, which
- * the structured log format writes as a JSON field.
- *
- * <p>A client-supplied ID is only a label for logs, never trusted for anything else. It is accepted
- * only if it matches {@code [A-Za-z0-9._-]{1,64}}, so a caller cannot inject line breaks, markup or
- * very long values into the logs.
- *
- * <p>{@code @Component} registers the filter as a bean; Spring Boot then adds every {@code Filter}
- * bean to the embedded server. {@code @Order(HIGHEST_PRECEDENCE)} runs it before any other filter,
- * so their logs carry the ID too.
+ * Gives every request a correlation ID, returned in {@value #HEADER} and written on every log line.
+ * A client's ID is reused only if it matches {@code [A-Za-z0-9._-]{1,64}}, so it cannot inject line
+ * breaks or long values into the logs.
  */
+// Highest precedence, so every other filter's logs carry the ID.
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class CorrelationIdFilter extends OncePerRequestFilter {
@@ -49,8 +38,7 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
         try {
             chain.doFilter(request, response);
         } finally {
-            // Server threads are pooled: without this, the next request on the
-            // same thread would log with this request's ID.
+            // Threads are pooled: the next request on this thread must not log with this ID.
             MDC.remove(MDC_KEY);
         }
     }
