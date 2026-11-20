@@ -26,14 +26,9 @@ import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Operations marked {@code @RequiresStepUp} need a member who authenticated in the last five
- * minutes (tenancy design, section 4.2), and otherwise answer with the challenge of RFC 9470.
- *
- * <p>Keycloak's password grant, which tests log in with, issues tokens without {@code auth_time}.
- * So one test uses a real token, which must be challenged, and the others build the authenticated
- * token with Spring Security's {@code jwt()}, which skips decoding and validation, to choose its
- * {@code auth_time}. The imports match {@link TenantResolutionTest}, so both share one Spring
- * context.
+ * Step-up (tenancy design, section 4.2). Keycloak's password grant issues tokens without {@code
+ * auth_time}, so one test uses a real token, which must be challenged, and the others choose their
+ * {@code auth_time} on a token that skips decoding.
  */
 @SpringBootTest
 @Import({

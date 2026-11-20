@@ -31,14 +31,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * How a member's request reaches a tenant-scoped endpoint: the tenant in the path, resolved through
- * the member's memberships, and the permission the endpoint declares. Real access tokens from
- * Keycloak and a real PostgreSQL.
- *
- * <p>{@link TenantScopedController}, which exists only in this test, stands in for a tenant-scoped
- * endpoint, so these rules are proven apart from any real one, and one of its methods can lack a
- * permission, which production code may not. Each test runs in a transaction rolled back at its end, as in {@link
- * CurrentMemberControllerTest}.
+ * How a member's request reaches a tenant-scoped endpoint, with real Keycloak tokens. {@link
+ * TenantScopedController} stands in for real endpoints, so one of its methods can lack a
+ * permission, which production code may not.
  */
 @SpringBootTest
 @Import({

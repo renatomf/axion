@@ -18,13 +18,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
-/**
- * The HTTP security of the core, through the real filter chain.
- *
- * <p>{@code @SpringBootTest} starts the whole application, so requests pass through Spring
- * Security, Actuator and the error handling exactly as in production. {@code @WithMockUser} (from
- * Spring Security's test support) runs a test as an authenticated user, without any login.
- */
+/** The core's HTTP security, through the real filter chain. */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
 @AutoConfigureMockMvc

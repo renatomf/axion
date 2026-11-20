@@ -23,12 +23,8 @@ import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * {@code GET /internal/me} with a real access token from Keycloak and a real PostgreSQL.
- *
- * <p>Every test logs in as the same synthetic Keycloak user, so the organizations one test creates
- * would show up in the next. {@code @Transactional} runs each test in a transaction that is rolled
- * back at its end. MockMvc handles the request in the test's own thread, so the request's queries
- * join that transaction and see what the test wrote before it.
+ * {@code GET /internal/me} with a real Keycloak token. Every test logs in as the same user, so each
+ * runs in a transaction rolled back at its end.
  */
 @SpringBootTest
 @Import({PostgresTestConfiguration.class, KeycloakTestConfiguration.class})
