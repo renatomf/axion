@@ -6,8 +6,8 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.web.ErrorResponseException;
 
 /**
- * The errors of tenant resolution and permission checks (tenancy design, section 4.4), as
- * exceptions the {@code web} module's error handler turns into Problem Details with their {@code
+ * The errors of tenant resolution, permission checks (tenancy design, section 4.4) and the API key
+ * operations, as exceptions the {@code web} module's error handler turns into Problem Details with their {@code
  * code}. The details are generic, like those of authentication failures, so a response never says
  * more than its status and code.
  */
@@ -28,6 +28,30 @@ final class AccessProblems {
     /** A caller without the permission the operation requires, or an operation that declares none. */
     static ErrorResponseException insufficientPermission() {
         return problem(HttpStatus.FORBIDDEN, "insufficient_permission", "Access is denied.");
+    }
+
+    /**
+     * A member who asked for a key with scopes they do not hold. The code is that of a missing
+     * permission, since that is what it is; the detail says which rule applies, not which scopes,
+     * which the member can see in their own roles.
+     */
+    static ErrorResponseException scopesNotHeld() {
+        return problem(
+                HttpStatus.FORBIDDEN,
+                "insufficient_permission",
+                "A key's scopes must be permissions the caller holds.");
+    }
+
+    /**
+     * A tenant that already has the most working keys allowed. {@code 422} rather than {@code 409}:
+     * the request conflicts with no other, and retrying it changes nothing until a key is revoked
+     * (overview design, section 7.6).
+     */
+    static ErrorResponseException limitExceeded(int limit) {
+        return problem(
+                HttpStatus.UNPROCESSABLE_CONTENT,
+                "limit_exceeded",
+                "The tenant already has " + limit + " working API keys; revoke one first.");
     }
 
     /**

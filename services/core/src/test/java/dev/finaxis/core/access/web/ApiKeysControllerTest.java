@@ -16,6 +16,7 @@ import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.Permission;
 import dev.finaxis.core.tenancy.Role;
 import dev.finaxis.core.tenancy.TenancyApi;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -28,6 +29,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
@@ -35,12 +37,12 @@ import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * {@code GET /internal/tenants/{tenant_id}/api_keys} against a real PostgreSQL, every response
- * checked against the contract.
+ * {@code GET} and {@code POST /internal/tenants/{tenant_id}/api_keys} against a real PostgreSQL,
+ * every response checked against the contract.
  *
  * <p>The member's token is built with Spring Security's {@code jwt()}, which skips decoding and
  * validation: real tokens are proven in {@link TenantResolutionTest}, and here only the subject
- * matters. Each test runs in a transaction rolled back at its end, as in {@link
+ * matters, and, for issuing, a recent {@code auth_time}, which step-up requires. Each test runs in a transaction rolled back at its end, as in {@link
  * CurrentMemberControllerTest}, with which it shares a Spring context.
  */
 @SpringBootTest
@@ -167,6 +169,161 @@ class ApiKeysControllerTest {
         OpenApiContract.internal().assertConforms(result);
 
         assertThat(result).hasStatus(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void issuesAKeyAndShowsItsSecretOnlyOnce() {
+        MvcTestResult result = issue(organization.test(), """
+                {"name": "Checkout", "scopes": ["charges:write", "charges:read"]}
+                """);
+        assertThat(result).hasStatus(HttpStatus.CREATED);
+        assertThat(result).bodyJson().extractingPath("$.name").isEqualTo("Checkout");
+        assertThat(result).bodyJson().extractingPath("$.scopes").isEqualTo(List.of("charges:read", "charges:write"));
+        assertThat(result).bodyJson().extractingPath("$.secret").asString().startsWith("sk_test_");
+
+        // The contract's ApiKey has no secret, and objects are checked strictly, so a list that
+        // leaked it would fail the contract check in list().
+        list(organization.test())
+                .hasStatus(HttpStatus.OK)
+                .bodyJson()
+                .extractingPath("$.data[*].name")
+                .isEqualTo(List.of("Checkout"));
+    }
+
+    @Test
+    void issuesALiveKeyForTheLiveTenant() {
+        assertThat(issue(organization.live(), """
+                        {"name": "Checkout", "scopes": ["charges:read"]}
+                        """))
+                .hasStatus(HttpStatus.CREATED)
+                .bodyJson()
+                .extractingPath("$.secret")
+                .asString()
+                .startsWith("sk_live_");
+    }
+
+    @Test
+    void listsEveryInvalidFieldWithoutEchoingIt() {
+        MvcTestResult result = issue(organization.test(), """
+                {"name": " ", "scopes": ["charges:read", "api_keys:manage"]}
+                """);
+
+        // Leniently: the problem's title, status, detail and instance are not the point here.
+        assertThat(result)
+                .hasStatus(HttpStatus.UNPROCESSABLE_CONTENT)
+                .bodyJson()
+                .isLenientlyEqualTo("""
+                        {"code": "validation_failed", "errors": [
+                          {"field": "name", "detail": "must be 1 to 100 characters, not all blank"},
+                          {"field": "scopes[1]", "detail": "must be an API key scope"}
+                        ]}
+                        """);
+        assertThat(result).body().asString().doesNotContain("api_keys:manage");
+    }
+
+    @Test
+    void rejectsABodyWithoutTheRequiredFields() {
+        assertThat(issue(organization.test(), "{}"))
+                .hasStatus(HttpStatus.UNPROCESSABLE_CONTENT)
+                .bodyJson()
+                .extractingPath("$.errors[*].field")
+                .isEqualTo(List.of("name", "scopes"));
+    }
+
+    @Test
+    void rejectsABodyThatIsNotJson() {
+        assertThat(issue(organization.test(), "name=Checkout"))
+                .hasStatus(HttpStatus.BAD_REQUEST)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("bad_request");
+    }
+
+    @Test
+    void refusesScopesTheMemberDoesNotHold() {
+        // A developer may manage keys, but not issue refunds.
+        jdbc.sql("UPDATE tenancy.member_roles SET role = 'DEVELOPER' WHERE member_id = ?")
+                .param(organization.admin().value())
+                .update();
+
+        assertThat(issue(organization.test(), """
+                        {"name": "Refunds", "scopes": ["refunds:write"]}
+                        """))
+                .hasStatus(HttpStatus.FORBIDDEN)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("insufficient_permission");
+    }
+
+    @Test
+    void refusesAKeyBeyondTheTenantsLimit() {
+        for (int i = 0; i < AccessApi.MAX_ACTIVE_KEYS; i++) {
+            issued(organization, Environment.TEST, "Key " + i);
+        }
+
+        assertThat(issue(organization.test(), """
+                        {"name": "One too many", "scopes": ["charges:read"]}
+                        """))
+                .hasStatus(HttpStatus.UNPROCESSABLE_CONTENT)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("limit_exceeded");
+    }
+
+    @Test
+    void checksThePermissionBeforeTheBody() {
+        jdbc.sql("UPDATE tenancy.member_roles SET role = 'READ_ONLY' WHERE member_id = ?")
+                .param(organization.admin().value())
+                .update();
+
+        // An invalid body, yet the answer is about the permission: the body is never read.
+        assertThat(issue(organization.test(), "{}"))
+                .hasStatus(HttpStatus.FORBIDDEN)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("insufficient_permission");
+    }
+
+    @Test
+    void requiresARecentAuthentication() {
+        MvcTestResult result = mvc.post()
+                .uri(
+                        "/internal/tenants/{tenant_id}/api_keys",
+                        organization.test().publicId())
+                .with(jwt().jwt(token -> token.subject(subject)
+                        .claim(
+                                "auth_time",
+                                Instant.now().minus(Duration.ofMinutes(6)).getEpochSecond())))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"name": "Checkout", "scopes": ["charges:read"]}
+                        """)
+                .exchange();
+        OpenApiContract.internal().assertConforms(result);
+
+        assertThat(result)
+                .hasStatus(HttpStatus.FORBIDDEN)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("step_up_required");
+    }
+
+    /**
+     * Issues a key as the member, who authenticated a minute ago, and checks the response against the
+     * contract.
+     */
+    private MvcTestResult issue(TenantId tenant, String body) {
+        MvcTestResult result = mvc.post()
+                .uri("/internal/tenants/{tenant_id}/api_keys", tenant.publicId())
+                .with(jwt().jwt(token -> token.subject(subject)
+                        .claim(
+                                "auth_time",
+                                Instant.now().minus(Duration.ofMinutes(1)).getEpochSecond())))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body)
+                .exchange();
+        OpenApiContract.internal().assertConforms(result);
+        return result;
     }
 
     /** Lists the tenant's keys as the member, and checks the response against the contract. */
