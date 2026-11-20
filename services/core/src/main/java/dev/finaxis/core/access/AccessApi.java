@@ -73,6 +73,16 @@ public interface AccessApi {
     /** The longest key name, in characters, as the schema allows. */
     int MAX_NAME_LENGTH = 100;
 
+    /**
+     * Whether {@link #issue} accepts a key name: not blank, as {@link String#isBlank} decides, and at
+     * most {@value #MAX_NAME_LENGTH} characters, counted by code point as PostgreSQL's {@code
+     * char_length} counts, so an emoji counts once. Endpoints check a request with this rule, so that
+     * their validation and the module's never disagree.
+     */
+    static boolean isValidName(String name) {
+        return !name.isBlank() && name.codePointCount(0, name.length()) <= MAX_NAME_LENGTH;
+    }
+
     /** The most keys a tenant may have that are neither revoked nor expired (section 4.3). */
     int MAX_ACTIVE_KEYS = 10;
 

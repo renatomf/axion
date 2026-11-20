@@ -147,15 +147,12 @@ public class AccessService implements AccessApi {
         return clock.instant().truncatedTo(ChronoUnit.MICROS);
     }
 
-    /** Counted by code point, as PostgreSQL's {@code char_length} counts, so an emoji counts once. */
     private static void requireName(String name) {
-        if (name.isBlank()) {
-            throw new IllegalArgumentException("Key name must not be blank");
-        }
-        int length = name.codePointCount(0, name.length());
-        if (length > MAX_NAME_LENGTH) {
+        if (!AccessApi.isValidName(name)) {
             throw new IllegalArgumentException(
-                    "Key name must be at most " + MAX_NAME_LENGTH + " characters: " + length);
+                    name.isBlank()
+                            ? "Key name must not be blank"
+                            : "Key name must be at most " + MAX_NAME_LENGTH + " characters");
         }
     }
 
