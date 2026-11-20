@@ -145,13 +145,11 @@ Estimates assume the Spring learning curve. Quality is never traded for schedule
 | ↳ 1.22g | Ledger tests bind their tenant | The ledger's tests call it as its callers will, with the tenant bound, so Row-Level Security can be forced on its tables ([#161](https://github.com/renatomf/finaxis/pull/161)) |
 | ↳ 1.22h | Ledger policies | `shared.current_platform_tenant()`; the read and write policies of the ledger tables, and read-only ones for `finaxis_ledger_jobs` and `finaxis_ledger_checks`; a source posted by another tenant, whose entry the policies hide, is still reported as such |
 | 1.23 | Tenant isolation harness | A test that walks every OpenAPI operation attempting cross-tenant access |
-| ↳ 1.23a | Isolation harness | Operations read from the OpenAPI contracts; an operation without a fixture fails the suite |
-| ↳ 1.23b | Cross-tenant fixtures | Tenant A's credential on tenant B's resources gets `404`; lists never include them |
-| ↳ 1.23c | Environment isolation | A test key never reaches live data |
+| ↳ 1.23a | Cross-tenant isolation | Operations read from the OpenAPI contracts, each with a fixture or the suite fails; tenant A's credential on tenant B's resources gets `404`, and lists never include them |
+| ↳ 1.23b | Environment isolation | A test key never reaches live data |
 | 1.24 | Rate limiting | Per-tenant and per-key limits, `429` with `Retry-After` |
-| ↳ 1.24a | Token buckets | Bucket4j buckets per tenant and per key, in a bounded cache |
-| ↳ 1.24b | Rate limit filter | Buckets applied after authentication; `429 rate_limited` with `Retry-After` |
-| ↳ 1.24c | Member limits and headers | Per-member buckets on `/internal`; `RateLimit-Policy` and `RateLimit` headers |
+| ↳ 1.24a | API key rate limits | Bucket4j buckets per tenant and per key, in a bounded cache, applied after authentication; `429 rate_limited` with `Retry-After` |
+| ↳ 1.24b | Member limits and headers | Per-member buckets on `/internal`; `RateLimit-Policy` and `RateLimit` headers |
 
 **Cleanup before 1.22.** The existing code was brought to the [comment standard](architecture/engineering-standards.md#comments-and-documentation) ([#133](https://github.com/renatomf/finaxis/pull/133)), one module per PR: `access` ([#135](https://github.com/renatomf/finaxis/pull/135), [#137](https://github.com/renatomf/finaxis/pull/137)), `tenancy` ([#139](https://github.com/renatomf/finaxis/pull/139)), `ledger` ([#141](https://github.com/renatomf/finaxis/pull/141)), then `shared`, `web` and `observability` ([#143](https://github.com/renatomf/finaxis/pull/143)). Duplicated test helpers and production code were removed ([#145](https://github.com/renatomf/finaxis/pull/145)), and `CONTRIBUTING.md` was trimmed to commands and rules ([#147](https://github.com/renatomf/finaxis/pull/147)). These PRs changed no behavior and take no roadmap number.
 
@@ -160,202 +158,115 @@ Estimates assume the Spring learning curve. Quality is never traded for schedule
 | PR | Title | Delivers |
 |---|---|---|
 | 1.25 | Idempotency design doc | Insert-first mechanics, conflict semantics, retention |
-| ↳ 1.25a | Idempotency design doc | Insert-first mechanics, conflict semantics, retention |
 | 1.26 | Idempotency keys | Table, interceptor, stored responses, `409` and `422` semantics |
-| ↳ 1.26a | Idempotency schema | The keys table, its constraints and database role |
-| ↳ 1.26b | Idempotency claim | Insert-first claim of a key and the stored response |
-| ↳ 1.26c | Idempotency interceptor | `Idempotency-Key` on `/v1` writes; a repeat replays the stored response |
-| ↳ 1.26d | Conflict semantics | `409` for a request still in progress, `422` for a key reused with another body |
-| ↳ 1.26e | Retention | Scheduled removal of expired keys |
+| ↳ 1.26a | Idempotency store | The keys table, its constraints and database role; insert-first claim of a key and the stored response; scheduled removal of expired keys |
+| ↳ 1.26b | Idempotency interceptor | `Idempotency-Key` on `/v1` writes; a repeat replays the stored response; `409` for a request still in progress, `422` for a key reused with another body |
 | 1.27 | Idempotency proof | 50 parallel repeats yield one effect |
-| ↳ 1.27a | Idempotency proof | 50 parallel repeats yield one effect |
 
 ### 4.5 Block E — Rails simulator
 
 | PR | Title | Delivers |
 |---|---|---|
 | 1.28 | Simulator design doc | Scope, simulated messages, deviations from official specs, chaos controls |
-| ↳ 1.28a | Simulator design doc | Scope, simulated messages, deviations from official specs, chaos controls |
-| 1.29 | Simulator skeleton | `services/rails-simulator` Gradle project, Compose service |
-| ↳ 1.29a | Simulator project | `services/rails-simulator` Gradle project and Spring Boot skeleton |
-| ↳ 1.29b | Simulator in Compose and CI | Compose service, CI build and image |
+| 1.29 | Simulator skeleton | `services/rails-simulator` Gradle project and Spring Boot skeleton, Compose service, CI build and image |
 | 1.30 | Pix payment simulation | Simulated payer, `EndToEndId`, signed callbacks to the core |
 | ↳ 1.30a | Simulated payer | A payer that pays a BR Code; `EndToEndId` generation |
 | ↳ 1.30b | Signed callbacks | Payment callbacks to the core, signed and retried |
 | 1.31 | Chaos API | Latency, failures, duplicates, out-of-order and late callbacks, on demand |
-| ↳ 1.31a | Latency and failures | Chaos API: added latency and failed calls, on demand |
-| ↳ 1.31b | Duplicates and ordering | Duplicated and out-of-order callbacks |
-| ↳ 1.31c | Late callbacks | Callbacks delivered after a charge expires |
 
 ### 4.6 Block F — Billing and settlement
 
 | PR | Title | Delivers |
 |---|---|---|
 | 1.32 | Billing design doc | Charge lifecycle, settlement transaction, late payments, refunds, security considerations |
-| ↳ 1.32a | Billing design doc | Charge lifecycle, settlement transaction, late payments, refunds, security considerations |
 | 1.33 | Charge domain | Aggregate and state machine; invalid transitions impossible |
-| ↳ 1.33a | Charge aggregate | The charge, its amount, payer and expiration |
-| ↳ 1.33b | Charge state machine | Allowed transitions; invalid ones cannot be expressed |
 | 1.34 | BR Code | Dynamic QR (EMV) payload generation with CRC16, tests against known vectors |
-| ↳ 1.34a | CRC16 | CRC16-CCITT, tested against known vectors |
-| ↳ 1.34b | Dynamic BR Code | EMV payload of a dynamic QR, tested against known vectors |
 | 1.35 | Create charge | `POST /v1/charges`, contract-first, idempotent, limits |
-| ↳ 1.35a | Charges schema | The charges table, its constraints and database role |
-| ↳ 1.35b | Charge creation | `BillingApi.createCharge` with its limits |
-| ↳ 1.35c | Create charge contract | `POST /v1/charges` in `v1.yaml` |
-| ↳ 1.35d | Create charge endpoint | `POST /v1/charges`, idempotent |
-| 1.36 | Read charges | `GET /v1/charges` (cursor pagination, filters), `GET /v1/charges/{id}` |
-| ↳ 1.36a | Read a charge | `GET /v1/charges/{id}` |
-| ↳ 1.36b | List charges | `GET /v1/charges` with cursor pagination |
-| ↳ 1.36c | Charge filters | Filters by status and date |
+| ↳ 1.35a | Charge creation | The charges table, its constraints and database role; `BillingApi.createCharge` with its limits |
+| ↳ 1.35b | Create charge endpoint | `POST /v1/charges` in `v1.yaml`, then the endpoint, idempotent |
+| 1.36 | Read charges | `GET /v1/charges` (cursor pagination, filters by status and date), `GET /v1/charges/{id}` |
 | 1.37 | Basic risk rules | Pre-charge decision: amount and velocity rules |
-| ↳ 1.37a | Risk module | `RiskApi` and the amount rule |
-| ↳ 1.37b | Velocity rule | Charges per tenant within a window |
-| ↳ 1.37c | Risk before charging | The decision applied to charge creation |
+| ↳ 1.37a | Risk rules | `RiskApi` with the amount rule and the velocity rule |
+| ↳ 1.37b | Risk before charging | The decision applied to charge creation |
 | 1.38 | Rails anti-corruption layer | Callback endpoint, signature verification, `EndToEndId` deduplication |
 | ↳ 1.38a | Callback endpoint | The rails callback endpoint and its signature verification |
-| ↳ 1.38b | Callback deduplication | `EndToEndId` deduplication |
-| ↳ 1.38c | Callback translation | Rails messages translated into billing commands |
+| ↳ 1.38b | Callback translation | `EndToEndId` deduplication; rails messages translated into billing commands |
 | 1.39 | Settlement | One transaction: charge `PAID` + ledger entry + outbox event |
-| ↳ 1.39a | Settlement transaction | Charge `PAID` and the ledger entry in one transaction |
-| ↳ 1.39b | Settlement event | The outbox event in the same transaction |
 | 1.40 | Late payments | Payment after expiration: credited and flagged for review |
-| ↳ 1.40a | Late payments | A payment after expiration is credited |
-| ↳ 1.40b | Late payment review | Late payments flagged and listed for review |
 | 1.41 | Refunds | Reversal entries, partial and full refunds |
-| ↳ 1.41a | Refund domain and schema | Refunds, their states and table |
-| ↳ 1.41b | Full refunds | Reversal entries for a full refund |
-| ↳ 1.41c | Partial refunds | Partial refunds within the paid amount |
-| ↳ 1.41d | Refund endpoint | `POST /v1/charges/{id}/refunds`, idempotent |
+| ↳ 1.41a | Refunds | Refunds, their states and table; reversal entries for full and partial refunds within the paid amount |
+| ↳ 1.41b | Refund endpoint | `POST /v1/charges/{id}/refunds`, idempotent |
 | 1.42 | Fault-injection suite | Timeouts, duplicates, out-of-order and late callbacks, mid-settlement failure |
-| ↳ 1.42a | Timeouts and duplicates | Fault injection: rails timeouts and duplicated callbacks |
-| ↳ 1.42b | Ordering faults | Out-of-order and late callbacks |
-| ↳ 1.42c | Mid-settlement failure | A failure inside settlement leaves no partial effect |
 
 ### 4.7 Block G — Events, webhooks, audit and notifications
 
 | PR | Title | Delivers |
 |---|---|---|
 | 1.43 | Events and webhooks design doc | Event catalog, CloudEvents envelope, signing, retries, SSRF defenses |
-| ↳ 1.43a | Events and webhooks design doc | Event catalog, CloudEvents envelope, signing, retries, SSRF defenses |
 | 1.44 | Domain events and outbox | Spring Modulith events with the publication registry; idempotent consumers |
-| ↳ 1.44a | Event publication registry | Spring Modulith events with the JDBC publication registry |
-| ↳ 1.44b | First domain events | Settlement and API key events published through the registry |
-| ↳ 1.44c | Idempotent consumers | Each event handled once per consumer |
+| ↳ 1.44a | Domain events | Spring Modulith events with the JDBC publication registry; settlement and API key events published through it |
+| ↳ 1.44b | Idempotent consumers | Each event handled once per consumer |
 | 1.45 | Webhook endpoints | `/v1/webhook_endpoints` with SSRF validation and secret management |
-| ↳ 1.45a | Webhook endpoints domain and schema | Endpoints, their events and table |
-| ↳ 1.45b | SSRF validation | URLs to private, loopback and metadata addresses refused |
-| ↳ 1.45c | Endpoint secrets | Signing secret generation and rotation |
-| ↳ 1.45d | Webhook endpoints API | `/v1/webhook_endpoints` |
+| ↳ 1.45a | SSRF validation | URLs to private, loopback and metadata addresses refused |
+| ↳ 1.45b | Webhook endpoints | Endpoints, their events and table; signing secret generation and rotation; `/v1/webhook_endpoints` |
 | 1.46 | Webhook delivery | PostgreSQL queue (`SKIP LOCKED`), HMAC-SHA256 with timestamp |
-| ↳ 1.46a | Delivery queue | PostgreSQL queue drained with `SKIP LOCKED` |
+| ↳ 1.46a | Delivery queue | PostgreSQL queue drained with `SKIP LOCKED`; HTTP delivery with timeouts and the SSRF check at connection |
 | ↳ 1.46b | Webhook signing | HMAC-SHA256 with timestamp |
-| ↳ 1.46c | Delivery client | HTTP delivery with timeouts and the SSRF check at connection |
 | 1.47 | Webhook reliability | Exponential backoff, endpoint disabling, delivery log, manual replay, dead letters |
-| ↳ 1.47a | Retries | Exponential backoff |
-| ↳ 1.47b | Endpoint disabling | Endpoints that keep failing are disabled |
-| ↳ 1.47c | Delivery log | Every attempt recorded and listed |
-| ↳ 1.47d | Replay and dead letters | Manual replay; dead letters after the last attempt |
+| ↳ 1.47a | Retries and disabling | Exponential backoff; endpoints that keep failing are disabled |
+| ↳ 1.47b | Delivery log and replay | Every attempt recorded and listed; manual replay; dead letters after the last attempt |
 | 1.48 | Audit trail | Hash-chained audit records and a verification check |
-| ↳ 1.48a | Audit records | Hash-chained audit table |
+| ↳ 1.48a | Audit chain | Hash-chained audit table and the check that the chain is intact |
 | ↳ 1.48b | Audited events | Key, member and settlement events recorded |
-| ↳ 1.48c | Audit verification | A check that the chain is intact |
 | 1.49 | Live notifications | Per-tenant SSE stream for the BFF |
-| ↳ 1.49a | SSE stream | Per-tenant SSE endpoint for the BFF |
-| ↳ 1.49b | Event fan-out | Domain events written to the stream |
 
 ### 4.8 Block H — Console
 
 | PR | Title | Delivers |
 |---|---|---|
 | 1.50 | JavaScript monorepo | pnpm workspace, Turborepo, shared package scaffolding, ESLint boundary rules |
-| ↳ 1.50a | pnpm workspace | pnpm workspace and Turborepo |
-| ↳ 1.50b | Shared packages | Shared package scaffolding |
-| ↳ 1.50c | Boundary rules | ESLint boundary rules |
 | 1.51 | Design study | `docs/design/principles.md` from studying Mercury and Stripe patterns |
-| ↳ 1.51a | Design study | `docs/design/principles.md` from studying Mercury and Stripe patterns |
 | 1.52 | Design tokens | `packages/tokens`: one source, CSS variables, light and dark themes |
-| ↳ 1.52a | Tokens source | `packages/tokens`: one source, CSS variables |
-| ↳ 1.52b | Themes | Light and dark themes |
 | 1.53 | Next.js skeleton | App Router, Tailwind v4, tokens, theme cookie, security headers and CSP |
-| ↳ 1.53a | Next.js skeleton | App Router and Tailwind v4 |
-| ↳ 1.53b | Tokens and theme | Tokens and the theme cookie |
-| ↳ 1.53c | Headers and CSP | Security headers and CSP |
+| ↳ 1.53a | Next.js skeleton | App Router and Tailwind v4; tokens and the theme cookie |
+| ↳ 1.53b | Headers and CSP | Security headers and CSP |
 | 1.54 | BFF authentication | OIDC with Keycloak, server-side session, `HttpOnly` cookie, CSRF protection |
-| ↳ 1.54a | OIDC login | OIDC with Keycloak |
-| ↳ 1.54b | Server-side session | Session on the server, `HttpOnly` cookie |
-| ↳ 1.54c | CSRF protection | CSRF protection for the BFF |
+| ↳ 1.54a | OIDC login and session | OIDC with Keycloak; session on the server, `HttpOnly` cookie |
+| ↳ 1.54b | CSRF protection | CSRF protection for the BFF |
 | 1.55 | Generated API client | `packages/api-client` from OpenAPI with injectable transport |
-| ↳ 1.55a | Client generation | `packages/api-client` generated from OpenAPI |
-| ↳ 1.55b | Injectable transport | The transport injected, for the BFF and tests |
 | 1.56 | Design system primitives | Button, Input, Badge, Card, Dialog, Drawer on Radix; Storybook; axe checks |
-| ↳ 1.56a | Storybook and axe | Storybook with axe checks |
-| ↳ 1.56b | Form primitives | Button, Input, Badge on Radix |
-| ↳ 1.56c | Overlay primitives | Card, Dialog, Drawer on Radix |
 | 1.57 | Data table | TanStack Table + Virtual, URL filters with nuqs |
-| ↳ 1.57a | Table | TanStack Table base |
-| ↳ 1.57b | Virtualization | TanStack Virtual |
-| ↳ 1.57c | URL filters | Filters in the URL with nuqs |
 | 1.58 | App shell | Sidebar, top bar, command palette skeleton (cmdk), four-state screen pattern |
-| ↳ 1.58a | Sidebar and top bar | The app frame |
-| ↳ 1.58b | Command palette | cmdk skeleton |
-| ↳ 1.58c | Screen states | Four-state screen pattern |
 | 1.59 | Charges list | Dense, virtualized list with filters and empty/error/loading states |
-| ↳ 1.59a | Charges list | Dense, virtualized list |
-| ↳ 1.59b | Charge filters | Filters in the list |
-| ↳ 1.59c | List states | Empty, error and loading states |
 | 1.60 | Charge detail timeline | Events, ledger postings and webhook attempts; raw JSON drawer |
-| ↳ 1.60a | Charge events | The charge's events in a timeline |
-| ↳ 1.60b | Postings and attempts | Ledger postings and webhook attempts in the timeline |
-| ↳ 1.60c | Raw JSON drawer | The charge as raw JSON |
-| 1.61 | Live updates | SSE events written into the TanStack Query cache |
-| ↳ 1.61a | SSE in the BFF | The tenant's stream relayed by the BFF |
-| ↳ 1.61b | Cache updates | SSE events written into the TanStack Query cache |
+| 1.61 | Live updates | The tenant's SSE stream relayed by the BFF, its events written into the TanStack Query cache |
 | 1.62 | Charts | visx chart components in the design system (area, bar, sparkline) with accessible tables |
-| ↳ 1.62a | Area chart | visx area chart with an accessible table |
-| ↳ 1.62b | Bar chart and sparkline | visx bar chart and sparkline with accessible tables |
 | 1.63 | Dashboard v1 | Balance, inflows over time, recent payments |
-| ↳ 1.63a | Balance | Balance on the dashboard |
-| ↳ 1.63b | Inflows | Inflows over time |
-| ↳ 1.63c | Recent payments | Recent payments |
 | 1.64 | Developer area | API keys (with step-up), webhook endpoints, delivery log and replay |
 | ↳ 1.64a | API keys screen | API keys, with step-up |
-| ↳ 1.64b | Webhook endpoints screen | Webhook endpoints |
-| ↳ 1.64c | Delivery log screen | Delivery log and replay |
+| ↳ 1.64b | Webhooks screens | Webhook endpoints; delivery log and replay |
 | 1.65 | Internationalization | pt-BR and en via `packages/i18n`, error-code messages |
-| ↳ 1.65a | i18n package | `packages/i18n` with pt-BR and en |
-| ↳ 1.65b | Error messages | Messages for every error code |
 
 ### 4.9 Block I — Data, proof and release
 
 | PR | Title | Delivers |
 |---|---|---|
 | 1.66 | Synthetic data generator | Seeded months of realistic tenants, charges, refunds and failures |
-| ↳ 1.66a | Generator | Seeded tenants and charges |
-| ↳ 1.66b | Refunds and failures | Refunds and failed payments |
-| ↳ 1.66c | History | Months of realistic history |
 | 1.67 | Demo mode | MSW fixtures from the generator; static deployment to a free host |
 | ↳ 1.67a | MSW fixtures | Fixtures from the generator |
 | ↳ 1.67b | Static deployment | Demo mode deployed to a free host |
 | 1.68 | End-to-end tests | Playwright journeys (login, charge, live settlement), axe, visual regression |
-| ↳ 1.68a | Login journey | Playwright setup and the login journey |
-| ↳ 1.68b | Charge journey | Charge and live settlement journey |
-| ↳ 1.68c | Accessibility and visuals | axe checks and visual regression |
+| ↳ 1.68a | User journeys | Playwright setup; login, charge and live settlement journeys |
+| ↳ 1.68b | Accessibility and visuals | axe checks and visual regression |
 | 1.69 | DAST | OWASP ZAP baseline against the Compose environment in CI |
-| ↳ 1.69a | DAST | OWASP ZAP baseline against the Compose environment in CI |
 | 1.70 | Load tests | k6 scenarios, hot-account comparison, results and charts in the README |
 | ↳ 1.70a | k6 scenarios | Load test scenarios |
-| ↳ 1.70b | Hot accounts | Hot-account comparison |
-| ↳ 1.70c | Results | Results and charts in the README |
+| ↳ 1.70b | Hot accounts | Hot-account comparison; results and charts in the README |
 | 1.71 | Game day 1 | Rails outage and duplicated callbacks at peak; postmortem |
-| ↳ 1.71a | Game day 1 | Rails outage and duplicated callbacks at peak; postmortem |
 | 1.72 | Game day 2 | Tenant webhook endpoint down for hours; postmortem |
-| ↳ 1.72a | Game day 2 | Tenant webhook endpoint down for hours; postmortem |
 | 1.73 | Phase documentation | Threat model, ASVS mapping, runbooks, `REVIEWERS.md`, README tour |
-| ↳ 1.73a | Threat model | Phase 1 threat model |
-| ↳ 1.73b | ASVS mapping | Controls mapped to OWASP ASVS |
-| ↳ 1.73c | Runbooks | Operational runbooks |
-| ↳ 1.73d | Reviewer guide | `REVIEWERS.md` and the README tour |
+| ↳ 1.73a | Threat model and ASVS | Phase 1 threat model; controls mapped to OWASP ASVS |
+| ↳ 1.73b | Runbooks and reviewer guide | Operational runbooks; `REVIEWERS.md` and the README tour |
 | 1.74 | Demo video and release | Recorded demo, GIFs; exit criteria checklist; tag `v0.1.0` |
 | ↳ 1.74a | Demo video | Recorded demo and GIFs |
 | ↳ 1.74b | Release | Exit criteria checklist; tag `v0.1.0` |
