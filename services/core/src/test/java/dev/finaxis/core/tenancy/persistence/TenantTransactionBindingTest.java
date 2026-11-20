@@ -6,6 +6,7 @@ import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.shared.TenantId;
+import dev.finaxis.core.tenancy.TenancyApi;
 import java.util.Objects;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -23,11 +24,13 @@ class TenantTransactionBindingTest {
 
     private final TransactionTemplate transactions;
     private final JdbcClient jdbc;
+    private final TenancyApi tenancy;
 
     @Autowired
-    TenantTransactionBindingTest(TransactionTemplate transactions, JdbcClient jdbc) {
+    TenantTransactionBindingTest(TransactionTemplate transactions, JdbcClient jdbc, TenancyApi tenancy) {
         this.transactions = transactions;
         this.jdbc = jdbc;
+        this.tenancy = tenancy;
     }
 
     @Test
@@ -39,7 +42,20 @@ class TenantTransactionBindingTest {
 
     @Test
     void bindsNothingWithoutATenant() {
-        assertThat(inTransaction().tenant()).isEmpty();
+        Observed observed = inTransaction();
+
+        assertThat(observed.tenant()).isEmpty();
+        assertThat(observed.platformTenant()).isEmpty();
+    }
+
+    @Test
+    void bindsThePlatformTenantOfTheTenantsEnvironment() {
+        assertThat(TenantContext.call(TENANT, Environment.TEST, this::inTransaction)
+                        .platformTenant())
+                .isEqualTo(tenancy.platformTenant(Environment.TEST).value().toString());
+        assertThat(TenantContext.call(TENANT, Environment.LIVE, this::inTransaction)
+                        .platformTenant())
+                .isEqualTo(tenancy.platformTenant(Environment.LIVE).value().toString());
     }
 
     @Test
@@ -55,28 +71,31 @@ class TenantTransactionBindingTest {
 
         assertThat(next.connection()).isEqualTo(bound.connection());
         assertThat(next.tenant()).isEmpty();
+        assertThat(next.platformTenant()).isEmpty();
     }
 
     private Observed inTransaction() {
         return Objects.requireNonNull(transactions.execute(status -> new Observed(
-                jdbc.sql("SELECT pg_backend_pid()").query(Integer.class).single(), setting())));
+                jdbc.sql("SELECT pg_backend_pid()").query(Integer.class).single(),
+                setting(TenantTransactionBinding.TENANT_SETTING),
+                setting(TenantTransactionBinding.PLATFORM_TENANT_SETTING))));
     }
 
     private String inReadOnlyTransaction() {
         var readOnly = new TransactionTemplate(Objects.requireNonNull(transactions.getTransactionManager()));
         readOnly.setReadOnly(true);
-        return Objects.requireNonNull(readOnly.execute(status -> setting()));
+        return Objects.requireNonNull(readOnly.execute(status -> setting(TenantTransactionBinding.TENANT_SETTING)));
     }
 
     /** Empty when unset: PostgreSQL returns null for a setting never made, an empty string after one ends. */
-    private String setting() {
+    private String setting(String name) {
         return jdbc.sql("SELECT current_setting(?, true)")
-                .param(TenantTransactionBinding.TENANT_SETTING)
+                .param(name)
                 .query(String.class)
                 .optional()
                 .orElse("");
     }
 
-    /** What a transaction saw: its connection, by server process ID, and its tenant setting. */
-    private record Observed(int connection, String tenant) {}
+    /** What a transaction saw: its connection, by server process ID, and its tenant settings. */
+    private record Observed(int connection, String tenant, String platformTenant) {}
 }
