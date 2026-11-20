@@ -106,10 +106,7 @@ class CreateOrganizationTest {
                 .hasMessageContaining("must not be blank");
     }
 
-    /**
-     * Acting as {@code finaxis_tenancy} proves the code needs no privilege beyond the role's grants
-     * (migration {@code V8}). The test's transaction is rolled back, so it leaves no rows behind.
-     */
+    /** As {@code finaxis_tenancy}, the code needs no privilege beyond the role's grants. */
     @Test
     @Transactional
     void needsNoMoreThanTheTenancyRolesGrants() {
