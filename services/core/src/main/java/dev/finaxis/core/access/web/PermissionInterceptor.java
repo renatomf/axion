@@ -41,6 +41,8 @@ import org.springframework.web.servlet.HandlerMapping;
  * order: unknown or foreign tenant, {@code 404}; inactive tenant, {@code 403 tenant_inactive};
  * missing permission, {@code 403 insufficient_permission}; old login, {@code 403
  * step_up_required}. An endpoint that declares no permission is denied.
+ *
+ * <p>It runs before the body is read, so a caller who may not act learns nothing about a valid body.
  */
 final class PermissionInterceptor implements HandlerInterceptor {
 

@@ -26,12 +26,8 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
 
 /**
- * Members' access tokens on {@code /internal}, against a real Keycloak running the {@code finaxis}
- * realm (tenancy and access design, sections 4.1 and 8).
- *
- * <p>The requests go to {@code /internal/me}: an accepted token reaches the endpoint and gets a
- * {@code 200}; a rejected one never gets that far and is a {@code 401}. What the endpoint answers is
- * tested in {@code CurrentMemberControllerTest}.
+ * Members' access tokens on {@code /internal}, against a real Keycloak (tenancy design, section
+ * 4.1): an accepted token gets {@code 200} from {@code /internal/me}, a rejected one {@code 401}.
  */
 @SpringBootTest
 @Import({PostgresTestConfiguration.class, KeycloakTestConfiguration.class})

@@ -52,7 +52,7 @@ class CurrentMemberControllerTest {
         subject = SignedJWT.parse(accessToken).getJWTClaimsSet().getSubject();
     }
 
-    /** Calls the endpoint and checks the response against the contract before the test looks at it. */
+    /** Also checks the response against the contract. */
     private MvcTestResultAssert currentMember() {
         MvcTestResult result = mvc.get()
                 .uri("/internal/me")

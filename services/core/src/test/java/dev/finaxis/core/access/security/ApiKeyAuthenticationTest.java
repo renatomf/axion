@@ -42,14 +42,7 @@ import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * How a request authenticates on {@code /v1}: the API key in its {@code Authorization} header,
- * through the whole application and a real PostgreSQL. Keys are issued at run time, so none is
- * written in the repository.
- *
- * <p>{@link PublicApiController}, which exists only in this test, stands in for a {@code /v1}
- * endpoint, so authentication is proven apart from any real one.
- */
+/** API key authentication on {@code /v1}. Keys are issued at run time, so none is in the repository. */
 @SpringBootTest
 @Import({PostgresTestConfiguration.class, ApiKeyAuthenticationTest.PublicApiController.class})
 @AutoConfigureMockMvc
@@ -235,7 +228,6 @@ class ApiKeyAuthenticationTest {
                 .isLenientlyEqualTo(UNAUTHORIZED);
     }
 
-    /** The caller tenant resolution would build for the organization's admin, on the test tenant. */
     private MemberCaller admin() {
         return new MemberCaller(
                 organization.test(), Environment.TEST, organization.admin(), Role.permissionsOf(Set.of(Role.ADMIN)));

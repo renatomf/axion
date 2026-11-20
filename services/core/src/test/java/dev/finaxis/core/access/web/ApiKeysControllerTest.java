@@ -552,11 +552,7 @@ class ApiKeysControllerTest {
         assertThat(access.keys(organization.test()).getFirst().expiresAt()).isEmpty();
     }
 
-    /**
-     * When a key of the organization's test tenant stops working, read through the module API. The
-     * key is found by its ID: a replacement issued in the same transaction has the same {@code
-     * created_at}, so the order of a list does not tell the two apart.
-     */
+    // Found by ID: a replacement issued in the same transaction has the same created_at.
     private Instant expiresAt(IssuedApiKey key) {
         return access.keys(organization.test()).stream()
                 .filter(view -> view.id().equals(key.id()))
