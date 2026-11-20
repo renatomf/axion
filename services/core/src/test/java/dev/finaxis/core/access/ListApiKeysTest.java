@@ -4,6 +4,7 @@ import static dev.finaxis.core.tenancy.Permission.CHARGES_READ;
 import static dev.finaxis.core.tenancy.Permission.CHARGES_WRITE;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantId;
@@ -106,7 +107,7 @@ class ListApiKeysTest {
     @Transactional
     void needsNoMoreThanTheAccessRolesGrants() {
         issued(Environment.TEST, "Checkout", Set.of(CHARGES_READ));
-        jdbc.sql("SET LOCAL ROLE finaxis_access").update();
+        DatabaseRole.ACCESS.actAs(jdbc);
 
         assertThat(access.keys(organization.test())).hasSize(1);
     }

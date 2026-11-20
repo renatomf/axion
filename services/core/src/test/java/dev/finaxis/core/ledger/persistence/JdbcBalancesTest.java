@@ -2,6 +2,7 @@ package dev.finaxis.core.ledger.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.ledger.AccountId;
 import dev.finaxis.core.ledger.AccountType;
@@ -41,7 +42,7 @@ class JdbcBalancesTest {
 
     @BeforeEach
     void actAsTheLedgerRole() {
-        jdbc.sql("SET LOCAL ROLE finaxis_ledger").update();
+        DatabaseRole.LEDGER.actAs(jdbc);
     }
 
     @Test

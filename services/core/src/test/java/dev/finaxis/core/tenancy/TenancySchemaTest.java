@@ -3,6 +3,7 @@ package dev.finaxis.core.tenancy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -102,7 +103,7 @@ class TenancySchemaTest {
     @Test
     void deniesTheTenancyRoleMakingAnOrganizationThePlatform() {
         var organization = insertOrganization("Acme");
-        actAsTheTenancyRole();
+        DatabaseRole.TENANCY.actAs(jdbc);
 
         assertThatThrownBy(() -> jdbc.sql("UPDATE tenancy.organizations SET is_platform = true WHERE id = ?")
                         .param(organization)
@@ -114,7 +115,7 @@ class TenancySchemaTest {
     @Test
     void deniesTheTenancyRoleDeletingATenant() {
         var tenant = insertTenant(insertOrganization("Acme"), "TEST");
-        actAsTheTenancyRole();
+        DatabaseRole.TENANCY.actAs(jdbc);
 
         assertThatThrownBy(() -> jdbc.sql("DELETE FROM tenancy.tenants WHERE id = ?")
                         .param(tenant)
@@ -125,7 +126,7 @@ class TenancySchemaTest {
 
     @Test
     void letsTheTenancyRoleGrantAndRevokeRoles() {
-        actAsTheTenancyRole();
+        DatabaseRole.TENANCY.actAs(jdbc);
         var member = insertMember(insertOrganization("Acme"), "user-1");
         insertRole(member, "ADMIN");
 
@@ -146,11 +147,6 @@ class TenancySchemaTest {
 
         assertThat(settings)
                 .containsExactlyInAnyOrder("lock_timeout=2s", "statement_timeout=5s", "transaction_timeout=30s");
-    }
-
-    /** Acts as the tenancy role until the test's transaction ends. */
-    private void actAsTheTenancyRole() {
-        jdbc.sql("SET LOCAL ROLE finaxis_tenancy").update();
     }
 
     private UUID insertOrganization(String name) {

@@ -6,6 +6,7 @@ import static dev.finaxis.core.tenancy.Permission.REFUNDS_WRITE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.access.domain.ApiKeySecret;
 import dev.finaxis.core.shared.Environment;
@@ -237,7 +238,7 @@ class RollApiKeyTest {
     @Transactional
     void needsNoMoreThanTheAccessRolesGrants() {
         var old = issued(Environment.TEST, Set.of(CHARGES_READ));
-        jdbc.sql("SET LOCAL ROLE finaxis_access").update();
+        DatabaseRole.ACCESS.actAs(jdbc);
 
         assertThat(access.roll(admin(Environment.TEST), old.id(), DAY)).isInstanceOf(RollResult.Rolled.class);
     }

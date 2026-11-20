@@ -3,6 +3,7 @@ package dev.finaxis.core.ledger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -37,7 +38,7 @@ class LedgerSchemaTest {
         var entry = UUID.randomUUID();
 
         transaction.executeWithoutResult(status -> {
-            actAsTheLedgerRole();
+            DatabaseRole.LEDGER.actAs(jdbc);
             var settlement = insertAccount(tenant, "ASSET", "DEBIT", "BRL");
             var available = insertAccount(tenant, "LIABILITY", "CREDIT", "BRL");
             insertEntry(entry, tenant);
@@ -59,7 +60,7 @@ class LedgerSchemaTest {
 
         // Each insert succeeds; the commit fails and rolls everything back.
         assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
-                    actAsTheLedgerRole();
+                    DatabaseRole.LEDGER.actAs(jdbc);
                     var settlement = insertAccount(tenant, "ASSET", "DEBIT", "BRL");
                     var available = insertAccount(tenant, "LIABILITY", "CREDIT", "BRL");
                     insertEntry(entry, tenant);
@@ -76,7 +77,7 @@ class LedgerSchemaTest {
         var entry = UUID.randomUUID();
 
         assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
-                    actAsTheLedgerRole();
+                    DatabaseRole.LEDGER.actAs(jdbc);
                     insertEntry(entry, UUID.randomUUID());
                 }))
                 .rootCause()
@@ -147,7 +148,7 @@ class LedgerSchemaTest {
     @Transactional
     void deniesTheLedgerRoleUpdatingPostings() {
         var entry = insertEntryWithOnePosting();
-        actAsTheLedgerRole();
+        DatabaseRole.LEDGER.actAs(jdbc);
 
         // Denied by privileges, before any trigger runs.
         assertThatThrownBy(() -> jdbc.sql("UPDATE ledger.postings SET amount = 1 WHERE entry_id = ?")
@@ -161,7 +162,7 @@ class LedgerSchemaTest {
     @Transactional
     void deniesTheLedgerRoleDeletingEntries() {
         var entry = insertEntryWithOnePosting();
-        actAsTheLedgerRole();
+        DatabaseRole.LEDGER.actAs(jdbc);
 
         assertThatThrownBy(() -> jdbc.sql("DELETE FROM ledger.entries WHERE id = ?")
                         .param(entry)
@@ -174,7 +175,7 @@ class LedgerSchemaTest {
     @Transactional
     void deniesTheLedgerRoleUpdatingAccounts() {
         var account = insertAccount(UUID.randomUUID(), "LIABILITY", "CREDIT", "BRL");
-        actAsTheLedgerRole();
+        DatabaseRole.LEDGER.actAs(jdbc);
 
         assertThatThrownBy(() -> jdbc.sql("UPDATE ledger.accounts SET allow_negative = true WHERE id = ?")
                         .param(account)
@@ -190,7 +191,7 @@ class LedgerSchemaTest {
         jdbc.sql("INSERT INTO ledger.balances (account_id) VALUES (?)")
                 .param(account)
                 .update();
-        actAsTheLedgerRole();
+        DatabaseRole.LEDGER.actAs(jdbc);
 
         var updated = jdbc.sql("UPDATE ledger.balances SET balance = balance + 100 WHERE account_id = ?")
                 .param(account)
@@ -209,11 +210,6 @@ class LedgerSchemaTest {
 
         assertThat(settings)
                 .containsExactlyInAnyOrder("lock_timeout=2s", "statement_timeout=5s", "transaction_timeout=30s");
-    }
-
-    /** Acts as the ledger role until the test's transaction ends. */
-    private void actAsTheLedgerRole() {
-        jdbc.sql("SET LOCAL ROLE finaxis_ledger").update();
     }
 
     private UUID insertEntryWithOnePosting() {

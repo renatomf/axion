@@ -2,6 +2,7 @@ package dev.finaxis.core.access.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.access.ApiKeyId;
 import dev.finaxis.core.shared.TenantId;
@@ -44,10 +45,9 @@ class JdbcApiKeysTest {
         this.jdbc = jdbc;
     }
 
-    /** Runs inside the test's transaction, so the role lasts until it is rolled back. */
     @BeforeEach
     void actAsTheAccessRole() {
-        jdbc.sql("SET LOCAL ROLE finaxis_access").update();
+        DatabaseRole.ACCESS.actAs(jdbc);
     }
 
     @Test
