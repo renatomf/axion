@@ -2,11 +2,8 @@ package dev.finaxis.core.tenancy;
 
 /**
  * The right to perform one kind of operation (tenancy design, section 3.3). Code checks permissions,
- * never roles: an operation declares the permission it needs, and a caller has it through a member's
- * roles or an API key's scopes.
- *
- * <p>Some permissions are for people only and are never granted to an API key, so a leaked key
- * cannot mint other keys, add members or approve payouts.
+ * never roles. Human-only permissions are never API key scopes, so a leaked key cannot mint keys,
+ * add members or approve payouts.
  */
 public enum Permission {
     CHARGES_READ("charges:read", true),
@@ -27,22 +24,16 @@ public enum Permission {
         this.apiKeyScope = apiKeyScope;
     }
 
-    /** The permission as the API and the database spell it, such as {@code charges:write}. */
+    /** As the API and the database spell it, such as {@code charges:write}. */
     public String code() {
         return code;
     }
 
-    /** Whether an API key may carry this permission as a scope; false for human-only permissions. */
     public boolean isApiKeyScope() {
         return apiKeyScope;
     }
 
-    /**
-     * The permission with this code, as {@link #code} spells it. The inverse of {@code code()}, for
-     * reading permissions back from the database; {@code valueOf} expects the constant's name instead.
-     *
-     * @throws IllegalArgumentException if no permission has this code
-     */
+    /** The inverse of {@link #code}. */
     public static Permission fromCode(String code) {
         for (Permission permission : values()) {
             if (permission.code.equals(code)) {

@@ -1,9 +1,6 @@
 /**
- * The directory of who uses the platform: organizations, their tenants, members and roles (tenancy
- * and access design, {@code docs/design-docs/2026-11-19-tenancy-and-access.md}).
- *
- * <p>Other modules use it only through {@link TenancyApi} and the types in this package, such as
- * {@link Role} and {@link Permission}; Spring Modulith hides every subpackage from them.
+ * Who uses the platform: organizations, their tenants, members and roles (tenancy design). Other
+ * modules use only {@link TenancyApi} and the types in this package.
  */
 @ApplicationModule(displayName = "Tenancy")
 @NullMarked

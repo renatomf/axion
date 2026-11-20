@@ -14,11 +14,8 @@ import java.util.EnumSet;
 import java.util.Set;
 
 /**
- * A named set of permissions given to a member of an organization, for both of its environments
- * (tenancy design, section 3.3). The sets are fixed here, in code, so a change to them is reviewed
- * and tested like any other change.
- *
- * <p>The names match the {@code role} column of {@code tenancy.member_roles}.
+ * A named set of permissions, for both environments (tenancy design, section 3.3). Fixed in code, so
+ * a change is reviewed and tested like any other.
  */
 public enum Role {
     ADMIN,
@@ -28,12 +25,7 @@ public enum Role {
     DEVELOPER,
     READ_ONLY;
 
-    /**
-     * The permissions of this role; the set cannot be changed.
-     *
-     * <p>A switch instead of a field keeps the enum free of state, and the compiler rejects a new
-     * role until its permissions are written here.
-     */
+    /** An exhaustive switch, so a new role does not compile until its permissions are written. */
     public Set<Permission> permissions() {
         return switch (this) {
             case ADMIN ->
@@ -52,7 +44,6 @@ public enum Role {
         };
     }
 
-    /** The permissions of a member with these roles: the union of the roles' permissions. */
     public static Set<Permission> permissionsOf(Collection<Role> roles) {
         Set<Permission> union = EnumSet.noneOf(Permission.class);
         roles.forEach(role -> union.addAll(role.permissions()));

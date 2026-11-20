@@ -1,7 +1,4 @@
-/**
- * The tenancy module's persistence: explicit SQL with Spring's {@code JdbcClient}, rows mapped to
- * the module's types by hand (ADR 0004).
- */
+/** Explicit SQL with {@code JdbcClient}, rows mapped by hand (ADR 0004). */
 @NullMarked
 package dev.finaxis.core.tenancy.persistence;
 
