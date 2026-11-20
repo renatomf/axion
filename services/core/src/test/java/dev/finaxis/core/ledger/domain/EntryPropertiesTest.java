@@ -1,5 +1,7 @@
 package dev.finaxis.core.ledger.domain;
 
+import static dev.finaxis.core.ledger.LedgerFixtures.BRL;
+import static dev.finaxis.core.ledger.LedgerFixtures.account;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -9,7 +11,6 @@ import dev.finaxis.core.ledger.Direction;
 import dev.finaxis.core.ledger.EntryId;
 import dev.finaxis.core.shared.Money;
 import java.util.ArrayList;
-import java.util.Currency;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,8 +27,6 @@ import net.jqwik.api.Provide;
  * entries of up to {@value Entry#MAX_POSTINGS} postings over accounts of every type.
  */
 class EntryPropertiesTest {
-
-    private static final Currency BRL = Currency.getInstance("BRL");
 
     /** Up to about R$ 10 billion per posting, so 31 of them cannot overflow a {@code long}. */
     private static final long MAX_AMOUNT = 1_000_000_000_000L;
@@ -131,9 +130,5 @@ class EntryPropertiesTest {
 
     private static EntryId newId() {
         return new EntryId(UUID.randomUUID());
-    }
-
-    private static Account account(String code, AccountType type) {
-        return new Account(new AccountId(UUID.randomUUID()), UUID.randomUUID(), code, type, BRL, false, false);
     }
 }

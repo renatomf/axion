@@ -1,5 +1,6 @@
 package dev.finaxis.core.ledger.persistence;
 
+import static dev.finaxis.core.ledger.LedgerFixtures.BRL;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.finaxis.core.PostgresTestConfiguration;
@@ -13,7 +14,6 @@ import dev.finaxis.core.ledger.LedgerApi;
 import dev.finaxis.core.ledger.PostingRequest;
 import dev.finaxis.core.shared.Money;
 import java.time.LocalDate;
-import java.util.Currency;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,7 +33,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class JdbcLedgerChecksTest {
 
-    private static final Currency BRL = Currency.getInstance("BRL");
     private static final Money TEN = Money.ofMinor(1_000, BRL);
 
     private final JdbcLedgerChecks checks;

@@ -1,5 +1,6 @@
 package dev.finaxis.core.ledger.application;
 
+import static dev.finaxis.core.ledger.LedgerFixtures.BRL;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.finaxis.core.PostgresTestConfiguration;
@@ -8,7 +9,6 @@ import dev.finaxis.core.ledger.AccountType;
 import dev.finaxis.core.ledger.LedgerApi;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
-import java.util.Currency;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,8 +32,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 @ExtendWith(OutputCaptureExtension.class)
 class BalanceVerifierTest {
-
-    private static final Currency BRL = Currency.getInstance("BRL");
 
     private final BalanceVerifier verifier;
     private final LedgerApi ledger;

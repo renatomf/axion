@@ -1,17 +1,15 @@
 package dev.finaxis.core.ledger.domain;
 
+import static dev.finaxis.core.ledger.LedgerFixtures.BRL;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.finaxis.core.ledger.AccountId;
 import dev.finaxis.core.ledger.AccountType;
-import java.util.Currency;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class AccountTest {
-
-    private static final Currency BRL = Currency.getInstance("BRL");
 
     @Test
     void acceptsAHotAccountThatAllowsANegativeBalance() {

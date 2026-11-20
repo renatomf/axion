@@ -1,5 +1,8 @@
 package dev.finaxis.core.ledger.persistence;
 
+import static dev.finaxis.core.ledger.LedgerFixtures.BRL;
+import static dev.finaxis.core.ledger.LedgerFixtures.brl;
+import static dev.finaxis.core.ledger.LedgerFixtures.storedBalance;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.finaxis.core.DatabaseRole;
@@ -7,10 +10,8 @@ import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.ledger.AccountId;
 import dev.finaxis.core.ledger.AccountType;
 import dev.finaxis.core.ledger.domain.Account;
-import dev.finaxis.core.shared.Money;
 import dev.finaxis.core.shared.UuidV7Generator;
 import java.time.Clock;
-import java.util.Currency;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,8 +26,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Import(PostgresTestConfiguration.class)
 @Transactional
 class JdbcBalancesTest {
-
-    private static final Currency BRL = Currency.getInstance("BRL");
 
     private final JdbcBalances balances;
     private final JdbcAccounts accounts;
@@ -52,7 +51,7 @@ class JdbcBalancesTest {
         assertThat(balances.apply(account, brl(1_000))).isTrue();
         assertThat(balances.apply(account, brl(-400))).isTrue();
 
-        assertThat(balanceOf(account)).isEqualTo(600);
+        assertThat(storedBalance(jdbc, account.id())).isEqualTo(600);
         assertThat(versionOf(account)).isEqualTo(2);
     }
 
@@ -63,7 +62,7 @@ class JdbcBalancesTest {
 
         assertThat(balances.apply(account, brl(-1_000))).isTrue();
 
-        assertThat(balanceOf(account)).isZero();
+        assertThat(storedBalance(jdbc, account.id())).isZero();
     }
 
     @Test
@@ -73,7 +72,7 @@ class JdbcBalancesTest {
 
         assertThat(balances.apply(account, brl(-1_001))).isFalse();
 
-        assertThat(balanceOf(account)).isEqualTo(1_000);
+        assertThat(storedBalance(jdbc, account.id())).isEqualTo(1_000);
         assertThat(versionOf(account)).isOne();
     }
 
@@ -83,7 +82,7 @@ class JdbcBalancesTest {
 
         assertThat(balances.apply(account, brl(-1_000))).isTrue();
 
-        assertThat(balanceOf(account)).isEqualTo(-1_000);
+        assertThat(storedBalance(jdbc, account.id())).isEqualTo(-1_000);
     }
 
     private Account open(boolean allowNegative) {
@@ -97,17 +96,6 @@ class JdbcBalancesTest {
                 false);
         accounts.insertIfAbsent(account);
         return account;
-    }
-
-    private static Money brl(long minorUnits) {
-        return Money.ofMinor(minorUnits, BRL);
-    }
-
-    private long balanceOf(Account account) {
-        return jdbc.sql("SELECT balance FROM ledger.balances WHERE account_id = ?")
-                .param(account.id().value())
-                .query(Long.class)
-                .single();
     }
 
     private long versionOf(Account account) {

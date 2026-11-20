@@ -1,5 +1,7 @@
 package dev.finaxis.core.ledger.persistence;
 
+import static dev.finaxis.core.ledger.LedgerFixtures.BRL;
+import static dev.finaxis.core.ledger.LedgerFixtures.storedBalance;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.entry;
 
@@ -8,7 +10,6 @@ import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.ledger.AccountId;
 import dev.finaxis.core.ledger.AccountType;
 import dev.finaxis.core.ledger.domain.Account;
-import java.util.Currency;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,8 +25,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Import(PostgresTestConfiguration.class)
 @Transactional
 class JdbcAccountsTest {
-
-    private static final Currency BRL = Currency.getInstance("BRL");
 
     private final JdbcAccounts accounts;
     private final JdbcClient jdbc;
@@ -48,7 +47,7 @@ class JdbcAccountsTest {
         assertThat(accounts.insertIfAbsent(account)).isTrue();
 
         assertThat(accounts.findByCode(account.tenantId(), account.code())).contains(account);
-        assertThat(balanceOf(account)).isZero();
+        assertThat(storedBalance(jdbc, account.id())).isZero();
     }
 
     @Test
@@ -89,12 +88,5 @@ class JdbcAccountsTest {
                 BRL,
                 false,
                 false);
-    }
-
-    private long balanceOf(Account account) {
-        return jdbc.sql("SELECT balance FROM ledger.balances WHERE account_id = ?")
-                .param(account.id().value())
-                .query(Long.class)
-                .single();
     }
 }

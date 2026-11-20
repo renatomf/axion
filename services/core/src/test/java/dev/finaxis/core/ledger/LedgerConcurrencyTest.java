@@ -1,5 +1,7 @@
 package dev.finaxis.core.ledger;
 
+import static dev.finaxis.core.ledger.LedgerFixtures.BRL;
+import static dev.finaxis.core.ledger.LedgerFixtures.storedBalance;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.finaxis.core.PostgresTestConfiguration;
@@ -8,7 +10,6 @@ import dev.finaxis.core.ledger.application.LedgerVerification;
 import dev.finaxis.core.shared.Money;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Currency;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.BrokenBarrierException;
@@ -38,7 +39,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Import(PostgresTestConfiguration.class)
 class LedgerConcurrencyTest {
 
-    private static final Currency BRL = Currency.getInstance("BRL");
     private static final Money ONE = Money.ofMinor(100, BRL);
 
     private final LedgerApi ledger;
@@ -90,7 +90,7 @@ class LedgerConcurrencyTest {
         assertThat(results)
                 .filteredOn(new PostResult.InsufficientFunds(available)::equals)
                 .hasSize(50);
-        assertThat(balanceOf(available)).isZero();
+        assertThat(storedBalance(jdbc, available)).isZero();
         assertThat(postingsOf(available)).isEqualTo(51);
     }
 
@@ -116,8 +116,8 @@ class LedgerConcurrencyTest {
         // Each balance starts with enough for every transfer out of it, so none is refused, and
         // postAtOnce would have thrown on a deadlock.
         assertThat(results).allMatch(PostResult.Posted.class::isInstance);
-        assertThat(balanceOf(available)).isEqualTo(10_000);
-        assertThat(balanceOf(held)).isEqualTo(10_000);
+        assertThat(storedBalance(jdbc, available)).isEqualTo(10_000);
+        assertThat(storedBalance(jdbc, held)).isEqualTo(10_000);
     }
 
     /**
@@ -206,13 +206,6 @@ class LedgerConcurrencyTest {
                 LocalDate.of(2026, 11, 18),
                 "corr-1",
                 List.of(PostingRequest.debit(from, amount), PostingRequest.credit(to, amount)));
-    }
-
-    private long balanceOf(AccountId account) {
-        return jdbc.sql("SELECT balance FROM ledger.balances WHERE account_id = ?")
-                .param(account.value())
-                .query(Long.class)
-                .single();
     }
 
     private long postingsOf(AccountId account) {
