@@ -38,6 +38,7 @@ How to run each tool is described in [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
 | `Clock` injected everywhere; no `now()` without a `Clock` | ArchUnit `ArchitectureTest` (Build) |
 | Contract-first OpenAPI; snake_case JSON; RFC 9457 errors; cursor pagination; versioning and deprecation policy | Spectral (CI); Problem Details tests (Build); contract tests: `OpenApiContract` in endpoint tests (Build) |
 | Another tenant's resource answers `404`, existing or not, and no list shows it | `TenantIsolationTest` over every operation of the contracts (Build) |
+| A test API key never reaches live data, money included | `EnvironmentIsolationTest`: a test key on `/v1` against the live tenant's and live platform's ledger accounts and keys (Build) |
 | Structured JSON logs; a correlation ID on every request's log lines; no personal data in logs | Logging tests (Build); Review for personal data |
 | One formatter; zero warnings | Spotless, Error Prone, `javac -Werror` (Build); CodeQL (CI) |
 
