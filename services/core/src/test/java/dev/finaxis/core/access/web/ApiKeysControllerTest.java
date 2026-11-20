@@ -59,7 +59,7 @@ class ApiKeysControllerTest {
     @Autowired
     ApiKeysControllerTest(MockMvcTester mvc, AccessApi access, TenancyApi tenancy, DatabaseOwner databaseOwner) {
         this.mvc = mvc;
-        this.access = new TenantBoundAccess(access);
+        this.access = new TenantBoundAccess(access, tenancy);
         this.tenancy = tenancy;
         this.owner = databaseOwner.jdbc();
     }

@@ -31,7 +31,8 @@ class CurrentTenantFunctionTest {
 
     @Test
     void returnsTheTenantBoundToTheTransaction() {
-        assertThat(TenantContext.call(TENANT, this::currentTenant)).contains(TENANT.value());
+        assertThat(TenantContext.call(TENANT, Environment.TEST, this::currentTenant))
+                .contains(TENANT.value());
     }
 
     @Test

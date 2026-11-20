@@ -81,7 +81,7 @@ class ApiKeyAuthenticationTest {
             DatabaseOwner databaseOwner,
             MeterRegistry meters) {
         this.mvc = mvc;
-        this.access = new TenantBoundAccess(access);
+        this.access = new TenantBoundAccess(access, tenancy);
         this.tenancy = tenancy;
         this.owner = databaseOwner.jdbc();
         this.meters = meters;

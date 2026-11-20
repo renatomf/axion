@@ -49,7 +49,7 @@ class TenantBindingTest {
 
         private static String describe() {
             return TenantContext.current()
-                    .map(tenant -> tenant.publicId().toString())
+                    .map(bound -> bound.tenant().publicId() + " " + bound.environment())
                     .orElse("none");
         }
     }
@@ -61,19 +61,19 @@ class TenantBindingTest {
     @Autowired
     TenantBindingTest(MockMvcTester mvc, AccessApi access, TenancyApi tenancy) {
         this.mvc = mvc;
-        this.access = new TenantBoundAccess(access);
+        this.access = new TenantBoundAccess(access, tenancy);
         this.tenancy = tenancy;
     }
 
     @Test
-    void bindsTheKeysTenant() {
+    void bindsTheKeysTenantAndItsEnvironment() {
         NewOrganization organization =
                 tenancy.createOrganization("Acme", UUID.randomUUID().toString());
         IssuedApiKey key = issued(organization);
 
         get("/v1/bound", key)
                 .hasStatusOk()
-                .hasBodyTextEqualTo(organization.test().publicId().toString());
+                .hasBodyTextEqualTo(organization.test().publicId() + " TEST");
     }
 
     @Test

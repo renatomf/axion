@@ -2,6 +2,7 @@ package dev.finaxis.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.shared.TenantId;
 import java.util.Objects;
@@ -30,7 +31,8 @@ class TenantTransactionBindingTest {
 
     @Test
     void bindsTheTenantToTheTransaction() {
-        assertThat(TenantContext.call(TENANT, () -> inTransaction().tenant()))
+        assertThat(TenantContext.call(
+                        TENANT, Environment.TEST, () -> inTransaction().tenant()))
                 .isEqualTo(TENANT.value().toString());
     }
 
@@ -41,13 +43,13 @@ class TenantTransactionBindingTest {
 
     @Test
     void bindsTheTenantToReadOnlyTransactions() {
-        assertThat(TenantContext.call(TENANT, this::inReadOnlyTransaction))
+        assertThat(TenantContext.call(TENANT, Environment.TEST, this::inReadOnlyTransaction))
                 .isEqualTo(TENANT.value().toString());
     }
 
     @Test
     void theNextTransactionOnTheConnectionDoesNotInheritTheTenant() {
-        Observed bound = TenantContext.call(TENANT, this::inTransaction);
+        Observed bound = TenantContext.call(TENANT, Environment.TEST, this::inTransaction);
         Observed next = inTransaction();
 
         assertThat(next.connection()).isEqualTo(bound.connection());

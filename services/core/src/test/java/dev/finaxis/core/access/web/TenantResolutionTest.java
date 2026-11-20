@@ -61,7 +61,7 @@ class TenantResolutionTest {
         @GetMapping("/internal/tenants/{tenant_id}/bound")
         String bound() {
             return TenantContext.current()
-                    .map(tenant -> tenant.publicId().toString())
+                    .map(bound -> bound.tenant().publicId() + " " + bound.environment())
                     .orElse("none");
         }
 
@@ -126,7 +126,7 @@ class TenantResolutionTest {
                                 created.live().publicId())
                         .header("Authorization", "Bearer " + accessToken))
                 .hasStatus(HttpStatus.OK)
-                .hasBodyTextEqualTo(created.live().publicId().toString());
+                .hasBodyTextEqualTo(created.live().publicId() + " LIVE");
     }
 
     @Test

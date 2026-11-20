@@ -46,7 +46,7 @@ class AuthenticateApiKeyTest {
 
     @Autowired
     AuthenticateApiKeyTest(AccessApi access, TenancyApi tenancy, DatabaseOwner databaseOwner) {
-        this.access = new TenantBoundAccess(access);
+        this.access = new TenantBoundAccess(access, tenancy);
         this.tenancy = tenancy;
         this.owner = databaseOwner.jdbc();
     }

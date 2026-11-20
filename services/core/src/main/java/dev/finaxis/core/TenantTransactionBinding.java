@@ -27,7 +27,7 @@ class TenantTransactionBinding implements TransactionExecutionListener {
     @Override
     public void afterBegin(TransactionExecution transaction, @Nullable Throwable beginFailure) {
         if (beginFailure == null) {
-            TenantContext.current().ifPresent(this::bind);
+            TenantContext.current().map(TenantContext.Binding::tenant).ifPresent(this::bind);
         }
     }
 
