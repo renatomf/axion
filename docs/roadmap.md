@@ -32,6 +32,7 @@ Estimates assume the Spring learning curve. Quality is never traded for schedule
 - **Per PR:** short goal statement → commits on a feature branch → PR from the template → explanation to the author (what, components, why, how it works, files, review questions) → author review → fixes as new commits → the author rebases the branch onto `main` locally and merges with a merge commit (keeps every commit signed).
 - **Design first:** every block that introduces a significant feature starts with its design doc PR.
 - **GitHub:** one milestone per phase, one issue per PR (`Closes #n`).
+- **Numbering:** a PR takes the number of its roadmap item, `<phase>.<item>` (for example `1.21`, item 21 of phase 1). An item too large for one PR is split into lettered slices, `1.21a`, `1.21b`, `1.21c`, each its own issue and PR; the issue is titled `PR 1.21b: <title>`. Each issue's *Out* section names the slices still to come, so the plan of an item lives in its issues, and the next slice may be renumbered there when the plan changes. The tables below keep one row per item; an item merged into another keeps its row, marked as merged (see 0.15).
 - **Definition of Done:** tests, updated docs, security checklist, green CI, size limit respected.
 
 ---
