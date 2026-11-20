@@ -136,7 +136,7 @@ Estimates assume the Spring learning curve. Quality is never traded for schedule
 | ↳ 1.21d | Key last use | `last_used_at`, updated at most once an hour per key by a conditional update ([#129](https://github.com/renatomf/finaxis/pull/129)) |
 | ↳ 1.21e | Authentication failure signals | Failure logs with the reason and key ID, never the secret; `finaxis_authentication_failures_total{reason}` ([#131](https://github.com/renatomf/finaxis/pull/131)) |
 | 1.22 | Row-Level Security | RLS policies and per-module DB roles |
-| ↳ 1.22a | Tenant context | `TenantContext` (`ScopedValue`) bound after authentication; a transaction listener sets `finaxis.tenant_id` |
+| ↳ 1.22a | Tenant context | `TenantContext` (`ScopedValue`) bound around the controller method once the caller is established; a transaction listener sets `finaxis.tenant_id` |
 | ↳ 1.22b | Tenant policies | `shared.current_tenant()`; RLS on `access.api_keys`; `access.find_api_key` as `SECURITY DEFINER` |
 | ↳ 1.22c | Login and module roles | `finaxis_app` with `NOINHERIT`; `SET LOCAL ROLE` at each module's API entry point |
 | ↳ 1.22d | Ledger policies | The platform tenant beside the tenant; the read and write policies of the ledger tables |
