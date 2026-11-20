@@ -32,7 +32,7 @@ Estimates assume the Spring learning curve. Quality is never traded for schedule
 - **Per PR:** short goal statement → commits on a feature branch → PR from the template → explanation to the author (what, components, why, how it works, files, review questions) → author review → fixes as new commits → the author rebases the branch onto `main` locally and merges with a merge commit (keeps every commit signed).
 - **Design first:** every block that introduces a significant feature starts with its design doc PR.
 - **GitHub:** one milestone per phase, one issue per PR (`Closes #n`).
-- **Numbering:** a PR takes the number of its roadmap item, `<phase>.<item>` (for example `1.21`, item 21 of phase 1). An item too large for one PR is split into lettered slices, `1.21a`, `1.21b`, `1.21c`, each its own issue and PR; the issue is titled `PR 1.21b: <title>`. Each issue's *Out* section names the slices still to come, so the plan of an item lives in its issues, and the next slice may be renumbered there when the plan changes. The tables below keep one row per item; an item merged into another keeps its row, marked as merged (see 0.15).
+- **Numbering:** a PR takes the number of its roadmap item, `<phase>.<item>` (for example `1.21`, item 21 of phase 1). An item too large for one PR is split into lettered slices, `1.21a`, `1.21b`, `1.21c`, each its own issue and PR; the issue is titled `PR 1.21b: <title>`. Each issue's *Out* section names the slices still to come, so the plan of an item lives in its issues, and the slices not yet merged may be renumbered there when the plan changes. In the tables below, each merged slice gets a row (`↳`) under its item, with a link to its pull request; an item merged into another keeps its row, marked as merged (see 0.15).
 - **Definition of Done:** tests, updated docs, security checklist, green CI, size limit respected.
 
 ---
@@ -109,10 +109,28 @@ Estimates assume the Spring learning curve. Quality is never traded for schedule
 |---|---|---|
 | 1.16 | Tenancy and access design doc | Tenant model, roles, API keys, RLS, threat model |
 | 1.17 | Tenancy domain and schema | Tenants, environments (test/live), members and roles |
+| ↳ 1.17a | Tenancy schema | Organizations, tenants and members; the platform organization; the tenancy database role; opened as PR 1.17 ([#85](https://github.com/renatomf/finaxis/pull/85)) |
+| ↳ 1.17b | Roles and permissions | The role matrix and the permissions each role grants ([#91](https://github.com/renatomf/finaxis/pull/91)) |
+| ↳ 1.17c | Tenancy API and organization creation | `TenancyApi`; an organization created with both tenants and its first admin ([#93](https://github.com/renatomf/finaxis/pull/93)) |
 | 1.18 | Keycloak | Keycloak in Compose, realm as code, MFA policy |
 | 1.19 | Human authentication | Spring Security OAuth2 resource server on `/internal`; Keycloak in Testcontainers |
+| ↳ 1.19a | Member token validation | Access tokens from Keycloak validated on `/internal` ([#89](https://github.com/renatomf/finaxis/pull/89)) |
+| ↳ 1.19b | Member identity and `/internal/me` | The caller's organizations and tenants ([#95](https://github.com/renatomf/finaxis/pull/95)) |
+| ↳ 1.19c | Tenant resolution and permissions | Tenant from the path through the member's memberships; `@RequiresPermission` ([#97](https://github.com/renatomf/finaxis/pull/97)) |
+| ↳ 1.19d | Step-up on recent authentication | `@RequiresStepUp` and the RFC 9470 challenge ([#99](https://github.com/renatomf/finaxis/pull/99)) |
 | 1.20 | API key issuance | Generation, hashing, prefixes, scopes, rotation, revocation |
+| ↳ 1.20a | API key format | Prefix, random part and CRC32 checksum ([#101](https://github.com/renatomf/finaxis/pull/101)) |
+| ↳ 1.20b | API key schema | The keys table and the access database role ([#103](https://github.com/renatomf/finaxis/pull/103)) |
+| ↳ 1.20c | API key issuance | `AccessApi.issue`: scopes within the issuer's permissions, limit of 10 working keys ([#105](https://github.com/renatomf/finaxis/pull/105)) |
+| ↳ 1.20d | API key listing and revocation | `AccessApi.keys` and `AccessApi.revoke` ([#107](https://github.com/renatomf/finaxis/pull/107)) |
+| ↳ 1.20e | API key rolling | `AccessApi.roll` with a grace period ([#109](https://github.com/renatomf/finaxis/pull/109)) |
+| ↳ 1.20f | API key listing endpoint | `GET /internal/tenants/{tenant_id}/api_keys` ([#111](https://github.com/renatomf/finaxis/pull/111)) |
+| ↳ 1.20g | Request validation | `422 validation_failed` with the offending fields, for every request body ([#113](https://github.com/renatomf/finaxis/pull/113)) |
+| ↳ 1.20h | API key issuance endpoint | `POST …/api_keys`, the secret returned once ([#115](https://github.com/renatomf/finaxis/pull/115)) |
+| ↳ 1.20i | API key revocation endpoint | `POST …/api_keys/{key_id}/revoke` ([#117](https://github.com/renatomf/finaxis/pull/117)) |
+| ↳ 1.20j | API key rolling endpoint | `POST …/api_keys/{key_id}/roll` ([#119](https://github.com/renatomf/finaxis/pull/119)) |
 | 1.21 | API key authentication | Filter for `/v1`; tenant context derived from the credential |
+| ↳ 1.21a | API key authentication | `AccessApi.authenticate` and its outcomes, in the access module ([#121](https://github.com/renatomf/finaxis/pull/121)) |
 | 1.22 | Row-Level Security | RLS policies and per-module DB roles |
 | 1.23 | Tenant isolation harness | A test that walks every OpenAPI operation attempting cross-tenant access |
 | 1.24 | Rate limiting | Per-tenant and per-key limits, `429` with `Retry-After` |
