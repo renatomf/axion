@@ -1,8 +1,4 @@
-/**
- * The access module's HTTP security: the Spring Security filter chains, the validation of members'
- * access tokens, the authentication of API keys and the Problem Details answers to rejected
- * requests.
- */
+/** The access module's HTTP security: filter chains, member tokens and API key authentication. */
 @NullMarked
 package dev.finaxis.core.access.security;
 
