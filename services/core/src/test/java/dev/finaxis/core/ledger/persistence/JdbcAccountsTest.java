@@ -10,6 +10,7 @@ import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.ledger.AccountId;
 import dev.finaxis.core.ledger.AccountType;
 import dev.finaxis.core.ledger.domain.Account;
+import dev.finaxis.core.shared.TenantId;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,6 +29,7 @@ class JdbcAccountsTest {
 
     private final JdbcAccounts accounts;
     private final JdbcClient jdbc;
+    private final UUID tenant = UUID.randomUUID();
 
     @Autowired
     JdbcAccountsTest(JdbcAccounts accounts, JdbcClient jdbc) {
@@ -37,12 +39,12 @@ class JdbcAccountsTest {
 
     @BeforeEach
     void actAsTheLedgerRole() {
-        DatabaseRole.LEDGER.actAs(jdbc);
+        DatabaseRole.LEDGER.actAs(jdbc, new TenantId(tenant));
     }
 
     @Test
     void insertsAnAccountWithABalanceOfZero() {
-        var account = available(UUID.randomUUID());
+        var account = account("tenant:available");
 
         assertThat(accounts.insertIfAbsent(account)).isTrue();
 
@@ -52,25 +54,23 @@ class JdbcAccountsTest {
 
     @Test
     void insertsNothingWhenTheTenantAlreadyHasTheCode() {
-        var tenant = UUID.randomUUID();
-        var first = available(tenant);
+        var first = account("tenant:available");
         accounts.insertIfAbsent(first);
 
-        assertThat(accounts.insertIfAbsent(available(tenant))).isFalse();
+        assertThat(accounts.insertIfAbsent(account("tenant:available"))).isFalse();
 
         assertThat(accounts.findByCode(tenant, first.code())).contains(first);
     }
 
     @Test
     void findsNoAccountForAnUnknownCode() {
-        assertThat(accounts.findByCode(UUID.randomUUID(), "tenant:unknown:available"))
-                .isEmpty();
+        assertThat(accounts.findByCode(tenant, "tenant:unknown")).isEmpty();
     }
 
     @Test
     void findsAccountsByIdAndLeavesOutUnknownOnes() {
-        var first = available(UUID.randomUUID());
-        var second = available(UUID.randomUUID());
+        var first = account("tenant:available");
+        var second = account("tenant:held");
         accounts.insertIfAbsent(first);
         accounts.insertIfAbsent(second);
         var unknown = new AccountId(UUID.randomUUID());
@@ -79,14 +79,7 @@ class JdbcAccountsTest {
                 .containsOnly(entry(first.id(), first), entry(second.id(), second));
     }
 
-    private static Account available(UUID tenant) {
-        return new Account(
-                new AccountId(UUID.randomUUID()),
-                tenant,
-                "tenant:" + tenant + ":available",
-                AccountType.LIABILITY,
-                BRL,
-                false,
-                false);
+    private Account account(String code) {
+        return new Account(new AccountId(UUID.randomUUID()), tenant, code, AccountType.LIABILITY, BRL, false, false);
     }
 }

@@ -14,6 +14,7 @@ import dev.finaxis.core.ledger.EntrySource;
 import dev.finaxis.core.ledger.LedgerApi;
 import dev.finaxis.core.ledger.PostingRequest;
 import dev.finaxis.core.shared.Money;
+import dev.finaxis.core.shared.TenantId;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -53,8 +54,8 @@ class JdbcLedgerChecksTest {
 
     @BeforeEach
     void postASettlement() {
-        DatabaseRole.LEDGER.actAs(jdbc);
         tenant = UUID.randomUUID();
+        DatabaseRole.LEDGER.actAs(jdbc, new TenantId(tenant));
         settlement = ledger.openAccount(
                 new AccountRequest(tenant, "platform:settlement", AccountType.ASSET, BRL, true, false));
         available = ledger.openAccount(
