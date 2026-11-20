@@ -237,7 +237,7 @@ class RollApiKeyTest {
     @Transactional
     void needsNoMoreThanTheAccessRolesGrants() {
         var old = issued(Environment.TEST, Set.of(CHARGES_READ));
-        DatabaseRole.ACCESS.actAs(jdbc);
+        DatabaseRole.ACCESS.actAs(jdbc, organization.test());
 
         assertThat(access.roll(admin(Environment.TEST), old.id(), DAY)).isInstanceOf(RollResult.Rolled.class);
     }

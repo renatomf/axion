@@ -82,7 +82,7 @@ class RevokeApiKeyTest {
     @Transactional
     void needsNoMoreThanTheAccessRolesGrants() {
         var key = issued(Environment.TEST);
-        DatabaseRole.ACCESS.actAs(jdbc);
+        DatabaseRole.ACCESS.actAs(jdbc, organization.test());
 
         assertThat(access.revoke(admin(Environment.TEST), key.id())).isPresent();
     }
