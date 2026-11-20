@@ -13,18 +13,13 @@ import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * The second line of defense of the ledger (ledger design, section 7): recomputes invariants I1, I6
- * and I7 from the postings and reports any violation, which the first line, in the code and in the
- * database, should have made impossible.
- *
- * <p>It repairs nothing. A violation is an incident for a person to investigate, so it only
- * increments the {@value #VIOLATIONS} counter, tagged with the invariant, and logs an error with
- * the IDs involved. Rows hold no personal data, so the IDs are safe to log.
+ * The ledger's second line of defense (ledger design, section 7): recomputes invariants I1, I6 and
+ * I7 and reports violations through a counter and an error log. It repairs nothing: a violation is
+ * an incident for a person.
  */
 @Service
 public class BalanceVerifier {
 
-    /** The counter's name; Prometheus shows it as {@code finaxis_ledger_invariant_violations_total}. */
     public static final String VIOLATIONS = "finaxis.ledger.invariant.violations";
 
     private static final Logger LOG = LoggerFactory.getLogger(BalanceVerifier.class);
@@ -34,10 +29,7 @@ public class BalanceVerifier {
     private final Counter driftedBalances;
     private final Counter unbalancedCurrencies;
 
-    /**
-     * Registers the three counters at zero, so each series exists before its first violation and an
-     * alert can fire on the first increase.
-     */
+    // Registered at zero, so an alert fires on the first violation.
     public BalanceVerifier(JdbcLedgerChecks checks, MeterRegistry meters) {
         this.checks = checks;
         this.unbalancedEntries = violations(meters, "I1");
@@ -45,20 +37,8 @@ public class BalanceVerifier {
         this.unbalancedCurrencies = violations(meters, "I7");
     }
 
-    /**
-     * Runs every check and reports what it found.
-     *
-     * <p>{@code REPEATABLE READ} makes every query of the transaction read the same snapshot of the
-     * database, taken at its first query. Under the default {@code READ COMMITTED}, an entry
-     * committed between the postings check and the balances check could look like a drifted
-     * balance. {@code readOnly} makes PostgreSQL reject any write, so the verifier cannot change
-     * what it checks.
-     *
-     * <p>The scheduler calls it every 15 minutes, starting 15 minutes after the service starts, and
-     * waits for a run to finish before counting the next interval. It calls the method through the
-     * same Spring proxy that opens the transaction, so the run is transactional; its result is
-     * ignored, since the metric and the log are what reach people.
-     */
+    // REPEATABLE READ: every check reads one snapshot, so an entry committed between two checks cannot
+    // look like a drifted balance. Read-only, so the verifier cannot change what it checks.
     @Scheduled(initialDelay = 15, fixedDelay = 15, timeUnit = TimeUnit.MINUTES)
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public LedgerVerification verify() {

@@ -8,14 +8,7 @@ import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-/**
- * Recomputes the ledger from its postings and returns what disagrees (ledger design, section 7).
- * Each method scans every row it checks and finds violations only; it repairs nothing.
- *
- * <p>Runs in the caller's transaction. Called from one {@code REPEATABLE READ} transaction, all
- * three see the same snapshot, so a posting committed between two of them cannot make them
- * disagree.
- */
+// Full scans that report and repair nothing; one REPEATABLE READ transaction runs all three.
 @Repository
 public class JdbcLedgerChecks {
 
@@ -25,10 +18,7 @@ public class JdbcLedgerChecks {
         this.jdbc = jdbc;
     }
 
-    /**
-     * I1: the entries with fewer than two postings, or whose debits and credits differ in some
-     * currency.
-     */
+    /** I1: entries with fewer than two postings, or unequal debits and credits in a currency. */
     public List<EntryId> unbalancedEntries() {
         return jdbc.sql("""
                         SELECT e.id
@@ -47,10 +37,8 @@ public class JdbcLedgerChecks {
     }
 
     /**
-     * I6: the accounts whose balance differs from the sum of their postings, signed by the account's
-     * normal balance (section 3.2). A hot account's balance holds only the postings folded into it,
-     * those created before {@code folded_until} (section 5.3). An account without a balance row is
-     * reported too: its balance is null, which is distinct from any sum.
+     * I6: accounts whose balance differs from the sum of their postings, a hot one counting only what
+     * was folded. An account without a balance row is reported too.
      */
     public List<AccountId> driftedBalances() {
         return jdbc.sql("""

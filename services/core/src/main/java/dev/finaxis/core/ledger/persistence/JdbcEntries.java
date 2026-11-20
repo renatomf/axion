@@ -21,12 +21,7 @@ import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-/**
- * Inserts and reads ledger entries and their postings (ledger design, sections 3.3 and 5.1). Both
- * are immutable, so there is no update or delete method.
- *
- * <p>Runs in the caller's transaction, like {@link JdbcAccounts}.
- */
+// Entries and postings are immutable: there is no update or delete.
 @Repository
 public class JdbcEntries {
 
@@ -36,16 +31,8 @@ public class JdbcEntries {
         this.jdbc = jdbc;
     }
 
-    /**
-     * Inserts the entry's row unless its source already produced an entry for the same purpose
-     * (invariant I4).
-     *
-     * <p>{@code ON CONFLICT DO NOTHING} makes the check and the insert one atomic statement: when
-     * two transactions post the same source at once, the second waits for the first to finish. If
-     * the first commits, the second inserts nothing; if it rolls back, the second inserts its row.
-     *
-     * @return whether the row was inserted; {@code false} if the source was already posted
-     */
+    // Invariant I4. ON CONFLICT DO NOTHING: a concurrent post of the same source waits, then inserts
+    // nothing if the first commits.
     public boolean claim(EntryId id, EntryRequest request) {
         int inserted = jdbc.sql("""
                         INSERT INTO ledger.entries
@@ -67,15 +54,8 @@ public class JdbcEntries {
         return inserted == 1;
     }
 
-    /**
-     * An entry that a source produced: its ID and the tenant it was posted for.
-     *
-     * @param id the entry's primary key
-     * @param tenantId the tenant of the source fact
-     */
     public record SourcedEntry(EntryId id, UUID tenantId) {}
 
-    /** The entry the source produced for its purpose, if there is one. */
     public Optional<SourcedEntry> findBySource(EntrySource source) {
         return jdbc.sql("""
                         SELECT id, tenant_id
@@ -90,10 +70,7 @@ public class JdbcEntries {
                 .optional();
     }
 
-    /**
-     * Inserts the entry's postings, each with a new ID from {@code ids}. At most 32 single-row
-     * statements, one per posting; the deferred trigger checks that they balance at commit.
-     */
+    // The deferred trigger checks that they balance at commit.
     public void insertPostings(Entry entry, UuidV7Generator ids) {
         for (Posting posting : entry.postings()) {
             jdbc.sql("""
@@ -112,10 +89,7 @@ public class JdbcEntries {
         }
     }
 
-    /**
-     * The entry's postings, in no particular order: their UUIDv7 IDs order them by millisecond only,
-     * and an entry's postings are usually inserted within one.
-     */
+    // No order: postings of one entry share a millisecond, which is all a UUIDv7 orders by.
     public List<PostingRequest> findPostings(EntryId entry) {
         return jdbc.sql("""
                         SELECT account_id, direction, amount, currency
@@ -130,14 +104,7 @@ public class JdbcEntries {
                 .list();
     }
 
-    /**
-     * Up to {@code count} of the account's postings, in descending ID order, starting after {@code
-     * after} when it is present.
-     *
-     * <p>Keyset pagination: {@code id < :after} with the index on {@code (account_id, id)} lets
-     * PostgreSQL jump straight to the page and read only its rows, read backwards. {@code OFFSET}
-     * would read and discard every row before the page, slower the deeper the page.
-     */
+    // Keyset pagination on (account_id, id): a deep page costs the same as the first, unlike OFFSET.
     public List<PostingView> history(AccountId account, Optional<PostingId> after, int count) {
         var sql = """
                 SELECT p.id, p.entry_id, e.source_type, e.source_id, e.purpose,
