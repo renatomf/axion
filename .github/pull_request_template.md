@@ -38,7 +38,7 @@ Closes #
 - [ ] **Tests:** prove the behavior, not just coverage
 - [ ] **Observability:** relevant logs and metrics, with correlation IDs
 - [ ] **Documentation:** affected docs, ADRs and API reference updated
-- [ ] **Size:** within the PR size limit (see `CONTRIBUTING.md`)
+- [ ] **Size:** reviewable with care; a split names its reason (see `CONTRIBUTING.md`)
 
 ## Review questions
 
