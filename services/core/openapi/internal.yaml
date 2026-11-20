@@ -78,6 +78,56 @@ paths:
           $ref: "components.yaml#/responses/NotFound"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
+    post:
+      operationId: issueApiKey
+      tags: [API keys]
+      summary: Issue an API key
+      description: >-
+        Issues a key for the tenant, with a name and scopes. The response is
+        the only time the key's secret is shown: store it then. A key's
+        scopes must be permissions the caller holds. A tenant has at most 10
+        working keys, neither revoked nor past a roll's grace period.
+        Requires `api_keys:manage` and an authentication in the last 5
+        minutes; otherwise the `403` has the code `step_up_required` and an
+        RFC 9470 `WWW-Authenticate` challenge.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IssueApiKeyRequest"
+      responses:
+        "201":
+          description: The key was issued; its secret is in this response only.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssuedApiKey"
+        "400":
+          $ref: "components.yaml#/responses/BadRequest"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The caller may not manage API keys (`insufficient_permission`),
+            asked for a scope they do not hold (`insufficient_permission`),
+            or must authenticate again (`step_up_required`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "422":
+          description: >-
+            Some fields are invalid (`validation_failed`, with `errors`), or
+            the tenant already has 10 working keys (`limit_exceeded`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
 components:
   parameters:
     TenantId:
@@ -229,6 +279,65 @@ components:
           expires_at: null
           revoked_at: null
           last_used_at: "2026-11-19T15:00:00Z"
+    IssueApiKeyRequest:
+      description: A key to issue.
+      type: object
+      required: [name, scopes]
+      properties:
+        name:
+          description: A label for the key, to tell it apart in lists.
+          type: string
+          minLength: 1
+          maxLength: 100
+          pattern: "\\S"
+        scopes:
+          description: >-
+            What the key may do. Every scope must be a permission the caller
+            holds; a scope listed twice counts once.
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ApiKeyScope"
+      examples:
+        - name: Checkout
+          scopes: ["charges:read", "charges:write"]
+    IssuedApiKey:
+      description: >-
+        A key just issued: the fields lists show, and its secret, which is
+        never shown again.
+      type: object
+      required: [id, name, last_four, scopes, created_at, secret]
+      properties:
+        id:
+          description: The key's ID, which rolling and revoking take in their path.
+          type: string
+          pattern: "^key_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        name:
+          description: The label the issuer chose.
+          type: string
+          minLength: 1
+          maxLength: 100
+        last_four:
+          description: The key's last four characters, which lists show.
+          type: string
+          pattern: "^[0-9A-Za-z]{4}$"
+        scopes:
+          description: What the key may do, in alphabetical order.
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/ApiKeyScope"
+        created_at:
+          description: When the key was issued.
+          type: string
+          format: date-time
+        secret:
+          description: >-
+            The whole key, sent in the `Authorization` header of the public
+            API. Only its hash is stored: if it is lost, issue a new key.
+          type: string
+          pattern: "^sk_(test|live)_[0-9A-Za-z]{36}$"
     ApiKeyScope:
       description: >-
         A permission an API key may carry. Human-only permissions, such as
