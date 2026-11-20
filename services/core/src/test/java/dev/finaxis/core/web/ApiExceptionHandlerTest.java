@@ -2,6 +2,11 @@ package dev.finaxis.core.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Size;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -14,8 +19,11 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
+import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.web.ErrorResponseException;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -102,6 +110,74 @@ class ApiExceptionHandlerTest {
     }
 
     @Test
+    void validBodyReachesTheController() {
+        assertThat(validated("""
+                        {"name": "Acme", "tags": ["a"]}
+                        """)).hasStatus(HttpStatus.OK).hasBodyTextEqualTo("Acme");
+    }
+
+    @Test
+    void invalidFieldsAreAValidationProblemListingEachField() {
+        assertThat(validated("""
+                        {"name": " ", "tags": ["a", ""]}
+                        """))
+                .hasStatus(HttpStatus.UNPROCESSABLE_CONTENT)
+                .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .bodyJson()
+                .isLenientlyEqualTo("""
+                        {
+                          "status": 422,
+                          "detail": "The request has invalid fields.",
+                          "code": "validation_failed",
+                          "errors": [
+                            {"field": "name", "detail": "must not be blank"},
+                            {"field": "tags[1]", "detail": "must not be blank"}
+                          ]
+                        }
+                        """);
+    }
+
+    @Test
+    void missingFieldsAreAValidationProblem() {
+        assertThat(validated("{}"))
+                .hasStatus(HttpStatus.UNPROCESSABLE_CONTENT)
+                .bodyJson()
+                .extractingPath("$.errors[*].field")
+                .isEqualTo(List.of("name", "tags"));
+    }
+
+    @Test
+    void validationProblemDoesNotEchoTheRejectedValue() {
+        String rejected = "do-not-echo-this-value";
+
+        assertThat(validated("""
+                        {"name": "%s", "tags": ["a"]}
+                        """.formatted(rejected)))
+                .hasStatus(HttpStatus.UNPROCESSABLE_CONTENT)
+                .bodyText()
+                .doesNotContain(rejected);
+    }
+
+    @Test
+    void unreadableBodyIsABadRequestProblem() {
+        assertThat(validated("{\"name\": "))
+                .hasStatus(HttpStatus.BAD_REQUEST)
+                .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("bad_request");
+    }
+
+    /** Posts the body to {@link FailingController#validated}. */
+    private MvcTestResult validated(String body) {
+        return mvc.post()
+                .uri("/test/validated")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body)
+                .exchange();
+    }
+
+    @Test
     void statusSpringDoesNotKnowHasAGenericCode() {
         assertThat(ApiExceptionHandler.defaultCode(HttpStatusCode.valueOf(499))).isEqualTo("error");
     }
@@ -122,5 +198,18 @@ class ApiExceptionHandlerTest {
             problem.setProperty(ApiExceptionHandler.CODE, "request_in_progress");
             throw new ErrorResponseException(HttpStatus.CONFLICT, problem, null);
         }
+
+        /** Answers with the name, once Spring MVC has validated the body. */
+        @PostMapping("/test/validated")
+        String validated(@Valid @RequestBody Form form) {
+            return form.name();
+        }
     }
+
+    /**
+     * A request body with constraints. A missing property arrives as {@code null}, which {@code
+     * @NotBlank} and {@code @NotEmpty} reject as well.
+     */
+    record Form(
+            @NotBlank @Size(max = 10) String name, @NotEmpty List<@NotBlank String> tags) {}
 }
