@@ -86,6 +86,47 @@ class LedgerSchemaTest {
     }
 
     @Test
+    void commitsABalancedEntryAfterTheLedgersRoleIsRestored() {
+        var tenant = UUID.randomUUID();
+        var entry = UUID.randomUUID();
+
+        // The ledger's API returns before the commit, restoring the caller's role, which may read
+        // no ledger table.
+        transaction.executeWithoutResult(status -> {
+            DatabaseRole.LEDGER.actAs(jdbc);
+            var settlement = insertAccount(tenant, "ASSET", "DEBIT", "BRL");
+            var available = insertAccount(tenant, "LIABILITY", "CREDIT", "BRL");
+            insertEntry(entry, tenant);
+            insertPosting(entry, settlement, tenant, "BRL", "DEBIT", 100);
+            insertPosting(entry, available, tenant, "BRL", "CREDIT", 100);
+            insertBalance(settlement, 100);
+            insertBalance(available, 100);
+            DatabaseRole.TENANCY.actAs(jdbc);
+        });
+
+        assertThat(entryExists(entry)).isTrue();
+    }
+
+    @Test
+    void rejectsAnUnbalancedEntryAfterTheLedgersRoleIsRestored() {
+        var tenant = UUID.randomUUID();
+        var entry = UUID.randomUUID();
+
+        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
+                    DatabaseRole.LEDGER.actAs(jdbc);
+                    var settlement = insertAccount(tenant, "ASSET", "DEBIT", "BRL");
+                    var available = insertAccount(tenant, "LIABILITY", "CREDIT", "BRL");
+                    insertEntry(entry, tenant);
+                    insertPosting(entry, settlement, tenant, "BRL", "DEBIT", 100);
+                    insertPosting(entry, available, tenant, "BRL", "CREDIT", 90);
+                    DatabaseRole.TENANCY.actAs(jdbc);
+                }))
+                .rootCause()
+                .hasMessageContaining("does not balance");
+        assertThat(entryExists(entry)).isFalse();
+    }
+
+    @Test
     @Transactional
     void rejectsAnAccountWhoseNormalBalanceContradictsItsType() {
         assertThatThrownBy(() -> insertAccount(UUID.randomUUID(), "ASSET", "CREDIT", "BRL"))
