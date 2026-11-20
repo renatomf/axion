@@ -298,6 +298,8 @@ A tenant therefore sees the fee leg of its own settlement, which tells it nothin
 
 The service logs in as `finaxis_app`, a role with `NOINHERIT` and no privileges of its own. It is a member of every module role (`finaxis_ledger`, `finaxis_tenancy`, `finaxis_access`, …), and each module's API entry point switches the transaction to its module's role with `SET LOCAL ROLE`, restoring the caller's role when it returns. A module's statements thus run with only its own privileges, even inside another module's transaction, as settlement requires.
 
+Checks deferred to commit, such as the ledger's balance triggers (ledger design, section 4), fire after the module's API has returned and the caller's role is back. Their functions are therefore `SECURITY DEFINER`, owned by a role that cannot log in and may only read what the check reads (`finaxis_ledger_checks`), as the key lookup is. Owned by the module's role, they could be dropped by the module's own statements, and the triggers with them.
+
 This guards against mistakes, such as a query reaching into another module's schema; it does not stop an attacker who can run arbitrary SQL in the service's session, who could switch roles too. Against tenant data, the barriers are the tenant derived from the credential and Row-Level Security; against SQL injection, parameterized statements only, checked by Semgrep.
 
 ## 6. Rate limiting
