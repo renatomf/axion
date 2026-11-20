@@ -14,9 +14,8 @@ public record Cpf(String digits) {
     private static final Pattern FORMATTED = Pattern.compile("[0-9]{3}\\.[0-9]{3}\\.[0-9]{3}-[0-9]{2}");
     private static final int MAX_WEIGHT = 11;
 
-    // One repeated digit has correct check digits but is never issued.
     public Cpf {
-        if (!DIGITS.matcher(digits).matches() || isOneRepeatedDigit(digits) || !hasValidCheckDigits(digits)) {
+        if (!DIGITS.matcher(digits).matches() || !CheckDigits.isValid(digits, MAX_WEIGHT)) {
             // The input is not echoed: it may be a real person's CPF.
             throw new IllegalArgumentException("Not a valid CPF");
         }
@@ -42,15 +41,5 @@ public record Cpf(String digits) {
     @Override
     public String toString() {
         return "***." + digits.substring(3, 6) + "." + digits.substring(6, 9) + "-**";
-    }
-
-    private static boolean isOneRepeatedDigit(String digits) {
-        return digits.chars().allMatch(c -> c == digits.charAt(0));
-    }
-
-    private static boolean hasValidCheckDigits(String digits) {
-        int[] values = digits.chars().map(c -> c - '0').toArray();
-        return CheckDigits.mod11(values, 9, MAX_WEIGHT) == values[9]
-                && CheckDigits.mod11(values, 10, MAX_WEIGHT) == values[10];
     }
 }
