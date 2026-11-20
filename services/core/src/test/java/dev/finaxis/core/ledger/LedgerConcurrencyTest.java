@@ -10,6 +10,7 @@ import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.ledger.application.BalanceVerifier;
 import dev.finaxis.core.ledger.application.LedgerVerification;
 import dev.finaxis.core.shared.Money;
+import dev.finaxis.core.shared.TenantId;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,24 +44,25 @@ class LedgerConcurrencyTest {
 
     private static final Money ONE = Money.ofMinor(100, BRL);
 
-    private final LedgerApi ledger;
+    private final LedgerApi api;
     private final JdbcClient jdbc;
     private final JdbcClient owner;
     private final TransactionTemplate transaction;
     private final BalanceVerifier verifier;
 
     private UUID tenant;
+    private TenantBoundLedger ledger;
     private AccountId settlement;
     private AccountId available;
 
     @Autowired
     LedgerConcurrencyTest(
-            LedgerApi ledger,
+            LedgerApi api,
             JdbcClient jdbc,
             DatabaseOwner databaseOwner,
             PlatformTransactionManager transactions,
             BalanceVerifier verifier) {
-        this.ledger = ledger;
+        this.api = api;
         this.jdbc = jdbc;
         this.owner = databaseOwner.jdbc();
         this.transaction = new TransactionTemplate(transactions);
@@ -70,6 +72,7 @@ class LedgerConcurrencyTest {
     @BeforeEach
     void openAccounts() {
         tenant = UUID.randomUUID();
+        ledger = new TenantBoundLedger(api, tenant);
         settlement = ledger.openAccount(
                 new AccountRequest(tenant, "platform:settlement", AccountType.ASSET, BRL, true, false));
         available = ledger.openAccount(
@@ -167,7 +170,7 @@ class LedgerConcurrencyTest {
      */
     private @Nullable Void lockInOrder(AccountId first, AccountId second, CyclicBarrier barrier) {
         return transaction.execute(status -> {
-            DatabaseRole.LEDGER.actAs(jdbc);
+            DatabaseRole.LEDGER.actAs(jdbc, new TenantId(tenant));
             lockBalance(first);
             try {
                 barrier.await();

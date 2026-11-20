@@ -31,17 +31,18 @@ class LedgerQueriesTest {
     private static final Comparator<PostingId> NEWEST_FIRST =
             Comparator.comparing((PostingId id) -> id.value().toString()).reversed();
 
-    private final LedgerApi ledger;
+    private final LedgerApi api;
     private final BalanceVerifier verifier;
     private final JdbcClient owner;
 
     private UUID tenant;
+    private TenantBoundLedger ledger;
     private AccountId settlement;
     private AccountId available;
 
     @Autowired
-    LedgerQueriesTest(LedgerApi ledger, BalanceVerifier verifier, DatabaseOwner databaseOwner) {
-        this.ledger = ledger;
+    LedgerQueriesTest(LedgerApi api, BalanceVerifier verifier, DatabaseOwner databaseOwner) {
+        this.api = api;
         this.verifier = verifier;
         this.owner = databaseOwner.jdbc();
     }
@@ -49,6 +50,7 @@ class LedgerQueriesTest {
     @BeforeEach
     void openAccounts() {
         tenant = UUID.randomUUID();
+        ledger = new TenantBoundLedger(api, tenant);
         settlement = ledger.openAccount(
                 new AccountRequest(tenant, "platform:settlement", AccountType.ASSET, BRL, true, false));
         available = ledger.openAccount(
