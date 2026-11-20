@@ -13,6 +13,15 @@ public sealed interface AuthenticationResult {
     record Authenticated(ApiKeyCaller caller) implements AuthenticationResult {}
 
     /**
+     * The credential is a working key, but its tenant is not {@code ACTIVE}: suspended or closed. The
+     * caller proved it holds the key, so it may learn this, and gets {@code 403 tenant_inactive}
+     * instead of the {@code 401} of a rejection.
+     *
+     * @param key the key, for logs
+     */
+    record TenantInactive(ApiKeyId key) implements AuthenticationResult {}
+
+    /**
      * The credential authenticates nothing. Every rejection gets the same {@code 401}, so a caller
      * cannot learn whether a key exists, expired or was revoked; the reason and the key are for logs
      * and metrics only.

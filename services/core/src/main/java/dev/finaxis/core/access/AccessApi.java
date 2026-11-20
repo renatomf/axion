@@ -78,8 +78,9 @@ public interface AccessApi {
      * stored key, never from the request.
      *
      * @param credential the bearer token exactly as the caller sent it, which may be any text
-     * @return {@link AuthenticationResult.Authenticated} with the caller for a working key, or {@link
-     *     AuthenticationResult.Rejected} with the reason
+     * @return {@link AuthenticationResult.Authenticated} with the caller for a working key of an
+     *     active tenant, {@link AuthenticationResult.TenantInactive} for a working key of any other
+     *     tenant, or {@link AuthenticationResult.Rejected} with the reason
      */
     AuthenticationResult authenticate(String credential);
 

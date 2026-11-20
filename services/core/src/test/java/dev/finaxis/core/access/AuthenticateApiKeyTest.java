@@ -8,6 +8,7 @@ import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.access.AuthenticationResult.Authenticated;
 import dev.finaxis.core.access.AuthenticationResult.Reason;
 import dev.finaxis.core.access.AuthenticationResult.Rejected;
+import dev.finaxis.core.access.AuthenticationResult.TenantInactive;
 import dev.finaxis.core.access.domain.ApiKeySecret;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.tenancy.NewOrganization;
@@ -24,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
  * {@link AccessApi#authenticate} against a real PostgreSQL. Each test creates its own organization,
@@ -35,12 +37,14 @@ class AuthenticateApiKeyTest {
 
     private final AccessApi access;
     private final TenancyApi tenancy;
+    private final JdbcClient jdbc;
     private NewOrganization organization;
 
     @Autowired
-    AuthenticateApiKeyTest(AccessApi access, TenancyApi tenancy) {
+    AuthenticateApiKeyTest(AccessApi access, TenancyApi tenancy, JdbcClient jdbc) {
         this.access = access;
         this.tenancy = tenancy;
+        this.jdbc = jdbc;
     }
 
     @BeforeEach
@@ -102,6 +106,27 @@ class AuthenticateApiKeyTest {
         var key = issued(Environment.TEST, Set.of(CHARGES_READ));
         access.roll(admin(Environment.TEST), key.id(), Duration.ofHours(1));
         access.revoke(admin(Environment.TEST), key.id());
+
+        assertThat(access.authenticate(key.secret())).isEqualTo(new Rejected(Reason.REVOKED, Optional.of(key.id())));
+    }
+
+    @Test
+    void tellsAKeyOfAnInactiveTenantApart() {
+        var key = issued(Environment.TEST, Set.of(CHARGES_READ));
+        jdbc.sql("UPDATE tenancy.tenants SET status = 'SUSPENDED' WHERE id = ?")
+                .param(organization.test().value())
+                .update();
+
+        assertThat(access.authenticate(key.secret())).isEqualTo(new TenantInactive(key.id()));
+    }
+
+    @Test
+    void rejectsARevokedKeyOfAnInactiveTenant() {
+        var key = issued(Environment.TEST, Set.of(CHARGES_READ));
+        access.revoke(admin(Environment.TEST), key.id());
+        jdbc.sql("UPDATE tenancy.tenants SET status = 'CLOSED' WHERE id = ?")
+                .param(organization.test().value())
+                .update();
 
         assertThat(access.authenticate(key.secret())).isEqualTo(new Rejected(Reason.REVOKED, Optional.of(key.id())));
     }
