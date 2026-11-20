@@ -230,13 +230,14 @@ Authentication ends with one of two principals, a sealed type in `access`:
 ```java
 sealed interface Caller permits ApiKeyCaller, MemberCaller {
     TenantId tenant();
+    Environment environment();
     Set<Permission> permissions();
 }
-record ApiKeyCaller(TenantId tenant, ApiKeyId key, Set<Permission> permissions) implements Caller {}
+record ApiKeyCaller(TenantId tenant, Environment environment, ApiKeyId key, Set<Permission> permissions) implements Caller {}
 record MemberCaller(TenantId tenant, Environment environment, MemberId member, Set<Permission> permissions) implements Caller {}
 ```
 
-A member caller also carries the tenant's environment, which resolution reads anyway, so that code acting on the tenant, such as issuing a key with the right prefix, needs no second query.
+A caller also carries the tenant's environment, which authentication reads anyway to check the tenant's status, so that code acting on the tenant, such as issuing a key with the right prefix or binding the platform tenant (section 5.5), needs no second query.
 
 **API keys.** The tenant is the key's tenant and the permissions are its scopes. Nothing in the request can change either.
 
@@ -255,7 +256,7 @@ The tenant of the request reaches the database through two independent paths, so
 1. **Explicitly, in every query.** The controller passes the caller's `TenantId` to the application service, and every query filters by it (overview, section 4.3, layer ②).
 2. **Implicitly, to Row-Level Security.** Once the caller is established (section 5.2), the controller method runs inside a Java `ScopedValue` holding the caller's tenant (`TenantContext`, in `shared`). A member's tenant is known only after the permission interceptor has checked the membership, and an interceptor cannot wrap the call, so the binding sits in Spring MVC's handler adapter rather than in a servlet filter: one point binds API keys and members alike, and only a tenant already checked. At the start of every transaction, a Spring `TransactionExecutionListener` reads it and binds it to the transaction with `set_config('finaxis.tenant_id', …, true)`. The `true` makes the setting transaction-local: it disappears at commit or rollback, so a pooled connection never carries one request's tenant into the next.
 
-A `ScopedValue` (final in Java 25) is bound for the duration of a call and cannot be changed or leak afterwards, unlike a `ThreadLocal`, which must be cleared by hand. Work outside a request, such as an event listener, binds the tenant from the event with `TenantContext.run(tenant, …)`; work with no tenant binds none.
+A `ScopedValue` (final in Java 25) is bound for the duration of a call and cannot be changed or leak afterwards, unlike a `ThreadLocal`, which must be cleared by hand. Work outside a request, such as an event listener, binds the tenant from the event with `TenantContext.run(tenant, environment, …)`; work with no tenant binds none. The tenant's environment is bound with it, from the caller (section 5.1), so the listener finds the platform tenant beside it (section 5.5) without a query.
 
 **Every database access runs in a transaction**, reads included (`@Transactional(readOnly = true)`). Outside a transaction no tenant is bound and no module role is set (section 5.6), so the access fails instead of running unscoped.
 
@@ -283,7 +284,7 @@ The `tenancy` tables are the directory that defines tenants, read by authenticat
 
 ### 5.5 Row-Level Security in the ledger
 
-A settlement runs in the context of the tenant who is paid, but posts to the platform's accounts too (ledger design, section 3.3). So the ledger's policies admit the platform tenant of the same environment, which the binding listener sets as `finaxis.platform_tenant_id` beside the tenant:
+A settlement runs in the context of the tenant who is paid, but posts to the platform's accounts too (ledger design, section 3.3). So the ledger's policies admit the platform tenant of the same environment, which the binding listener sets as `finaxis.platform_tenant_id` beside the tenant, from the environment bound with it (section 5.3):
 
 | Table | A tenant reads | A tenant writes |
 |---|---|---|

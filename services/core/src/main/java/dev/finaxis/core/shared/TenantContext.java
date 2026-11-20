@@ -8,20 +8,24 @@ import java.util.Optional;
  */
 public final class TenantContext {
 
-    private static final ScopedValue<TenantId> TENANT = ScopedValue.newInstance();
+    /** A tenant and its environment, which selects the platform tenant beside it (section 5.5). */
+    public record Binding(TenantId tenant, Environment environment) {}
+
+    private static final ScopedValue<Binding> BINDING = ScopedValue.newInstance();
 
     private TenantContext() {}
 
     /** The bound tenant; empty outside {@link #run} and {@link #call}. */
-    public static Optional<TenantId> current() {
-        return TENANT.isBound() ? Optional.of(TENANT.get()) : Optional.empty();
+    public static Optional<Binding> current() {
+        return BINDING.isBound() ? Optional.of(BINDING.get()) : Optional.empty();
     }
 
-    public static void run(TenantId tenant, Runnable work) {
-        ScopedValue.where(TENANT, tenant).run(work);
+    public static void run(TenantId tenant, Environment environment, Runnable work) {
+        ScopedValue.where(BINDING, new Binding(tenant, environment)).run(work);
     }
 
-    public static <T, X extends Throwable> T call(TenantId tenant, ScopedValue.CallableOp<T, X> work) throws X {
-        return ScopedValue.where(TENANT, tenant).call(work);
+    public static <T, X extends Throwable> T call(
+            TenantId tenant, Environment environment, ScopedValue.CallableOp<T, X> work) throws X {
+        return ScopedValue.where(BINDING, new Binding(tenant, environment)).call(work);
     }
 }

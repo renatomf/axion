@@ -29,7 +29,7 @@ class RevokeApiKeyTest {
 
     @Autowired
     RevokeApiKeyTest(AccessApi access, TenancyApi tenancy) {
-        this.access = new TenantBoundAccess(access);
+        this.access = new TenantBoundAccess(access, tenancy);
         this.tenancy = tenancy;
     }
 

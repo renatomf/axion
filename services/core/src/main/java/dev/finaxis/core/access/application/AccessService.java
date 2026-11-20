@@ -161,7 +161,8 @@ public class AccessService implements AccessApi {
         if (key.useIsDue(now)) {
             keys.recordUse(secret.hash(), now);
         }
-        return new AuthenticationResult.Authenticated(new ApiKeyCaller(key.tenant(), key.id(), key.scopes()));
+        return new AuthenticationResult.Authenticated(
+                new ApiKeyCaller(key.tenant(), tenant.environment(), key.id(), key.scopes()));
     }
 
     private IssuedApiKey insertKey(MemberCaller issuer, String name, Set<Permission> scopes, Instant now) {

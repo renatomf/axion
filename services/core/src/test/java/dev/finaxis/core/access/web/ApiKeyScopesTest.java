@@ -67,7 +67,7 @@ class ApiKeyScopesTest {
     @Autowired
     ApiKeyScopesTest(MockMvcTester mvc, AccessApi access, TenancyApi tenancy) {
         this.mvc = mvc;
-        this.access = new TenantBoundAccess(access);
+        this.access = new TenantBoundAccess(access, tenancy);
         this.tenancy = tenancy;
     }
 

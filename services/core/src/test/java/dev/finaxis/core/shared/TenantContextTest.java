@@ -20,22 +20,23 @@ class TenantContextTest {
 
     @Test
     void bindsTheTenantForTheDurationOfTheWork() {
-        AtomicReference<Optional<TenantId>> seen = new AtomicReference<>();
+        AtomicReference<Optional<TenantContext.Binding>> seen = new AtomicReference<>();
 
-        TenantContext.run(TENANT, () -> seen.set(TenantContext.current()));
+        TenantContext.run(TENANT, Environment.TEST, () -> seen.set(TenantContext.current()));
 
-        assertThat(seen).hasValue(Optional.of(TENANT));
+        assertThat(seen).hasValue(Optional.of(new TenantContext.Binding(TENANT, Environment.TEST)));
         assertThat(TenantContext.current()).isEmpty();
     }
 
     @Test
     void returnsWhatTheWorkReturns() {
-        assertThat(TenantContext.call(TENANT, TenantContext::current)).contains(TENANT);
+        assertThat(TenantContext.call(TENANT, Environment.TEST, TenantContext::current))
+                .contains(new TenantContext.Binding(TENANT, Environment.TEST));
     }
 
     @Test
     void unbindsTheTenantWhenTheWorkFails() {
-        assertThatThrownBy(() -> TenantContext.call(TENANT, () -> {
+        assertThatThrownBy(() -> TenantContext.call(TENANT, Environment.TEST, () -> {
                     throw new IOException("failed");
                 }))
                 .isInstanceOf(IOException.class);
@@ -47,9 +48,10 @@ class TenantContextTest {
     void aNestedBindingLastsOnlyForItsOwnWork() {
         TenantId other = new TenantId(UUID.randomUUID());
 
-        TenantContext.run(TENANT, () -> {
-            assertThat(TenantContext.call(other, TenantContext::current)).contains(other);
-            assertThat(TenantContext.current()).contains(TENANT);
+        TenantContext.run(TENANT, Environment.TEST, () -> {
+            assertThat(TenantContext.call(other, Environment.LIVE, TenantContext::current))
+                    .contains(new TenantContext.Binding(other, Environment.LIVE));
+            assertThat(TenantContext.current()).contains(new TenantContext.Binding(TENANT, Environment.TEST));
         });
     }
 }

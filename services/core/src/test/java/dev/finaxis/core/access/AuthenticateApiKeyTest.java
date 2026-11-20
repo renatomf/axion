@@ -46,7 +46,7 @@ class AuthenticateApiKeyTest {
 
     @Autowired
     AuthenticateApiKeyTest(AccessApi access, TenancyApi tenancy, DatabaseOwner databaseOwner) {
-        this.access = new TenantBoundAccess(access);
+        this.access = new TenantBoundAccess(access, tenancy);
         this.tenancy = tenancy;
         this.owner = databaseOwner.jdbc();
     }
@@ -61,8 +61,8 @@ class AuthenticateApiKeyTest {
         var key = issued(Environment.LIVE, Set.of(CHARGES_READ, CHARGES_WRITE));
 
         assertThat(access.authenticate(key.secret()))
-                .isEqualTo(new Authenticated(
-                        new ApiKeyCaller(organization.live(), key.id(), Set.of(CHARGES_READ, CHARGES_WRITE))));
+                .isEqualTo(new Authenticated(new ApiKeyCaller(
+                        organization.live(), Environment.LIVE, key.id(), Set.of(CHARGES_READ, CHARGES_WRITE))));
     }
 
     @Test
