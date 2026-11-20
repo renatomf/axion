@@ -20,10 +20,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
-/**
- * {@link LedgerApi#balanceOf} and {@link LedgerApi#history} against a real PostgreSQL. Each call commits its own transaction, and
- * every test uses new accounts and new sources.
- */
+/** {@link LedgerApi#balanceOf} and {@link LedgerApi#history}; every test uses new accounts and sources. */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
 class LedgerQueriesTest {
@@ -213,10 +210,7 @@ class LedgerQueriesTest {
         return source;
     }
 
-    /**
-     * Does what the folding job will (ledger design, section 5.3): moves the postings committed so
-     * far into the balance row. They were created before this statement's transaction started.
-     */
+    /** What the folding job will do (ledger design, section 5.3): fold committed postings into the balance row. */
     private void fold(AccountId hot) {
         jdbc.sql("""
                         UPDATE ledger.balances b

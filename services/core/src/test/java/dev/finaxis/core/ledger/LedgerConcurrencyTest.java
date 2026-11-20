@@ -31,9 +31,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * The ledger under concurrent load, against a real PostgreSQL (ledger design, section 8). Each call
- * to {@link LedgerApi#post} runs on its own thread, in its own transaction, so PostgreSQL's row
- * locks are what keeps the balances right.
+ * The ledger under concurrent load (ledger design, section 8): each post runs on its own thread and
+ * transaction, so PostgreSQL's row locks are what keeps the balances right.
  */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
@@ -177,10 +176,7 @@ class LedgerConcurrencyTest {
                 .update();
     }
 
-    /**
-     * Runs every call on its own thread and returns their results. A latch holds the threads until
-     * all of them are ready, so the calls start together instead of one after another.
-     */
+    /** Starts every call together, each on its own thread. */
     private static <T> List<T> postAtOnce(List<Callable<T>> calls) throws InterruptedException, ExecutionException {
         var ready = new CountDownLatch(calls.size());
         var start = new CountDownLatch(1);
@@ -203,11 +199,6 @@ class LedgerConcurrencyTest {
         }
     }
 
-    /**
-     * Moves {@code amount} from one account to another: a debit of {@code from} and a credit of
-     * {@code to}. On a liability, such as the tenant's, the debit lowers the balance (ledger design,
-     * section 3.2).
-     */
     private EntryRequest transfer(AccountId from, AccountId to, Money amount) {
         return new EntryRequest(
                 tenant,

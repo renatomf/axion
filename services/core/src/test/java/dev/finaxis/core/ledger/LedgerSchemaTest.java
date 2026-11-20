@@ -15,13 +15,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * The ledger's tables and the rules the database enforces on them (ledger design, sections 3.3 and
- * 4), checked against a real PostgreSQL.
- *
- * <p>Tests annotated with {@code @Transactional} run inside one transaction that Spring's test
- * support rolls back when the test ends, so they leave no rows behind. The rules checked at commit
- * need a real commit instead: those tests run their statements through a {@link TransactionTemplate}
- * and use a new tenant each, so the rows they commit never meet another test's.
+ * The rules the database enforces on the ledger's tables (ledger design, sections 3.3 and 4). Rules
+ * checked at commit need a real commit, so those tests commit, each with a new tenant.
  */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
@@ -216,11 +211,7 @@ class LedgerSchemaTest {
                 .containsExactlyInAnyOrder("lock_timeout=2s", "statement_timeout=5s", "transaction_timeout=30s");
     }
 
-    /**
-     * Switches the current transaction to the ledger role, as if the service had connected as it.
-     * {@code SET LOCAL} lasts until the transaction ends, so the pooled connection returns to the
-     * owner role afterwards.
-     */
+    /** Acts as the ledger role until the test's transaction ends. */
     private void actAsTheLedgerRole() {
         jdbc.sql("SET LOCAL ROLE finaxis_ledger").update();
     }
