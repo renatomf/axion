@@ -1,6 +1,7 @@
 package dev.finaxis.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
 import org.jspecify.annotations.Nullable;
@@ -22,6 +23,20 @@ class LoginRoleTest {
     @Autowired
     LoginRoleTest(JdbcClient jdbc) {
         this.jdbc = jdbc;
+    }
+
+    @Test
+    void isTheRoleTheServiceLogsInAs() {
+        assertThat(jdbc.sql("SELECT session_user").query(String.class).single()).isEqualTo("finaxis_app");
+    }
+
+    @Test
+    void reachesNoModuleTableOutsideAModulesApi() {
+        assertThatThrownBy(() -> jdbc.sql("SELECT count(*) FROM tenancy.organizations")
+                        .query(Long.class)
+                        .single())
+                .rootCause()
+                .hasMessageContaining("permission denied for schema tenancy");
     }
 
     @Test
