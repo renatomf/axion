@@ -133,7 +133,7 @@ Estimates assume the Spring learning curve. Quality is never traded for schedule
 | ↳ 1.21a | API key authentication | `AccessApi.authenticate` and its outcomes, in the access module ([#121](https://github.com/renatomf/finaxis/pull/121)) |
 | ↳ 1.21b | API key authentication on `/v1` | The `/v1` filter chain; one `401` for every rejected key, `403 tenant_inactive` ([#123](https://github.com/renatomf/finaxis/pull/123)) |
 | ↳ 1.21c | API key scopes on `/v1` endpoints | `@RequiresPermission` checked against the key's scopes; the endpoint receives the `ApiKeyCaller` ([#127](https://github.com/renatomf/finaxis/pull/127)) |
-| ↳ 1.21d | Key last use | `last_used_at`, updated at most once an hour per key by a conditional update |
+| ↳ 1.21d | Key last use | `last_used_at`, updated at most once an hour per key by a conditional update ([#129](https://github.com/renatomf/finaxis/pull/129)) |
 | ↳ 1.21e | Authentication failure signals | Failure logs with the reason and key ID, never the secret; `finaxis_authentication_failures_total{reason}` |
 | 1.22 | Row-Level Security | RLS policies and per-module DB roles |
 | ↳ 1.22a | Tenant context | `TenantContext` (`ScopedValue`) bound after authentication; a transaction listener sets `finaxis.tenant_id` |
