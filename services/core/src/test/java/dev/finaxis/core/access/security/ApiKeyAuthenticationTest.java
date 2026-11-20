@@ -10,6 +10,7 @@ import dev.finaxis.core.access.AccessFixtures;
 import dev.finaxis.core.access.IssuedApiKey;
 import dev.finaxis.core.access.MemberCaller;
 import dev.finaxis.core.access.NoPermissionRequired;
+import dev.finaxis.core.access.TenantBoundAccess;
 import dev.finaxis.core.access.domain.ApiKeySecret;
 import dev.finaxis.core.access.security.AuthenticationFailures.Failure;
 import dev.finaxis.core.shared.Environment;
@@ -75,7 +76,7 @@ class ApiKeyAuthenticationTest {
     ApiKeyAuthenticationTest(
             MockMvcTester mvc, AccessApi access, TenancyApi tenancy, JdbcClient jdbc, MeterRegistry meters) {
         this.mvc = mvc;
-        this.access = access;
+        this.access = new TenantBoundAccess(access);
         this.tenancy = tenancy;
         this.jdbc = jdbc;
         this.meters = meters;

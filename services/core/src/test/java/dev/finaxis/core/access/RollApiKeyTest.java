@@ -43,7 +43,7 @@ class RollApiKeyTest {
 
     @Autowired
     RollApiKeyTest(AccessApi access, TenancyApi tenancy, JdbcClient jdbc) {
-        this.access = access;
+        this.access = new TenantBoundAccess(access);
         this.tenancy = tenancy;
         this.jdbc = jdbc;
     }
