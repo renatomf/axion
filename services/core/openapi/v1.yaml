@@ -31,7 +31,12 @@ components:
   securitySchemes:
     api_key:
       description: >-
-        A tenant API key sent as a bearer token. Its format, scopes and
-        rotation are defined with API key issuance (roadmap 1.20).
+        A tenant API key, sent as a bearer token in the `Authorization`
+        header: `Authorization: Bearer sk_test_…`. The key decides the
+        tenant and the scopes of the request; nothing else in the request
+        can change them. A missing, malformed, unknown, revoked or expired
+        key gets `401` with code `unauthorized`, the same answer whatever
+        the reason; a working key of a tenant that is not active gets `403`
+        with code `tenant_inactive`.
       type: http
       scheme: bearer
