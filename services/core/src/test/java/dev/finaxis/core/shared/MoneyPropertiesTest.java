@@ -14,14 +14,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 
-/**
- * Properties that hold for every {@code Money}, checked by jqwik against generated inputs instead of
- * hand-picked examples.
- *
- * <p>Each {@code @Property} runs 1,000 times with new values; generation favors edge cases such as
- * zero, one and the limits of the range. When a property fails, jqwik shrinks the input to the
- * smallest one that still fails and reports it, together with the seed that reproduces the run.
- */
+/** Properties of every {@code Money}, checked by jqwik against generated inputs. */
 class MoneyPropertiesTest {
 
     private static final Currency BRL = Currency.getInstance("BRL");

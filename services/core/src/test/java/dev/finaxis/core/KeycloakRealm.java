@@ -13,15 +13,11 @@ import org.springframework.web.client.RestClient;
 import org.testcontainers.containers.GenericContainer;
 
 /**
- * The {@code finaxis} realm of the test Keycloak, and tokens from it.
- *
- * <p>The console logs members in with the authorization code flow, PKCE and a second factor: a
- * browser journey a test cannot run. So, on creation, this adds to the realm, with Keycloak's admin
- * API, what {@code src/test/resources/keycloak/test-fixtures.json} describes: two clients allowed to
- * use the password grant ({@value #TEST_CLIENT}, which the core accepts, and {@value
- * #OTHER_CLIENT}, which it does not) and a synthetic member. Both clients add the {@code
- * finaxis-core} audience like the console does, so their tokens differ from the console's only in
- * {@code azp}.
+ * The {@code finaxis} realm of the test Keycloak, and tokens from it. The console's login (code
+ * flow, PKCE, second factor) cannot run in a test, so this adds two password-grant clients and a
+ * synthetic member from {@code keycloak/test-fixtures.json}: {@value #TEST_CLIENT}, which the core
+ * accepts, and {@value #OTHER_CLIENT}, which it does not. Their tokens differ from the console's
+ * only in {@code azp}.
  */
 public final class KeycloakRealm {
 
@@ -37,7 +33,6 @@ public final class KeycloakRealm {
     private static final ParameterizedTypeReference<Map<String, Object>> JSON_OBJECT =
             new ParameterizedTypeReference<>() {};
 
-    /** The tokens of one login. */
     public record Tokens(String accessToken, String idToken) {}
 
     private final String baseUrl;

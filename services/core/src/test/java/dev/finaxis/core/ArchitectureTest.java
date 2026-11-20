@@ -20,29 +20,15 @@ import dev.finaxis.core.access.RequiresStepUp;
 import java.time.Clock;
 import org.springframework.web.bind.annotation.RequestMapping;
 
-/**
- * Coding rules of the engineering standards (overview design, section 19.2), checked against the
- * compiled production classes.
- *
- * <p>{@code @AnalyzeClasses} imports every class under {@code dev.finaxis.core} once, without tests,
- * and ArchUnit's JUnit engine runs each {@code @ArchTest} rule against them. No Spring context is
- * started. A failing rule lists every offending class and line.
- */
+/** The coding rules of the engineering standards (overview design, section 19.2), on the production classes. */
 @AnalyzeClasses(packagesOf = Application.class, importOptions = ImportOption.DoNotIncludeTests.class)
 class ArchitectureTest {
 
-    /**
-     * Dependencies are passed to the constructor, never injected into fields with {@code @Autowired},
-     * {@code @Inject}, {@code @Resource} or {@code @Value}. A class then cannot be created without
-     * them, its fields can be final, and tests create it with {@code new}.
-     */
+    /** Constructor injection only, so fields can be final and tests create a class with {@code new}. */
     @ArchTest
     static final ArchRule constructorInjectionOnly = GeneralCodingRules.NO_CLASSES_SHOULD_USE_FIELD_INJECTION;
 
-    /**
-     * Domain code is plain Java: it knows nothing about Spring, persistence or transactions, so the
-     * business rules can be read and tested on their own.
-     */
+    /** Domain code knows nothing of Spring, persistence or transactions. */
     @ArchTest
     static final ArchRule domainIsPlainJava = noClasses()
             .that()
@@ -52,21 +38,11 @@ class ArchitectureTest {
             .resideInAnyPackage(
                     "org.springframework..", "jakarta.persistence..", "jakarta.transaction..", "org.hibernate..");
 
-    /**
-     * The current time comes from an injected {@link Clock}, so tests can fix it. This forbids the
-     * shortcuts that read the system clock directly: {@code Instant.now()}, {@code
-     * LocalDate.now(zone)} and every other {@code java.time} {@code now} that does not take a
-     * {@code Clock}, as well as {@code System.currentTimeMillis()}.
-     */
+    /** Time comes from an injected {@link Clock}: no {@code now()} without one, no {@code System.currentTimeMillis()}. */
     @ArchTest
     static final ArchRule timeComesFromAClock = noClasses().should().callMethodWhere(readsTheSystemClock());
 
-    /**
-     * Every endpoint declares what it needs: exactly one of {@link RequiresPermission} and {@link
-     * NoPermissionRequired} (tenancy design, section 5.2). An endpoint is a method with a Spring MVC
-     * mapping, which {@code @GetMapping}, {@code @PostMapping} and the others carry as a
-     * meta-annotation.
-     */
+    /** Every endpoint declares exactly one of {@link RequiresPermission} and {@link NoPermissionRequired}. */
     @ArchTest
     static final ArchRule everyEndpointDeclaresItsPermission =
             methods().that().areMetaAnnotatedWith(RequestMapping.class).should(declareExactlyOnePermission());

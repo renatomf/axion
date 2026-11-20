@@ -9,16 +9,9 @@ import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.utility.MountableFile;
 
 /**
- * A real Keycloak for tests, with the {@code finaxis} realm of the local infrastructure.
- *
- * <p>Import it with {@code @Import(KeycloakTestConfiguration.class)}, next to {@link
- * PostgresTestConfiguration}. As there, the container is a Spring bean that Spring Boot starts with
- * the test context. The realm is imported from {@code infra/keycloak/realms/finaxis.json}, the file
- * Docker Compose uses, so tests validate tokens of the realm as it is configured, not of a copy.
- * {@link KeycloakRealm} then adds the test clients and user, and points the core at the realm.
- *
- * <p>Keycloak runs with {@code start-dev}: plain HTTP and an issuer taken from the URL each request
- * uses, which suits a container on a random port. Compose runs the production mode ({@code start}).
+ * A real Keycloak for tests, importing {@code infra/keycloak/realms/finaxis.json}, the file Compose
+ * uses, so tests validate tokens of the realm as configured, not of a copy. {@code start-dev} suits
+ * a container on a random port; Compose runs the production mode.
  */
 @TestConfiguration(proxyBeanMethods = false)
 public class KeycloakTestConfiguration {
@@ -27,7 +20,6 @@ public class KeycloakTestConfiguration {
     private static final DockerImageName IMAGE = DockerImageName.parse(
             "quay.io/keycloak/keycloak:26.8.2@sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3");
 
-    /** Relative to services/core, the directory Gradle runs the tests in. */
     private static final String REALM_FILE = "../../infra/keycloak/realms/finaxis.json";
 
     static final int HTTP_PORT = 8080;
@@ -54,10 +46,7 @@ public class KeycloakTestConfiguration {
         return new KeycloakRealm(keycloak);
     }
 
-    /**
-     * Points {@code finaxis.members} at the container, whose port is known only once it runs, and
-     * accepts the test client besides the console.
-     */
+    /** The container's port is known only once it runs. */
     @Bean
     DynamicPropertyRegistrar keycloakProperties(KeycloakRealm realm) {
         return registry -> {

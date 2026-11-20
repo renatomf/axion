@@ -11,14 +11,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 
 /**
- * The Actuator health endpoint, with the default configuration from {@code application.yml}.
- *
- * <p>{@code @AutoConfigureMockMvc} provides a {@link MockMvcTester}: requests go through the full
- * Spring MVC stack (routing, Actuator, JSON serialization) without opening a network port.
- *
- * <p>{@code addFilters = false} leaves Spring Security out, so these tests see what Actuator itself
- * exposes: with security on, a closed endpoint and a missing one both answer {@code 401}. That the
- * health endpoint is public is tested with security, in {@code SecurityConfigurationTest}.
+ * The health endpoint as Actuator exposes it, without security, which would answer {@code 401} for
+ * a closed and a missing endpoint alike; {@code SecurityConfigurationTest} covers it with security.
  */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
