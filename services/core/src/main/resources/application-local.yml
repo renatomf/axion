@@ -5,15 +5,21 @@
 spring:
   config:
     # Read the local infrastructure settings (FINAXIS_DB_PASSWORD,
-    # FINAXIS_DB_PORT) from the same git-ignored file Docker Compose uses,
-    # so they are defined once. `[.properties]` tells Spring to parse the
-    # .env file as KEY=value properties. The path is relative to the
+    # FINAXIS_APP_DB_PASSWORD, FINAXIS_DB_PORT) from the same git-ignored file
+    # Docker Compose uses, so they are defined once. `[.properties]` tells
+    # Spring to parse the .env file as KEY=value properties. The path is relative to the
     # working directory, services/core under `./gradlew bootRun`.
     import: optional:file:../../infra/compose/.env[.properties]
   datasource:
     # The PostgreSQL started by `just up` (infra/compose/compose.yaml).
     url: jdbc:postgresql://localhost:${FINAXIS_DB_PORT:5432}/finaxis
-    username: finaxis
+    # The role the service logs in as, which owns nothing and reaches a
+    # module's tables only through the module's role.
+    username: finaxis_app
+    password: ${FINAXIS_APP_DB_PASSWORD}
+  flyway:
+    # Migrations run as the owner of the schemas, on a connection of their own.
+    user: finaxis
     password: ${FINAXIS_DB_PASSWORD}
 
 finaxis:

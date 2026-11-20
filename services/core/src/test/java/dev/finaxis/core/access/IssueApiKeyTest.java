@@ -7,6 +7,7 @@ import static dev.finaxis.core.tenancy.Permission.REFUNDS_WRITE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.access.domain.ApiKeySecret;
 import dev.finaxis.core.shared.Environment;
@@ -34,14 +35,14 @@ class IssueApiKeyTest {
 
     private final AccessApi access;
     private final TenancyApi tenancy;
-    private final JdbcClient jdbc;
+    private final JdbcClient owner;
     private NewOrganization organization;
 
     @Autowired
-    IssueApiKeyTest(AccessApi access, TenancyApi tenancy, JdbcClient jdbc) {
+    IssueApiKeyTest(AccessApi access, TenancyApi tenancy, DatabaseOwner databaseOwner) {
         this.access = new TenantBoundAccess(access);
         this.tenancy = tenancy;
-        this.jdbc = jdbc;
+        this.owner = databaseOwner.jdbc();
     }
 
     @BeforeEach
@@ -55,7 +56,7 @@ class IssueApiKeyTest {
                 AccessFixtures.issue(access, admin(Environment.LIVE), "Checkout", Set.of(CHARGES_READ, CHARGES_WRITE));
 
         var secret = ApiKeySecret.parse(key.secret()).orElseThrow();
-        var stored = jdbc.sql("""
+        var stored = owner.sql("""
                         SELECT tenant_id, name, secret_hash, last_four, array_to_string(scopes, ' ') AS scopes, created_by
                           FROM access.api_keys
                          WHERE id = ?
@@ -74,7 +75,7 @@ class IssueApiKeyTest {
     void returnsTheIssueInstantThatIsStored() {
         var key = AccessFixtures.issue(access, admin(Environment.TEST), "Checkout", Set.of(CHARGES_READ));
 
-        var stored = jdbc.sql("SELECT created_at FROM access.api_keys WHERE id = ?")
+        var stored = owner.sql("SELECT created_at FROM access.api_keys WHERE id = ?")
                 .param(key.id().value())
                 .query(OffsetDateTime.class)
                 .single();
@@ -163,7 +164,7 @@ class IssueApiKeyTest {
     }
 
     private int keyCount(TenantId tenant) {
-        return jdbc.sql("SELECT count(*) FROM access.api_keys WHERE tenant_id = ?")
+        return owner.sql("SELECT count(*) FROM access.api_keys WHERE tenant_id = ?")
                 .param(tenant.value())
                 .query(Integer.class)
                 .single();

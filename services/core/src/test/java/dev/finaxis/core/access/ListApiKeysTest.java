@@ -4,6 +4,7 @@ import static dev.finaxis.core.tenancy.Permission.CHARGES_READ;
 import static dev.finaxis.core.tenancy.Permission.CHARGES_WRITE;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.tenancy.NewOrganization;
@@ -33,14 +34,14 @@ class ListApiKeysTest {
 
     private final AccessApi access;
     private final TenancyApi tenancy;
-    private final JdbcClient jdbc;
+    private final JdbcClient owner;
     private NewOrganization organization;
 
     @Autowired
-    ListApiKeysTest(AccessApi access, TenancyApi tenancy, JdbcClient jdbc) {
+    ListApiKeysTest(AccessApi access, TenancyApi tenancy, DatabaseOwner databaseOwner) {
         this.access = new TenantBoundAccess(access);
         this.tenancy = tenancy;
-        this.jdbc = jdbc;
+        this.owner = databaseOwner.jdbc();
     }
 
     @BeforeEach
@@ -78,7 +79,7 @@ class ListApiKeysTest {
     @Test
     void showsWhatHappenedToAKey() {
         var key = issued(Environment.TEST, "Checkout", Set.of(CHARGES_READ));
-        jdbc.sql("UPDATE access.api_keys SET expires_at = ?, revoked_at = ?, last_used_at = ? WHERE id = ?")
+        owner.sql("UPDATE access.api_keys SET expires_at = ?, revoked_at = ?, last_used_at = ? WHERE id = ?")
                 .params(
                         utc(MOMENT.plusSeconds(2)),
                         utc(MOMENT.plusSeconds(3)),

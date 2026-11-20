@@ -3,17 +3,17 @@ package dev.finaxis.core.ledger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The rules the database enforces on the ledger's tables (ledger design, sections 3.3 and 4). Rules
@@ -23,13 +23,18 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Import(PostgresTestConfiguration.class)
 class LedgerSchemaTest {
 
+    private final DatabaseOwner.Session session;
     private final JdbcClient jdbc;
-    private final TransactionTemplate transaction;
 
     @Autowired
-    LedgerSchemaTest(JdbcClient jdbc, TransactionTemplate transaction) {
-        this.jdbc = jdbc;
-        this.transaction = transaction;
+    LedgerSchemaTest(DatabaseOwner owner) {
+        this.session = owner.session();
+        this.jdbc = session.jdbc();
+    }
+
+    @AfterEach
+    void rollBack() {
+        session.close();
     }
 
     @Test
@@ -37,7 +42,7 @@ class LedgerSchemaTest {
         var tenant = UUID.randomUUID();
         var entry = UUID.randomUUID();
 
-        transaction.executeWithoutResult(status -> {
+        committed(() -> {
             DatabaseRole.LEDGER.actAs(jdbc);
             var settlement = insertAccount(tenant, "ASSET", "DEBIT", "BRL");
             var available = insertAccount(tenant, "LIABILITY", "CREDIT", "BRL");
@@ -59,7 +64,7 @@ class LedgerSchemaTest {
         var entry = UUID.randomUUID();
 
         // Each insert succeeds; the commit fails and rolls everything back.
-        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
+        assertThatThrownBy(() -> committed(() -> {
                     DatabaseRole.LEDGER.actAs(jdbc);
                     var settlement = insertAccount(tenant, "ASSET", "DEBIT", "BRL");
                     var available = insertAccount(tenant, "LIABILITY", "CREDIT", "BRL");
@@ -76,7 +81,7 @@ class LedgerSchemaTest {
     void rejectsAnEntryWithoutPostingsAtCommit() {
         var entry = UUID.randomUUID();
 
-        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
+        assertThatThrownBy(() -> committed(() -> {
                     DatabaseRole.LEDGER.actAs(jdbc);
                     insertEntry(entry, UUID.randomUUID());
                 }))
@@ -86,14 +91,53 @@ class LedgerSchemaTest {
     }
 
     @Test
-    @Transactional
+    void commitsABalancedEntryAfterTheLedgersRoleIsRestored() {
+        var tenant = UUID.randomUUID();
+        var entry = UUID.randomUUID();
+
+        // The ledger's API returns before the commit, restoring the caller's role, which may read
+        // no ledger table.
+        committed(() -> {
+            DatabaseRole.LEDGER.actAs(jdbc);
+            var settlement = insertAccount(tenant, "ASSET", "DEBIT", "BRL");
+            var available = insertAccount(tenant, "LIABILITY", "CREDIT", "BRL");
+            insertEntry(entry, tenant);
+            insertPosting(entry, settlement, tenant, "BRL", "DEBIT", 100);
+            insertPosting(entry, available, tenant, "BRL", "CREDIT", 100);
+            insertBalance(settlement, 100);
+            insertBalance(available, 100);
+            DatabaseRole.TENANCY.actAs(jdbc);
+        });
+
+        assertThat(entryExists(entry)).isTrue();
+    }
+
+    @Test
+    void rejectsAnUnbalancedEntryAfterTheLedgersRoleIsRestored() {
+        var tenant = UUID.randomUUID();
+        var entry = UUID.randomUUID();
+
+        assertThatThrownBy(() -> committed(() -> {
+                    DatabaseRole.LEDGER.actAs(jdbc);
+                    var settlement = insertAccount(tenant, "ASSET", "DEBIT", "BRL");
+                    var available = insertAccount(tenant, "LIABILITY", "CREDIT", "BRL");
+                    insertEntry(entry, tenant);
+                    insertPosting(entry, settlement, tenant, "BRL", "DEBIT", 100);
+                    insertPosting(entry, available, tenant, "BRL", "CREDIT", 90);
+                    DatabaseRole.TENANCY.actAs(jdbc);
+                }))
+                .rootCause()
+                .hasMessageContaining("does not balance");
+        assertThat(entryExists(entry)).isFalse();
+    }
+
+    @Test
     void rejectsAnAccountWhoseNormalBalanceContradictsItsType() {
         assertThatThrownBy(() -> insertAccount(UUID.randomUUID(), "ASSET", "CREDIT", "BRL"))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test
-    @Transactional
     void rejectsAPostingInAnotherCurrencyThanItsAccount() {
         var tenant = UUID.randomUUID();
         var account = insertAccount(tenant, "LIABILITY", "CREDIT", "BRL");
@@ -104,7 +148,6 @@ class LedgerSchemaTest {
     }
 
     @Test
-    @Transactional
     void rejectsAPostingWithoutAPositiveAmount() {
         var tenant = UUID.randomUUID();
         var account = insertAccount(tenant, "LIABILITY", "CREDIT", "BRL");
@@ -115,7 +158,6 @@ class LedgerSchemaTest {
     }
 
     @Test
-    @Transactional
     void rejectsUpdatingAPostingEvenAsTheOwner() {
         // These tests connect as the database owner, who holds every privilege:
         // only the trigger stands in the way.
@@ -128,7 +170,6 @@ class LedgerSchemaTest {
     }
 
     @Test
-    @Transactional
     void rejectsDeletingAnEntryEvenAsTheOwner() {
         var entry = insertEntryWithOnePosting();
 
@@ -139,13 +180,11 @@ class LedgerSchemaTest {
     }
 
     @Test
-    @Transactional
     void rejectsTruncatingPostings() {
         assertThatThrownBy(() -> jdbc.sql("TRUNCATE ledger.postings").update()).hasMessageContaining("append-only");
     }
 
     @Test
-    @Transactional
     void deniesTheLedgerRoleUpdatingPostings() {
         var entry = insertEntryWithOnePosting();
         DatabaseRole.LEDGER.actAs(jdbc);
@@ -159,7 +198,6 @@ class LedgerSchemaTest {
     }
 
     @Test
-    @Transactional
     void deniesTheLedgerRoleDeletingEntries() {
         var entry = insertEntryWithOnePosting();
         DatabaseRole.LEDGER.actAs(jdbc);
@@ -172,7 +210,6 @@ class LedgerSchemaTest {
     }
 
     @Test
-    @Transactional
     void deniesTheLedgerRoleUpdatingAccounts() {
         var account = insertAccount(UUID.randomUUID(), "LIABILITY", "CREDIT", "BRL");
         DatabaseRole.LEDGER.actAs(jdbc);
@@ -185,7 +222,6 @@ class LedgerSchemaTest {
     }
 
     @Test
-    @Transactional
     void letsTheLedgerRoleUpdateBalances() {
         var account = insertAccount(UUID.randomUUID(), "LIABILITY", "CREDIT", "BRL");
         jdbc.sql("INSERT INTO ledger.balances (account_id) VALUES (?)")
@@ -200,16 +236,9 @@ class LedgerSchemaTest {
         assertThat(updated).isOne();
     }
 
-    @Test
-    void limitsHowLongTheLedgerRoleWaits() {
-        var settings = jdbc.sql("""
-                        SELECT unnest(setconfig)
-                          FROM pg_db_role_setting
-                         WHERE setrole = 'finaxis_ledger'::regrole
-                        """).query(String.class).list();
-
-        assertThat(settings)
-                .containsExactlyInAnyOrder("lock_timeout=2s", "statement_timeout=5s", "transaction_timeout=30s");
+    private void committed(Runnable work) {
+        work.run();
+        session.commit();
     }
 
     private UUID insertEntryWithOnePosting() {

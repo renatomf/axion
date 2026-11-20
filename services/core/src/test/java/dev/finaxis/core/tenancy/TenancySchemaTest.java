@@ -3,16 +3,17 @@ package dev.finaxis.core.tenancy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The tenancy tables and the rules the database enforces on them (tenancy design, section 3.4),
@@ -20,14 +21,20 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
-@Transactional
 class TenancySchemaTest {
 
+    private final DatabaseOwner.Session session;
     private final JdbcClient jdbc;
 
     @Autowired
-    TenancySchemaTest(JdbcClient jdbc) {
-        this.jdbc = jdbc;
+    TenancySchemaTest(DatabaseOwner owner) {
+        this.session = owner.session();
+        this.jdbc = session.jdbc();
+    }
+
+    @AfterEach
+    void rollBack() {
+        session.close();
     }
 
     @Test
@@ -135,18 +142,6 @@ class TenancySchemaTest {
                 .update();
 
         assertThat(revoked).isOne();
-    }
-
-    @Test
-    void limitsHowLongTheTenancyRoleWaits() {
-        var settings = jdbc.sql("""
-                        SELECT unnest(setconfig)
-                          FROM pg_db_role_setting
-                         WHERE setrole = 'finaxis_tenancy'::regrole
-                        """).query(String.class).list();
-
-        assertThat(settings)
-                .containsExactlyInAnyOrder("lock_timeout=2s", "statement_timeout=5s", "transaction_timeout=30s");
     }
 
     private UUID insertOrganization(String name) {

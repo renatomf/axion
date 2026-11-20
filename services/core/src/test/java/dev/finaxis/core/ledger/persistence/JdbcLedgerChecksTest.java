@@ -3,6 +3,7 @@ package dev.finaxis.core.ledger.persistence;
 import static dev.finaxis.core.ledger.LedgerFixtures.BRL;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.ledger.AccountId;
 import dev.finaxis.core.ledger.AccountRequest;
@@ -52,6 +53,7 @@ class JdbcLedgerChecksTest {
 
     @BeforeEach
     void postASettlement() {
+        DatabaseRole.LEDGER.actAs(jdbc);
         tenant = UUID.randomUUID();
         settlement = ledger.openAccount(
                 new AccountRequest(tenant, "platform:settlement", AccountType.ASSET, BRL, true, false));

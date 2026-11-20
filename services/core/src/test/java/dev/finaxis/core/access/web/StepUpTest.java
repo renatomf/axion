@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 
 import com.nimbusds.jwt.SignedJWT;
+import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.KeycloakRealm;
 import dev.finaxis.core.KeycloakTestConfiguration;
 import dev.finaxis.core.PostgresTestConfiguration;
@@ -23,7 +24,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Step-up (tenancy design, section 4.2). Keycloak's password grant issues tokens without {@code
@@ -37,7 +37,6 @@ import org.springframework.transaction.annotation.Transactional;
     TenantResolutionTest.TenantScopedController.class
 })
 @AutoConfigureMockMvc
-@Transactional
 class StepUpTest {
 
     private static final String CHALLENGE = "Bearer error=\"insufficient_user_authentication\", "
@@ -46,14 +45,14 @@ class StepUpTest {
     private final MockMvcTester mvc;
     private final KeycloakRealm realm;
     private final TenancyApi tenancy;
-    private final JdbcClient jdbc;
+    private final JdbcClient owner;
 
     @Autowired
-    StepUpTest(MockMvcTester mvc, KeycloakRealm realm, TenancyApi tenancy, JdbcClient jdbc) {
+    StepUpTest(MockMvcTester mvc, KeycloakRealm realm, TenancyApi tenancy, DatabaseOwner databaseOwner) {
         this.mvc = mvc;
         this.realm = realm;
         this.tenancy = tenancy;
-        this.jdbc = jdbc;
+        this.owner = databaseOwner.jdbc();
     }
 
     @Test
@@ -89,7 +88,7 @@ class StepUpTest {
     void refusesAMissingPermissionBeforeAskingForStepUp() {
         String subject = UUID.randomUUID().toString();
         NewOrganization created = tenancy.createOrganization("Acme", subject);
-        jdbc.sql("UPDATE tenancy.member_roles SET role = 'READ_ONLY' WHERE member_id = ?")
+        owner.sql("UPDATE tenancy.member_roles SET role = 'READ_ONLY' WHERE member_id = ?")
                 .param(created.admin().value())
                 .update();
 

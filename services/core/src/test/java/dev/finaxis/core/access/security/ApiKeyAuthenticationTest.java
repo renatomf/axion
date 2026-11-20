@@ -4,6 +4,7 @@ import static dev.finaxis.core.tenancy.Permission.CHARGES_READ;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jayway.jsonpath.JsonPath;
+import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.access.AccessApi;
 import dev.finaxis.core.access.AccessFixtures;
@@ -68,17 +69,21 @@ class ApiKeyAuthenticationTest {
     private final MockMvcTester mvc;
     private final AccessApi access;
     private final TenancyApi tenancy;
-    private final JdbcClient jdbc;
+    private final JdbcClient owner;
     private final MeterRegistry meters;
     private NewOrganization organization;
 
     @Autowired
     ApiKeyAuthenticationTest(
-            MockMvcTester mvc, AccessApi access, TenancyApi tenancy, JdbcClient jdbc, MeterRegistry meters) {
+            MockMvcTester mvc,
+            AccessApi access,
+            TenancyApi tenancy,
+            DatabaseOwner databaseOwner,
+            MeterRegistry meters) {
         this.mvc = mvc;
         this.access = new TenantBoundAccess(access);
         this.tenancy = tenancy;
-        this.jdbc = jdbc;
+        this.owner = databaseOwner.jdbc();
         this.meters = meters;
     }
 
@@ -177,7 +182,7 @@ class ApiKeyAuthenticationTest {
     @Test
     void aWorkingKeyOfAnInactiveTenantIsForbidden() {
         IssuedApiKey key = issued();
-        jdbc.sql("UPDATE tenancy.tenants SET status = 'SUSPENDED' WHERE id = ?")
+        owner.sql("UPDATE tenancy.tenants SET status = 'SUSPENDED' WHERE id = ?")
                 .param(organization.test().value())
                 .update();
 

@@ -11,6 +11,7 @@ default:
 # Start a profile of local infrastructure (core or auth) and wait until it is healthy
 up profile="core": _env
     {{ compose }} --profile {{ profile }} up --detach --wait
+    {{ compose }} --profile {{ profile }} run --rm core-database
 
 # Stop every profile of local infrastructure (data is kept in its volumes)
 down:

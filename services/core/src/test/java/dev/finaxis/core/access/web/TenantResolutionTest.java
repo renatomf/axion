@@ -3,6 +3,7 @@ package dev.finaxis.core.access.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nimbusds.jwt.SignedJWT;
+import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.KeycloakRealm;
 import dev.finaxis.core.KeycloakTestConfiguration;
 import dev.finaxis.core.PostgresTestConfiguration;
@@ -27,7 +28,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -43,7 +43,6 @@ import org.springframework.web.bind.annotation.RestController;
     TenantResolutionTest.TenantScopedController.class
 })
 @AutoConfigureMockMvc
-@Transactional
 class TenantResolutionTest {
 
     @RestController
@@ -84,17 +83,17 @@ class TenantResolutionTest {
     private final MockMvcTester mvc;
     private final KeycloakRealm realm;
     private final TenancyApi tenancy;
-    private final JdbcClient jdbc;
+    private final JdbcClient owner;
 
     private String accessToken = "";
     private String subject = "";
 
     @Autowired
-    TenantResolutionTest(MockMvcTester mvc, KeycloakRealm realm, TenancyApi tenancy, JdbcClient jdbc) {
+    TenantResolutionTest(MockMvcTester mvc, KeycloakRealm realm, TenancyApi tenancy, DatabaseOwner databaseOwner) {
         this.mvc = mvc;
         this.realm = realm;
         this.tenancy = tenancy;
-        this.jdbc = jdbc;
+        this.owner = databaseOwner.jdbc();
     }
 
     @BeforeEach
@@ -160,7 +159,7 @@ class TenantResolutionTest {
     @Test
     void refusesATenantThatIsNotActive() {
         NewOrganization created = tenancy.createOrganization("Acme", subject);
-        jdbc.sql("UPDATE tenancy.tenants SET status = 'SUSPENDED' WHERE id = ?")
+        owner.sql("UPDATE tenancy.tenants SET status = 'SUSPENDED' WHERE id = ?")
                 .param(created.live().value())
                 .update();
 
@@ -170,7 +169,7 @@ class TenantResolutionTest {
     @Test
     void refusesAMemberWithoutThePermission() {
         NewOrganization created = tenancy.createOrganization("Acme", subject);
-        jdbc.sql("UPDATE tenancy.member_roles SET role = 'READ_ONLY' WHERE member_id = ?")
+        owner.sql("UPDATE tenancy.member_roles SET role = 'READ_ONLY' WHERE member_id = ?")
                 .param(created.admin().value())
                 .update();
 

@@ -5,6 +5,7 @@ import static dev.finaxis.core.ledger.LedgerFixtures.brl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.ledger.application.BalanceVerifier;
 import dev.finaxis.core.shared.Money;
@@ -32,17 +33,17 @@ class LedgerQueriesTest {
 
     private final LedgerApi ledger;
     private final BalanceVerifier verifier;
-    private final JdbcClient jdbc;
+    private final JdbcClient owner;
 
     private UUID tenant;
     private AccountId settlement;
     private AccountId available;
 
     @Autowired
-    LedgerQueriesTest(LedgerApi ledger, BalanceVerifier verifier, JdbcClient jdbc) {
+    LedgerQueriesTest(LedgerApi ledger, BalanceVerifier verifier, DatabaseOwner databaseOwner) {
         this.ledger = ledger;
         this.verifier = verifier;
-        this.jdbc = jdbc;
+        this.owner = databaseOwner.jdbc();
     }
 
     @BeforeEach
@@ -211,7 +212,7 @@ class LedgerQueriesTest {
 
     /** What the folding job will do (ledger design, section 5.3): fold committed postings into the balance row. */
     private void fold(AccountId hot) {
-        jdbc.sql("""
+        owner.sql("""
                         UPDATE ledger.balances b
                            SET balance = (SELECT sum(CASE WHEN p.direction = a.normal_balance
                                                           THEN p.amount ELSE -p.amount END)

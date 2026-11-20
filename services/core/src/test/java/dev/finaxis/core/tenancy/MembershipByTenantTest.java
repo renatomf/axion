@@ -2,6 +2,7 @@ package dev.finaxis.core.tenancy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.shared.TenantId;
 import java.util.UUID;
@@ -20,12 +21,12 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 class MembershipByTenantTest {
 
     private final TenancyApi tenancy;
-    private final JdbcClient jdbc;
+    private final JdbcClient owner;
 
     @Autowired
-    MembershipByTenantTest(TenancyApi tenancy, JdbcClient jdbc) {
+    MembershipByTenantTest(TenancyApi tenancy, DatabaseOwner databaseOwner) {
         this.tenancy = tenancy;
-        this.jdbc = jdbc;
+        this.owner = databaseOwner.jdbc();
     }
 
     @Test
@@ -71,7 +72,7 @@ class MembershipByTenantTest {
     void findsTheMembershipOfASuspendedTenantWithItsStatus() {
         var subject = newSubject();
         var created = tenancy.createOrganization("Acme", subject);
-        jdbc.sql("UPDATE tenancy.tenants SET status = 'SUSPENDED' WHERE id = ?")
+        owner.sql("UPDATE tenancy.tenants SET status = 'SUSPENDED' WHERE id = ?")
                 .param(created.live().value())
                 .update();
 

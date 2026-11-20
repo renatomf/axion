@@ -2,6 +2,7 @@ package dev.finaxis.core.tenancy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.shared.Environment;
 import java.util.UUID;
@@ -20,12 +21,12 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 class MembershipsTest {
 
     private final TenancyApi tenancy;
-    private final JdbcClient jdbc;
+    private final JdbcClient owner;
 
     @Autowired
-    MembershipsTest(TenancyApi tenancy, JdbcClient jdbc) {
+    MembershipsTest(TenancyApi tenancy, DatabaseOwner databaseOwner) {
         this.tenancy = tenancy;
-        this.jdbc = jdbc;
+        this.owner = databaseOwner.jdbc();
     }
 
     @Test
@@ -63,7 +64,7 @@ class MembershipsTest {
     void listsEveryRoleOfAMember() {
         var subject = newSubject();
         var created = tenancy.createOrganization("Acme", subject);
-        jdbc.sql("INSERT INTO tenancy.member_roles (member_id, role) VALUES (?, 'FINANCE')")
+        owner.sql("INSERT INTO tenancy.member_roles (member_id, role) VALUES (?, 'FINANCE')")
                 .param(created.admin().value())
                 .update();
 

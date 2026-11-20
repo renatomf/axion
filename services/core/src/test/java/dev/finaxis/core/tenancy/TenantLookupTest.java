@@ -2,6 +2,7 @@ package dev.finaxis.core.tenancy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantId;
@@ -20,12 +21,12 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 class TenantLookupTest {
 
     private final TenancyApi tenancy;
-    private final JdbcClient jdbc;
+    private final JdbcClient owner;
 
     @Autowired
-    TenantLookupTest(TenancyApi tenancy, JdbcClient jdbc) {
+    TenantLookupTest(TenancyApi tenancy, DatabaseOwner databaseOwner) {
         this.tenancy = tenancy;
-        this.jdbc = jdbc;
+        this.owner = databaseOwner.jdbc();
     }
 
     @ParameterizedTest
@@ -44,7 +45,7 @@ class TenantLookupTest {
     }
 
     private boolean isPlatform(OrganizationId organization) {
-        return jdbc.sql("SELECT is_platform FROM tenancy.organizations WHERE id = ?")
+        return owner.sql("SELECT is_platform FROM tenancy.organizations WHERE id = ?")
                 .param(organization.value())
                 .query(Boolean.class)
                 .single();

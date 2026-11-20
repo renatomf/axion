@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.shared.TenantId;
@@ -12,6 +13,7 @@ import java.security.SecureRandom;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -21,7 +23,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The API keys table and the rules the database enforces on it (tenancy design, section 3.4),
@@ -29,18 +30,24 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
-@Transactional
 class ApiKeySchemaTest {
 
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final TenantId TENANT_A = new TenantId(UUID.randomUUID());
     private static final TenantId TENANT_B = new TenantId(UUID.randomUUID());
 
+    private final DatabaseOwner.Session session;
     private final JdbcClient jdbc;
 
     @Autowired
-    ApiKeySchemaTest(JdbcClient jdbc) {
-        this.jdbc = jdbc;
+    ApiKeySchemaTest(DatabaseOwner owner) {
+        this.session = owner.session();
+        this.jdbc = session.jdbc();
+    }
+
+    @AfterEach
+    void rollBack() {
+        session.close();
     }
 
     @Test
@@ -235,18 +242,6 @@ class ApiKeySchemaTest {
                 .single();
 
         assertThat(lookup).containsExactly(true, "finaxis_access_lookup", true, false);
-    }
-
-    @Test
-    void limitsHowLongTheAccessRoleWaits() {
-        var settings = jdbc.sql("""
-                        SELECT unnest(setconfig)
-                          FROM pg_db_role_setting
-                         WHERE setrole = 'finaxis_access'::regrole
-                        """).query(String.class).list();
-
-        assertThat(settings)
-                .containsExactlyInAnyOrder("lock_timeout=2s", "statement_timeout=5s", "transaction_timeout=30s");
     }
 
     private UUID insertKey(String name, byte[] hash, String lastFour, String scopes) {

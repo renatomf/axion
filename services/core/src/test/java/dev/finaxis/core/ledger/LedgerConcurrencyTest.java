@@ -4,6 +4,8 @@ import static dev.finaxis.core.ledger.LedgerFixtures.BRL;
 import static dev.finaxis.core.ledger.LedgerFixtures.storedBalance;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.finaxis.core.DatabaseOwner;
+import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.ledger.application.BalanceVerifier;
 import dev.finaxis.core.ledger.application.LedgerVerification;
@@ -43,6 +45,7 @@ class LedgerConcurrencyTest {
 
     private final LedgerApi ledger;
     private final JdbcClient jdbc;
+    private final JdbcClient owner;
     private final TransactionTemplate transaction;
     private final BalanceVerifier verifier;
 
@@ -52,9 +55,14 @@ class LedgerConcurrencyTest {
 
     @Autowired
     LedgerConcurrencyTest(
-            LedgerApi ledger, JdbcClient jdbc, PlatformTransactionManager transactions, BalanceVerifier verifier) {
+            LedgerApi ledger,
+            JdbcClient jdbc,
+            DatabaseOwner databaseOwner,
+            PlatformTransactionManager transactions,
+            BalanceVerifier verifier) {
         this.ledger = ledger;
         this.jdbc = jdbc;
+        this.owner = databaseOwner.jdbc();
         this.transaction = new TransactionTemplate(transactions);
         this.verifier = verifier;
     }
@@ -90,7 +98,7 @@ class LedgerConcurrencyTest {
         assertThat(results)
                 .filteredOn(new PostResult.InsufficientFunds(available)::equals)
                 .hasSize(50);
-        assertThat(storedBalance(jdbc, available)).isZero();
+        assertThat(storedBalance(owner, available)).isZero();
         assertThat(postingsOf(available)).isEqualTo(51);
     }
 
@@ -116,8 +124,8 @@ class LedgerConcurrencyTest {
         // Each balance starts with enough for every transfer out of it, so none is refused, and
         // postAtOnce would have thrown on a deadlock.
         assertThat(results).allMatch(PostResult.Posted.class::isInstance);
-        assertThat(storedBalance(jdbc, available)).isEqualTo(10_000);
-        assertThat(storedBalance(jdbc, held)).isEqualTo(10_000);
+        assertThat(storedBalance(owner, available)).isEqualTo(10_000);
+        assertThat(storedBalance(owner, held)).isEqualTo(10_000);
     }
 
     /**
@@ -159,6 +167,7 @@ class LedgerConcurrencyTest {
      */
     private @Nullable Void lockInOrder(AccountId first, AccountId second, CyclicBarrier barrier) {
         return transaction.execute(status -> {
+            DatabaseRole.LEDGER.actAs(jdbc);
             lockBalance(first);
             try {
                 barrier.await();
@@ -209,7 +218,7 @@ class LedgerConcurrencyTest {
     }
 
     private long postingsOf(AccountId account) {
-        return jdbc.sql("SELECT count(*) FROM ledger.postings WHERE account_id = ?")
+        return owner.sql("SELECT count(*) FROM ledger.postings WHERE account_id = ?")
                 .param(account.value())
                 .query(Long.class)
                 .single();

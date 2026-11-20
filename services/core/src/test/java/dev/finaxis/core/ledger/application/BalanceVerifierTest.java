@@ -3,6 +3,7 @@ package dev.finaxis.core.ledger.application;
 import static dev.finaxis.core.ledger.LedgerFixtures.BRL;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.ledger.AccountRequest;
 import dev.finaxis.core.ledger.AccountType;
@@ -58,6 +59,7 @@ class BalanceVerifierTest {
     void reportsABalanceChangedBehindTheLedgersBack(CapturedOutput output) {
         var account = ledger.openAccount(
                 new AccountRequest(UUID.randomUUID(), "tenant:available", AccountType.LIABILITY, BRL, false, false));
+        DatabaseRole.LEDGER.actAs(jdbc);
         jdbc.sql("UPDATE ledger.balances SET balance = 100 WHERE account_id = ?")
                 .param(account.value())
                 .update();
@@ -80,6 +82,7 @@ class BalanceVerifierTest {
                 new AccountRequest(tenant, "platform:settlement", AccountType.ASSET, BRL, true, false));
         // The deferred trigger would reject this entry at commit; the test rolls back before that.
         var entry = UUID.randomUUID();
+        DatabaseRole.LEDGER.actAs(jdbc);
         jdbc.sql("""
                         INSERT INTO ledger.entries (id, tenant_id, source_type, source_id, purpose, effective_date,
                                                     correlation_id)
