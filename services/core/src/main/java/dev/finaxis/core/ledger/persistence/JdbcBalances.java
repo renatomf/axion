@@ -8,12 +8,7 @@ import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-/**
- * Reads and changes ledger balances, the one mutable table (ledger design, section 5.2). A balance
- * row is inserted with its account, by {@link JdbcAccounts}, and only changed here.
- *
- * <p>Runs in the caller's transaction, like {@link JdbcAccounts}.
- */
+// The one mutable table: a balance row is inserted with its account and changed only here.
 @Repository
 public class JdbcBalances {
 
@@ -23,19 +18,8 @@ public class JdbcBalances {
         this.jdbc = jdbc;
     }
 
-    /**
-     * Adds {@code delta} to the account's balance, unless that would take a balance below zero that
-     * may not go there (invariant I3).
-     *
-     * <p>The check and the write are one statement, never a read in Java followed by a write.
-     * PostgreSQL locks the row, re-reads its current value and evaluates the condition: a concurrent
-     * update of the same row waits for this transaction to end, then sees the new balance. So two
-     * transactions can never both spend the same money, and there is nothing to retry.
-     *
-     * @param account the account whose balance changes
-     * @param delta the change, signed as in {@code Posting.balanceEffect()}, in the account's currency
-     * @return whether the balance was changed; {@code false} means insufficient funds
-     */
+    // Invariant I3 as one statement, never a read then a write: PostgreSQL locks the row and re-reads
+    // it, so two transactions can never both spend the same money, and there is nothing to retry.
     public boolean apply(Account account, Money delta) {
         int updated = jdbc.sql("""
                         UPDATE ledger.balances
@@ -50,17 +34,8 @@ public class JdbcBalances {
         return updated == 1;
     }
 
-    /**
-     * The account's balance, in its currency, if the account exists.
-     *
-     * <p>A plain read, without a lock: it sees the last committed balance, and a concurrent posting
-     * may change it right after.
-     *
-     * <p>A hot account's row holds only the postings folded into it, those created before {@code
-     * folded_until}; the rest are added here, so the result is exact (section 5.3). Until the folding
-     * job exists, {@code folded_until} is null and every posting is added. One statement reads the
-     * row and the postings, so both come from the same snapshot.
-     */
+    // No lock: the last committed balance. A hot account's unfolded postings are added in the same
+    // statement, so both come from one snapshot (section 5.3).
     public Optional<Money> find(AccountId account) {
         return jdbc.sql("""
                         SELECT a.currency,

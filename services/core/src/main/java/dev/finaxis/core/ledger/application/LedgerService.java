@@ -31,14 +31,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
-/**
- * The ledger's implementation of {@link LedgerApi}. Other modules depend on the interface; Spring
- * passes them this bean, the only implementation.
- */
 @Service
 public class LedgerService implements LedgerApi {
 
-    /** The order in which an entry locks balance rows: ascending account ID. */
     private static final Comparator<AccountId> LOCK_ORDER = Comparator.comparing(AccountId::value);
 
     private final JdbcAccounts accounts;
@@ -55,16 +50,9 @@ public class LedgerService implements LedgerApi {
         this.ids = new UuidV7Generator(clock);
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * <p>{@code @Transactional} joins the caller's transaction, or starts one if there is none, so
-     * the account and its balance row are inserted together or not at all.
-     */
     @Override
     @Transactional
     public AccountId openAccount(AccountRequest request) {
-        // The constructor checks the request's rules before anything is written.
         var account = new Account(
                 new AccountId(ids.next()),
                 request.tenantId(),
@@ -85,19 +73,9 @@ public class LedgerService implements LedgerApi {
         return existing.id();
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * <p>Follows the ledger design, section 5.1: build the entry, which checks its rules; claim its
-     * source key; update the balances; then insert its postings. The claim is what makes a repeat
-     * safe: a concurrent call with the same source waits at the claim until this transaction ends.
-     *
-     * <p>The call joins the caller's transaction, or starts one. A short balance is an expected
-     * outcome: it rolls back to a savepoint taken before the claim, undoing only this call's writes,
-     * so the caller's own work is kept. An exception is a bug: it marks the whole transaction for
-     * rollback, so the caller's change cannot commit without its entry, even if the caller catches
-     * the exception. The ledger fails closed.
-     */
+    // Ledger design, section 5.1. A concurrent call with the same source waits at the claim. A short
+    // balance rolls back to a savepoint, keeping the caller's work; an exception marks the whole
+    // transaction for rollback, so the caller's change cannot commit without its entry.
     @Override
     @Transactional
     public PostResult post(EntryRequest request) {
@@ -107,7 +85,7 @@ public class LedgerService implements LedgerApi {
         if (entries.claim(entry.id(), request)) {
             var shortAccount = updateBalances(entry);
             if (shortAccount.isPresent()) {
-                // Undoes the claim and any balance already changed, so the source can be posted later.
+                // Undoes the claim too, so the source can be posted later.
                 transaction.rollbackToSavepoint(savepoint);
                 transaction.releaseSavepoint(savepoint);
                 return new PostResult.InsufficientFunds(shortAccount.get());
@@ -129,12 +107,6 @@ public class LedgerService implements LedgerApi {
         return new PostResult.AlreadyPosted(existing.id());
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * <p>{@code readOnly = true} tells Spring, and through the driver PostgreSQL, that the call
-     * writes nothing; a write by mistake fails instead of committing.
-     */
     @Override
     @Transactional(readOnly = true)
     public Balance balanceOf(AccountId account) {
@@ -143,13 +115,7 @@ public class LedgerService implements LedgerApi {
         return new Balance(account, balance, clock.instant());
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * <p>Reads one posting more than the limit: if it comes back, there is a next page, and the
-     * cursor points after the last posting returned. So the last page never ends with a cursor to an
-     * empty one.
-     */
+    // One posting more than the limit tells whether there is a next page, so no cursor leads to an empty one.
     @Override
     @Transactional(readOnly = true)
     public Page<PostingView> history(AccountId account, Cursor cursor, int limit) {
@@ -168,16 +134,8 @@ public class LedgerService implements LedgerApi {
         return new Page<>(page, Optional.of(Cursor.after(page.getLast().id())));
     }
 
-    /**
-     * Changes the balance of each account the entry touches, once per account (ledger design,
-     * section 5.2), and stops at the first guarded balance that would go below zero.
-     *
-     * <p>Each update locks the balance row until the transaction ends. Updating in ascending account
-     * ID order means two entries touching the same accounts lock them in the same order: one waits
-     * for the other, instead of each holding a row the other needs, which would be a deadlock.
-     *
-     * @return the first account, in ID order, whose balance was short, if one was
-     */
+    // Ascending account ID, so two entries lock shared balance rows in the same order: one waits for
+    // the other instead of a deadlock (ledger design, section 5.2).
     private Optional<AccountId> updateBalances(Entry entry) {
         Map<AccountId, Account> touched = entry.postings().stream()
                 .map(Posting::account)
@@ -195,7 +153,6 @@ public class LedgerService implements LedgerApi {
         return Optional.empty();
     }
 
-    /** The domain entry for the request, with the accounts its postings reference. */
     private Entry entryOf(EntryId id, EntryRequest request) {
         var referenced =
                 request.postings().stream().map(PostingRequest::account).collect(Collectors.toSet());
@@ -207,14 +164,12 @@ public class LedgerService implements LedgerApi {
                         throw new IllegalArgumentException(
                                 "Unknown account " + leg.account().value());
                     }
-                    // The Posting and Entry constructors check amounts, currencies and balance.
                     return new Posting(account, leg.direction(), leg.amount());
                 })
                 .toList();
         return new Entry(id, postings, request.reverses());
     }
 
-    /** Whether two lists hold the same legs, in any order. */
     private static boolean sameLegs(List<PostingRequest> stored, List<PostingRequest> requested) {
         return countsOf(stored).equals(countsOf(requested));
     }

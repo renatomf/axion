@@ -17,11 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
-/**
- * {@link LedgerApi#openAccount} against a real PostgreSQL. Each call commits its own transaction,
- * as it would for a caller without one, so every test uses a new tenant and never meets another
- * test's accounts.
- */
+/** {@link LedgerApi#openAccount}. Each call commits, so every test uses a new tenant. */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
 class OpenAccountTest {

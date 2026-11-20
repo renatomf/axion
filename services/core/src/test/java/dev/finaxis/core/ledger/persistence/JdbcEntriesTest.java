@@ -28,9 +28,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * {@link JdbcEntries} against a real PostgreSQL, as the ledger role. Each test runs in a transaction
- * that is rolled back when it ends, so the deferred balance check never runs: it is tested in
- * {@code LedgerSchemaTest}.
+ * {@link JdbcEntries} as the ledger role. Tests roll back, so the deferred balance check never runs
+ * here; {@code LedgerSchemaTest} covers it.
  */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)

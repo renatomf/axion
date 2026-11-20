@@ -15,13 +15,6 @@ import java.util.stream.Collectors;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-/**
- * Reads and inserts ledger accounts (ledger design, section 3.3). Accounts are never updated, so
- * there is no update method.
- *
- * <p>Runs in the caller's transaction: {@code JdbcClient} uses the connection Spring has bound to
- * the current transaction, if there is one.
- */
 @Repository
 public class JdbcAccounts {
 
@@ -31,16 +24,7 @@ public class JdbcAccounts {
         this.jdbc = jdbc;
     }
 
-    /**
-     * Inserts the account and its balance row, at zero, unless the tenant already has an account
-     * with the same code.
-     *
-     * <p>{@code ON CONFLICT DO NOTHING} makes the check and the insert one atomic statement: when
-     * two transactions open the same code at once, the second waits for the first to finish, then
-     * inserts nothing.
-     *
-     * @return whether the account was inserted; {@code false} if the code was taken
-     */
+    // ON CONFLICT DO NOTHING: two transactions opening the same code at once insert it once.
     public boolean insertIfAbsent(Account account) {
         int inserted = jdbc.sql("""
                         INSERT INTO ledger.accounts
@@ -66,7 +50,6 @@ public class JdbcAccounts {
         return true;
     }
 
-    /** The tenant's account with the given code, if it has one. */
     public Optional<Account> findByCode(UUID tenantId, String code) {
         return jdbc.sql("""
                         SELECT id, tenant_id, code, type, currency, allow_negative, is_hot
@@ -79,15 +62,11 @@ public class JdbcAccounts {
                 .optional();
     }
 
-    /**
-     * The accounts with the given IDs, keyed by ID. An ID with no account is absent from the map,
-     * so the caller can tell which ones are missing.
-     */
+    /** An ID with no account is absent from the map. */
     public Map<AccountId, Account> findAllById(Collection<AccountId> ids) {
         if (ids.isEmpty()) {
             return Map.of();
         }
-        // JdbcClient expands a collection parameter into a list of placeholders: IN (?, ?, ...).
         return jdbc
                 .sql("""
                         SELECT id, tenant_id, code, type, currency, allow_negative, is_hot

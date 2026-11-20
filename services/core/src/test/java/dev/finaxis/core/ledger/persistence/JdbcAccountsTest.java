@@ -18,10 +18,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * {@link JdbcAccounts} against a real PostgreSQL, as the ledger role, so the tests also prove the
- * role's privileges are enough. Each test runs in a transaction that is rolled back when it ends.
- */
+/** {@link JdbcAccounts} as the ledger role, so the tests also prove its privileges are enough. */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
 @Transactional

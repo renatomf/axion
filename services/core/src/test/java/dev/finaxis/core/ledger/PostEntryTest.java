@@ -27,10 +27,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/**
- * {@link LedgerApi#post} against a real PostgreSQL. Each call commits its own transaction, so the
- * deferred balance check runs, and every test uses new accounts and a new source.
- */
+/** {@link LedgerApi#post}. Each call commits, so the deferred balance check runs. */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
 class PostEntryTest {
@@ -281,7 +278,6 @@ class PostEntryTest {
         return new EntrySource("charge", "ch_" + UUID.randomUUID(), "settlement");
     }
 
-    /** The entry a successful post produced; any other result fails the test. */
     private static EntryId entryOf(PostResult result) {
         return switch (result) {
             case PostResult.Posted posted -> posted.entry();

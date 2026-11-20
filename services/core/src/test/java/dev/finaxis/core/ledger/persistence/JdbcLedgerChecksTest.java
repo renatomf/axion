@@ -25,9 +25,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * {@link JdbcLedgerChecks} against a real PostgreSQL. Each test breaks the ledger inside a
- * transaction that is rolled back when it ends, so no other test ever sees the damage. The checks
- * scan the whole ledger, so the clean case also checks what other test classes committed.
+ * {@link JdbcLedgerChecks}. Each test breaks the ledger in a transaction that rolls back; the clean
+ * case also checks what other test classes committed.
  */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)

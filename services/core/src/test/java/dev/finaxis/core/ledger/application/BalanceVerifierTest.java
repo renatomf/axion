@@ -24,11 +24,8 @@ import org.springframework.scheduling.config.ScheduledTaskHolder;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * {@link BalanceVerifier} against a real PostgreSQL (ledger design, section 8). Each test runs in a
- * transaction that is rolled back when it ends; the verifier joins it, so it sees the test's
- * uncommitted damage and no other test does.
- *
- * <p>{@link OutputCaptureExtension} records what the test writes to the console, logs included.
+ * {@link BalanceVerifier} (ledger design, section 8). The verifier joins the test's transaction, so
+ * it sees the test's uncommitted damage and no other test does.
  */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)

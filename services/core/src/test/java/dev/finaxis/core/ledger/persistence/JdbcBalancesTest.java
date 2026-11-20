@@ -19,10 +19,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * {@link JdbcBalances} against a real PostgreSQL, as the ledger role. Each test runs in a
- * transaction that is rolled back when it ends.
- */
+/** {@link JdbcBalances} as the ledger role. */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
 @Transactional
