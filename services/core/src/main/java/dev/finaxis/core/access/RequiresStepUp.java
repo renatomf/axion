@@ -7,19 +7,8 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Marks an operation that needs proof that the member authenticated recently, not just a valid
- * session (tenancy design, section 4.2): issuing, rolling and revoking API keys, changing webhook
- * endpoints and managing members. It goes beside {@link RequiresPermission}:
- *
- * <pre>{@code
- * @RequiresPermission(Permission.API_KEYS_MANAGE)
- * @RequiresStepUp
- * @PostMapping("/internal/tenants/{tenant_id}/api_keys")
- * }</pre>
- *
- * <p>After the permission check, a member whose last authentication is more than five minutes old
- * gets {@code 403 step_up_required} with an RFC 9470 challenge, which the console answers by
- * sending the member back to Keycloak to authenticate again.
+ * An operation that needs a login of the last five minutes, not just a valid session (tenancy
+ * design, section 4.2). Without one, {@code 403 step_up_required} with an RFC 9470 challenge.
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)
