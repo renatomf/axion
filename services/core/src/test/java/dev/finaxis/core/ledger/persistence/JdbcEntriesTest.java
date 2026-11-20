@@ -16,6 +16,7 @@ import dev.finaxis.core.ledger.domain.Account;
 import dev.finaxis.core.ledger.domain.Entry;
 import dev.finaxis.core.ledger.domain.Posting;
 import dev.finaxis.core.shared.Money;
+import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.shared.UuidV7Generator;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -43,6 +44,7 @@ class JdbcEntriesTest {
     private final JdbcEntries entries;
     private final JdbcAccounts accounts;
     private final JdbcClient jdbc;
+    private final UUID tenant = UUID.randomUUID();
     private final UuidV7Generator ids = new UuidV7Generator(Clock.systemUTC());
 
     @Autowired
@@ -54,7 +56,7 @@ class JdbcEntriesTest {
 
     @BeforeEach
     void actAsTheLedgerRole() {
-        DatabaseRole.LEDGER.actAs(jdbc);
+        DatabaseRole.LEDGER.actAs(jdbc, new TenantId(tenant));
     }
 
     @Test
@@ -99,13 +101,13 @@ class JdbcEntriesTest {
     }
 
     private Account open(AccountType type, String code) {
-        var account = new Account(new AccountId(ids.next()), UUID.randomUUID(), code, type, BRL, false, false);
+        var account = new Account(new AccountId(ids.next()), tenant, code, type, BRL, false, false);
         accounts.insertIfAbsent(account);
         return account;
     }
 
     /** Only the entry's row is under test here, so the request's postings are never read. */
-    private static EntryRequest request(EntrySource source) {
-        return new EntryRequest(UUID.randomUUID(), source, LocalDate.of(2026, 11, 18), "corr-1", List.of());
+    private EntryRequest request(EntrySource source) {
+        return new EntryRequest(tenant, source, LocalDate.of(2026, 11, 18), "corr-1", List.of());
     }
 }

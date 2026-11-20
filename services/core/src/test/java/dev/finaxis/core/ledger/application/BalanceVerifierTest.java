@@ -8,9 +8,11 @@ import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.ledger.AccountRequest;
 import dev.finaxis.core.ledger.AccountType;
 import dev.finaxis.core.ledger.LedgerApi;
+import dev.finaxis.core.shared.TenantId;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +40,7 @@ class BalanceVerifierTest {
     private final LedgerApi ledger;
     private final JdbcClient jdbc;
     private final MeterRegistry meters;
+    private final UUID tenant = UUID.randomUUID();
 
     @Autowired
     BalanceVerifierTest(BalanceVerifier verifier, LedgerApi ledger, JdbcClient jdbc, MeterRegistry meters) {
@@ -45,6 +48,11 @@ class BalanceVerifierTest {
         this.ledger = ledger;
         this.jdbc = jdbc;
         this.meters = meters;
+    }
+
+    @BeforeEach
+    void actAsTheLedgerRole() {
+        DatabaseRole.LEDGER.actAs(jdbc, new TenantId(tenant));
     }
 
     @Test
@@ -58,8 +66,7 @@ class BalanceVerifierTest {
     @Test
     void reportsABalanceChangedBehindTheLedgersBack(CapturedOutput output) {
         var account = ledger.openAccount(
-                new AccountRequest(UUID.randomUUID(), "tenant:available", AccountType.LIABILITY, BRL, false, false));
-        DatabaseRole.LEDGER.actAs(jdbc);
+                new AccountRequest(tenant, "tenant:available", AccountType.LIABILITY, BRL, false, false));
         jdbc.sql("UPDATE ledger.balances SET balance = 100 WHERE account_id = ?")
                 .param(account.value())
                 .update();
@@ -77,12 +84,10 @@ class BalanceVerifierTest {
 
     @Test
     void reportsAnEntryWhoseDebitsAndCreditsDiffer(CapturedOutput output) {
-        var tenant = UUID.randomUUID();
         var account = ledger.openAccount(
                 new AccountRequest(tenant, "platform:settlement", AccountType.ASSET, BRL, true, false));
         // The deferred trigger would reject this entry at commit; the test rolls back before that.
         var entry = UUID.randomUUID();
-        DatabaseRole.LEDGER.actAs(jdbc);
         jdbc.sql("""
                         INSERT INTO ledger.entries (id, tenant_id, source_type, source_id, purpose, effective_date,
                                                     correlation_id)

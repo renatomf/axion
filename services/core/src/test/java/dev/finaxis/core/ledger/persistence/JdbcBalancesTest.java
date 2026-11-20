@@ -10,6 +10,7 @@ import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.ledger.AccountId;
 import dev.finaxis.core.ledger.AccountType;
 import dev.finaxis.core.ledger.domain.Account;
+import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.shared.UuidV7Generator;
 import java.time.Clock;
 import java.util.UUID;
@@ -30,6 +31,7 @@ class JdbcBalancesTest {
     private final JdbcBalances balances;
     private final JdbcAccounts accounts;
     private final JdbcClient jdbc;
+    private final UUID tenant = UUID.randomUUID();
     private final UuidV7Generator ids = new UuidV7Generator(Clock.systemUTC());
 
     @Autowired
@@ -41,7 +43,7 @@ class JdbcBalancesTest {
 
     @BeforeEach
     void actAsTheLedgerRole() {
-        DatabaseRole.LEDGER.actAs(jdbc);
+        DatabaseRole.LEDGER.actAs(jdbc, new TenantId(tenant));
     }
 
     @Test
@@ -88,7 +90,7 @@ class JdbcBalancesTest {
     private Account open(boolean allowNegative) {
         var account = new Account(
                 new AccountId(ids.next()),
-                UUID.randomUUID(),
+                tenant,
                 "tenant:available",
                 AccountType.LIABILITY,
                 BRL,

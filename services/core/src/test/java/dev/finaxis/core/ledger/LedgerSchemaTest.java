@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
+import dev.finaxis.core.shared.TenantId;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -43,7 +44,7 @@ class LedgerSchemaTest {
         var entry = UUID.randomUUID();
 
         committed(() -> {
-            DatabaseRole.LEDGER.actAs(jdbc);
+            DatabaseRole.LEDGER.actAs(jdbc, new TenantId(tenant));
             var settlement = insertAccount(tenant, "ASSET", "DEBIT", "BRL");
             var available = insertAccount(tenant, "LIABILITY", "CREDIT", "BRL");
             insertEntry(entry, tenant);
@@ -65,7 +66,7 @@ class LedgerSchemaTest {
 
         // Each insert succeeds; the commit fails and rolls everything back.
         assertThatThrownBy(() -> committed(() -> {
-                    DatabaseRole.LEDGER.actAs(jdbc);
+                    DatabaseRole.LEDGER.actAs(jdbc, new TenantId(tenant));
                     var settlement = insertAccount(tenant, "ASSET", "DEBIT", "BRL");
                     var available = insertAccount(tenant, "LIABILITY", "CREDIT", "BRL");
                     insertEntry(entry, tenant);
@@ -79,11 +80,12 @@ class LedgerSchemaTest {
 
     @Test
     void rejectsAnEntryWithoutPostingsAtCommit() {
+        var tenant = UUID.randomUUID();
         var entry = UUID.randomUUID();
 
         assertThatThrownBy(() -> committed(() -> {
-                    DatabaseRole.LEDGER.actAs(jdbc);
-                    insertEntry(entry, UUID.randomUUID());
+                    DatabaseRole.LEDGER.actAs(jdbc, new TenantId(tenant));
+                    insertEntry(entry, tenant);
                 }))
                 .rootCause()
                 .hasMessageContaining("fewer than two postings");
@@ -98,7 +100,7 @@ class LedgerSchemaTest {
         // The ledger's API returns before the commit, restoring the caller's role, which may read
         // no ledger table.
         committed(() -> {
-            DatabaseRole.LEDGER.actAs(jdbc);
+            DatabaseRole.LEDGER.actAs(jdbc, new TenantId(tenant));
             var settlement = insertAccount(tenant, "ASSET", "DEBIT", "BRL");
             var available = insertAccount(tenant, "LIABILITY", "CREDIT", "BRL");
             insertEntry(entry, tenant);
@@ -118,7 +120,7 @@ class LedgerSchemaTest {
         var entry = UUID.randomUUID();
 
         assertThatThrownBy(() -> committed(() -> {
-                    DatabaseRole.LEDGER.actAs(jdbc);
+                    DatabaseRole.LEDGER.actAs(jdbc, new TenantId(tenant));
                     var settlement = insertAccount(tenant, "ASSET", "DEBIT", "BRL");
                     var available = insertAccount(tenant, "LIABILITY", "CREDIT", "BRL");
                     insertEntry(entry, tenant);
@@ -223,11 +225,12 @@ class LedgerSchemaTest {
 
     @Test
     void letsTheLedgerRoleUpdateBalances() {
-        var account = insertAccount(UUID.randomUUID(), "LIABILITY", "CREDIT", "BRL");
+        var tenant = UUID.randomUUID();
+        var account = insertAccount(tenant, "LIABILITY", "CREDIT", "BRL");
         jdbc.sql("INSERT INTO ledger.balances (account_id) VALUES (?)")
                 .param(account)
                 .update();
-        DatabaseRole.LEDGER.actAs(jdbc);
+        DatabaseRole.LEDGER.actAs(jdbc, new TenantId(tenant));
 
         var updated = jdbc.sql("UPDATE ledger.balances SET balance = balance + 100 WHERE account_id = ?")
                 .param(account)

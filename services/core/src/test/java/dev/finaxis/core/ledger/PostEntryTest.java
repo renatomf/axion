@@ -37,22 +37,23 @@ class PostEntryTest {
 
     private static final Money TEN = Money.ofMinor(1_000, BRL);
 
-    private final LedgerApi ledger;
+    private final LedgerApi api;
     private final JdbcClient owner;
     private final TransactionTemplate transaction;
     private final BalanceVerifier verifier;
 
     private UUID tenant;
+    private TenantBoundLedger ledger;
     private AccountId settlement;
     private AccountId available;
 
     @Autowired
     PostEntryTest(
-            LedgerApi ledger,
+            LedgerApi api,
             DatabaseOwner databaseOwner,
             PlatformTransactionManager transactions,
             BalanceVerifier verifier) {
-        this.ledger = ledger;
+        this.api = api;
         this.owner = databaseOwner.jdbc();
         this.transaction = new TransactionTemplate(transactions);
         this.verifier = verifier;
@@ -61,6 +62,7 @@ class PostEntryTest {
     @BeforeEach
     void openAccounts() {
         tenant = UUID.randomUUID();
+        ledger = new TenantBoundLedger(api, tenant);
         settlement = ledger.openAccount(
                 new AccountRequest(tenant, "platform:settlement", AccountType.ASSET, BRL, true, false));
         available = ledger.openAccount(
@@ -135,12 +137,12 @@ class PostEntryTest {
 
     @Test
     void keepsTheCallersWorkWhenFundsAreShort() {
-        var callersAccount = transaction.execute(status -> {
+        var callersAccount = ledger.call(() -> transaction.execute(status -> {
             var opened = ledger.openAccount(
                     new AccountRequest(tenant, "tenant:held", AccountType.LIABILITY, BRL, false, false));
             assertThat(ledger.post(payOut(newSource(), TEN))).isInstanceOf(PostResult.InsufficientFunds.class);
             return opened;
-        });
+        }));
 
         assertThat(storedBalance(owner, callersAccount)).isZero();
     }
@@ -151,7 +153,7 @@ class PostEntryTest {
         ledger.post(settle(source, TEN));
 
         // The caller swallows the ledger's exception and tries to commit its own work anyway.
-        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
+        assertThatThrownBy(() -> ledger.run(() -> transaction.executeWithoutResult(status -> {
                     ledger.openAccount(
                             new AccountRequest(tenant, "tenant:held", AccountType.LIABILITY, BRL, false, false));
                     try {
@@ -159,7 +161,7 @@ class PostEntryTest {
                     } catch (IllegalStateException swallowed) {
                         // A bug in the caller: the ledger must still fail closed.
                     }
-                }))
+                })))
                 .isInstanceOf(UnexpectedRollbackException.class);
 
         assertThat(accountsWithCode("tenant:held")).isZero();
@@ -209,7 +211,7 @@ class PostEntryTest {
                 request.correlationId(),
                 request.postings());
 
-        assertThatThrownBy(() -> ledger.post(otherTenant))
+        assertThatThrownBy(() -> new TenantBoundLedger(api, otherTenant.tenantId()).post(otherTenant))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("already posted for another tenant");
     }
