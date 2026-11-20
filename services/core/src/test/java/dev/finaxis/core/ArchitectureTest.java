@@ -71,21 +71,10 @@ class ArchitectureTest {
     static final ArchRule everyEndpointDeclaresItsPermission =
             methods().that().areMetaAnnotatedWith(RequestMapping.class).should(declareExactlyOnePermission());
 
-    /**
-     * Step-up is checked together with the permission, so {@link RequiresStepUp} on a method without
-     * {@link RequiresPermission} would be ignored without a word. The rule makes that a build error.
-     *
-     * <p>ArchUnit fails a rule that matches no method, to catch a mistyped {@code that()}. No
-     * production endpoint needs step-up until the API key endpoints of PR 1.20, so this rule allows
-     * an empty match.
-     */
+    /** Step-up is checked with the permission, so {@link RequiresStepUp} alone would be ignored. */
     @ArchTest
-    static final ArchRule stepUpGoesWithAPermission = methods()
-            .that()
-            .areAnnotatedWith(RequiresStepUp.class)
-            .should()
-            .beAnnotatedWith(RequiresPermission.class)
-            .allowEmptyShould(true);
+    static final ArchRule stepUpGoesWithAPermission =
+            methods().that().areAnnotatedWith(RequiresStepUp.class).should().beAnnotatedWith(RequiresPermission.class);
 
     private static ArchCondition<JavaMethod> declareExactlyOnePermission() {
         return new ArchCondition<>("declare exactly one of @RequiresPermission and @NoPermissionRequired") {
