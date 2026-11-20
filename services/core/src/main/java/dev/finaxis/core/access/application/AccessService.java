@@ -143,9 +143,12 @@ public class AccessService implements AccessApi {
      * <p>A revoked key is {@code REVOKED} even within a roll's grace period: revoking ends a key at
      * once. A key works until the instant its grace period ends, and not at that instant, as {@link
      * JdbcApiKeys#countActive} counts it.
+     *
+     * <p>Not read-only: a key that authenticates may have its {@code last_used_at} written, at most
+     * once an hour (section 4.3). Most requests find it recent and write nothing.
      */
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public AuthenticationResult authenticate(String credential) {
         Optional<ApiKeySecret> secret = ApiKeySecret.parse(credential);
         if (secret.isEmpty()) {
@@ -159,7 +162,8 @@ public class AccessService implements AccessApi {
         if (key.revokedAt().isPresent()) {
             return new AuthenticationResult.Rejected(Reason.REVOKED, Optional.of(key.id()));
         }
-        if (key.expiresAt().filter(end -> !end.isAfter(clock.instant())).isPresent()) {
+        Instant now = now();
+        if (key.expiresAt().filter(end -> !end.isAfter(now)).isPresent()) {
             return new AuthenticationResult.Rejected(Reason.EXPIRED, Optional.of(key.id()));
         }
         // Only a working key reaches this check, so an invalid credential never learns whether a
@@ -167,6 +171,11 @@ public class AccessService implements AccessApi {
         TenantView tenant = tenancy.tenant(key.tenant()).orElseThrow();
         if (tenant.status() != TenantStatus.ACTIVE) {
             return new AuthenticationResult.TenantInactive(key.id());
+        }
+        // Only a request the key authenticates counts as a use, so last_used_at tells a member
+        // whether something still relies on the key before they revoke it.
+        if (key.useIsDue(now)) {
+            keys.recordUse(key.id(), now);
         }
         return new AuthenticationResult.Authenticated(new ApiKeyCaller(key.tenant(), key.id(), key.scopes()));
     }
