@@ -18,7 +18,7 @@ When this file and the design doc disagree, the design doc wins; point out the c
 The author is new to Spring. Until told otherwise:
 
 - Work in very small increments. Each commit introduces **one concept** (e.g. add a dependency, then a first controller, then its first test).
-- Phases 0 and 1: PRs of about 50–200 changed lines, 3–8 commits.
+- Slice a roadmap item only for one of the reasons in [`CONTRIBUTING.md`](CONTRIBUTING.md#pull-request-size), never to fit a size; a PR that splits or adds slices updates the roadmap itself.
 - Prefer explicit, readable code over clever code; explain any framework "magic" the change relies on in the conversation, never in code comments. Code follows the comment standard in [`engineering-standards.md`](docs/architecture/engineering-standards.md#comments-and-documentation).
 - Verify before claiming: run the build, tests or scripts and report the real output.
 

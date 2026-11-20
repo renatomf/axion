@@ -177,8 +177,14 @@ A significant feature starts with a design doc pull request.
 
 ## Pull request size
 
-- One pull request is one small, complete slice: code, tests and docs together.
-- Phases 0 and 1 target about **50–200 changed lines**, with a hard limit of about 400, in **3–8 commits**.
+- One pull request delivers one roadmap item, complete: code, tests and docs together.
+- An item is split into slices only for a reason, named in the issue of its first slice:
+  - a slice prepares the ground and lowers the risk of the next, such as tests rebound before a policy is forced;
+  - a slice is a security boundary worth reviewing on its own, such as signature verification or SSRF validation;
+  - migrations or deployment must happen in steps, such as expand and contract;
+  - one pull request would be too large to review with care.
+- Every slice leaves `main` working and delivers something usable: no code merged that nothing uses yet.
+- There is no line-count target. Each commit introduces one concept, however many the pull request has.
 - Generated or verbatim third-party text, such as lockfiles, does not count, but is called out in the description.
 
 ## Commits
@@ -199,7 +205,7 @@ Types: `feat`, `fix`, `docs`, `test`, `refactor` (neither a fix nor a feature), 
 - [ ] Documentation affected by the change is updated.
 - [ ] The security checklist of the pull request template is complete.
 - [ ] CI is green.
-- [ ] The size limit is respected.
+- [ ] The diff can be reviewed with care; a split, if any, has its reason in the issue.
 
 ## Language
 
