@@ -26,6 +26,10 @@ security:
 tags:
   - name: Members
     description: The calling member and the organizations they belong to.
+  - name: API keys
+    description: >-
+      The keys a tenant's systems authenticate with on the public API. A key's
+      secret is shown once, when it is issued, and never again.
 paths:
   /internal/me:
     get:
@@ -48,7 +52,44 @@ paths:
           $ref: "components.yaml#/responses/Unauthorized"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
+  /internal/tenants/{tenant_id}/api_keys:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      operationId: listApiKeys
+      tags: [API keys]
+      summary: The tenant's API keys
+      description: >-
+        Every key of the tenant, newest first, including revoked and expired
+        ones: a key is never deleted, and its record shows what it could do.
+        No secret is ever returned here. Requires `api_keys:manage`.
+      responses:
+        "200":
+          description: The tenant's keys, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyList"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          $ref: "components.yaml#/responses/Forbidden"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
 components:
+  parameters:
+    TenantId:
+      name: tenant_id
+      in: path
+      required: true
+      description: >-
+        A tenant of an organization the caller belongs to. Any other tenant,
+        existing or not, answers `404`.
+      schema:
+        type: string
+        pattern: "^ten_[0-7][0-9a-hjkmnp-tv-z]{25}$"
   securitySchemes:
     service_token:
       description: >-
@@ -122,3 +163,75 @@ components:
           description: Only an active tenant accepts requests.
           type: string
           enum: [active, suspended, closed]
+    ApiKeyList:
+      description: The keys of a tenant.
+      type: object
+      required: [data]
+      properties:
+        data:
+          description: The keys, newest first.
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiKey"
+    ApiKey:
+      description: >-
+        An API key as lists show it: its name, what it may do and what has
+        happened to it, but never its secret.
+      type: object
+      required: [id, name, last_four, scopes, created_at, expires_at, revoked_at, last_used_at]
+      properties:
+        id:
+          description: The key's ID, which rolling and revoking take in their path.
+          type: string
+          pattern: "^key_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        name:
+          description: The label the issuer chose.
+          type: string
+          minLength: 1
+          maxLength: 100
+        last_four:
+          description: The key's last four characters, to tell keys apart.
+          type: string
+          pattern: "^[0-9A-Za-z]{4}$"
+        scopes:
+          description: What the key may do, in alphabetical order.
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/ApiKeyScope"
+        created_at:
+          description: When the key was issued.
+          type: string
+          format: date-time
+        expires_at:
+          description: >-
+            When a rolled key stops working, the end of its grace period;
+            null if the key was never rolled.
+          type: [string, "null"]
+          format: date-time
+        revoked_at:
+          description: When the key was revoked; null if it never was.
+          type: [string, "null"]
+          format: date-time
+        last_used_at:
+          description: >-
+            When the key last authenticated a request, to within an hour; null
+            if it never did.
+          type: [string, "null"]
+          format: date-time
+      examples:
+        - id: key_01jd8x3k9vfz4t2p6q5w7r8s0d
+          name: Checkout
+          last_four: a1B2
+          scopes: ["charges:read", "charges:write"]
+          created_at: "2026-11-19T12:00:00Z"
+          expires_at: null
+          revoked_at: null
+          last_used_at: "2026-11-19T15:00:00Z"
+    ApiKeyScope:
+      description: >-
+        A permission an API key may carry. Human-only permissions, such as
+        `api_keys:manage`, are never scopes.
+      type: string
+      enum: ["balances:read", "charges:read", "charges:write", "refunds:write", "webhooks:manage"]
