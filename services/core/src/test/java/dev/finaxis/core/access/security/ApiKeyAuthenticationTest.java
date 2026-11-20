@@ -48,8 +48,7 @@ import org.springframework.web.bind.annotation.RestController;
  * written in the repository.
  *
  * <p>{@link PublicApiController}, which exists only in this test, stands in for a {@code /v1}
- * endpoint, so authentication is proven apart from any real one. {@link OutputCaptureExtension}
- * records what the test writes to the console, logs included.
+ * endpoint, so authentication is proven apart from any real one.
  */
 @SpringBootTest
 @Import({PostgresTestConfiguration.class, ApiKeyAuthenticationTest.PublicApiController.class})
@@ -126,10 +125,7 @@ class ApiKeyAuthenticationTest {
         isUnauthorized(probeWith("Bearer sk_test_not-a-real-key"));
     }
 
-    /**
-     * Each rejection is counted under its reason. The counters are shared by the whole test run, so
-     * the test compares them before and after its own requests.
-     */
+    /** The counters are shared by the whole test run, so the test compares before and after. */
     @Test
     void everyRejectionIsCountedWithItsReason() {
         IssuedApiKey revoked = issued();
@@ -148,8 +144,6 @@ class ApiKeyAuthenticationTest {
         assertThat(mvc.get().uri("/v1/probe")).hasStatus(HttpStatus.UNAUTHORIZED);
         probeWith("Basic " + revoked.secret());
 
-        // The two malformed are the key that is not one and the header with two credentials; the
-        // two missing, the request without a header and the one with another scheme.
         assertThat(increaseSince(before))
                 .containsExactlyInAnyOrderEntriesOf(Map.of(
                         Failure.MISSING, 2.0,
@@ -159,7 +153,6 @@ class ApiKeyAuthenticationTest {
                         Failure.EXPIRED, 1.0));
     }
 
-    /** The log names the reason and the key, never the secret the caller sent. */
     @Test
     void aRejectionIsLoggedWithTheKeyButNotTheSecret(CapturedOutput output) {
         IssuedApiKey revoked = issued();
@@ -212,7 +205,6 @@ class ApiKeyAuthenticationTest {
                 .hasStatus(HttpStatus.NOT_FOUND);
     }
 
-    /** The current value of each failure's counter. */
     private Map<Failure, Double> failureCounts() {
         Map<Failure, Double> counts = new EnumMap<>(Failure.class);
         for (Failure failure : Failure.values()) {
@@ -226,7 +218,6 @@ class ApiKeyAuthenticationTest {
         return counts;
     }
 
-    /** How much each failure's counter grew since {@code before}. */
     private Map<Failure, Double> increaseSince(Map<Failure, Double> before) {
         Map<Failure, Double> increase = failureCounts();
         increase.replaceAll((failure, now) -> now - before.getOrDefault(failure, 0.0));

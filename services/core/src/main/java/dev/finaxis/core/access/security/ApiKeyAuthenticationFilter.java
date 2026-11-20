@@ -38,8 +38,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *   <li>a working key: the request continues as an {@link ApiKeyAuthentication}.
  * </ul>
  *
- * <p>Each {@code 401} the filter answers is recorded by {@link AuthenticationFailures}, with its
- * reason: the response hides it, the metric and the logs do not.
+ * <p>Each {@code 401} is recorded by {@link AuthenticationFailures}.
  *
  * <p>The header is read by Spring's {@link DefaultBearerTokenResolver}, the one the {@code
  * /internal} chain uses for access tokens, so both APIs parse it alike: the header only, never the
@@ -77,8 +76,7 @@ final class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
         if (credential == null) {
-            // The chain's rule that every request be authenticated would answer the same 401; the
-            // filter answers it itself so that this rejection is recorded like the others.
+            // Answered here, not by the chain's rule, so that it is recorded like any rejection.
             failures.record(Failure.MISSING, Optional.empty());
             rejections.commence(request, response, new InsufficientAuthenticationException("No API key"));
             return;
@@ -91,7 +89,6 @@ final class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
                 chain.doFilter(request, response);
             }
             case Rejected(var reason, var key) -> {
-                // The reason stays out of the response, which is the same for every rejection.
                 failures.record(Failure.of(reason), key);
                 rejections.commence(request, response, new BadCredentialsException("Invalid API key"));
             }
