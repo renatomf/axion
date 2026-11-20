@@ -25,14 +25,10 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * The tenancy module's implementation of {@link TenancyApi}. Other modules depend on the
- * interface; Spring passes them this bean, the only implementation.
- */
 @Service
 public class TenancyService implements TenancyApi {
 
-    /** The fixed IDs the migration {@code V7__create_platform_organization} gives the platform tenants. */
+    // Fixed by migration V7__create_platform_organization.
     private static final TenantId PLATFORM_TEST = new TenantId(UUID.fromString("00000000-0000-7000-8000-000000000002"));
 
     private static final TenantId PLATFORM_LIVE = new TenantId(UUID.fromString("00000000-0000-7000-8000-000000000003"));
@@ -49,13 +45,6 @@ public class TenancyService implements TenancyApi {
         this.ids = new UuidV7Generator(clock);
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * <p>{@code @Transactional} joins the caller's transaction, or starts one if there is none: the
-     * five inserts commit together or not at all. The schema checks the lengths again; checking
-     * them here first gives the caller a clear error instead of a constraint name.
-     */
     @Override
     @Transactional
     public NewOrganization createOrganization(String name, String adminSubject) {
@@ -74,37 +63,20 @@ public class TenancyService implements TenancyApi {
         return created;
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * <p>{@code readOnly = true} tells Spring, and through the driver PostgreSQL, that the call
-     * writes nothing; a write by mistake fails instead of committing.
-     */
     @Override
     @Transactional(readOnly = true)
     public Optional<TenantView> tenant(TenantId tenant) {
         return tenants.find(tenant);
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * <p>Two queries, whatever the number of organizations: the person's members, then the tenants
-     * of all their organizations at once. Both run in one read-only transaction, so they see the
-     * same snapshot of the directory.
-     */
+    // Two queries, whatever the number of organizations: no N+1.
     @Override
     @Transactional(readOnly = true)
     public List<Membership> memberships(String userSubject) {
         return withTenants(members.findBySubject(userSubject));
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * <p>It runs on every tenant-scoped request of a member, so it costs two indexed queries: the
-     * member through the tenant, then the tenants of that one organization.
-     */
+    // Runs on every tenant-scoped request of a member: two indexed queries.
     @Override
     @Transactional(readOnly = true)
     public Optional<Membership> membership(String userSubject, TenantId tenant) {
@@ -114,7 +86,6 @@ public class TenancyService implements TenancyApi {
                 .findFirst();
     }
 
-    /** Completes member rows with their organizations' tenants, test first, keeping the rows' order. */
     private List<Membership> withTenants(List<MemberRow> rows) {
         Map<OrganizationId, List<TenantView>> tenantsByOrganization =
                 tenants
@@ -133,12 +104,6 @@ public class TenancyService implements TenancyApi {
                 .toList();
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * <p>The IDs are fixed by a migration, so no query is needed; a test checks that they name the
-     * platform's tenants.
-     */
     @Override
     public TenantId platformTenant(Environment environment) {
         return switch (environment) {
@@ -147,11 +112,8 @@ public class TenancyService implements TenancyApi {
         };
     }
 
-    /**
-     * Rejects blank or overlong text. The length counts characters as PostgreSQL's {@code
-     * char_length} does, by code point, so an emoji counts once, not as the two {@code char}s Java
-     * stores it in.
-     */
+    // Counts code points, as PostgreSQL's char_length does. The schema checks again; checking first
+    // gives a clear error instead of a constraint name.
     private static void requireText(String what, String text, int maxLength) {
         if (text.isBlank()) {
             throw new IllegalArgumentException(what + " must not be blank");

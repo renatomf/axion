@@ -9,13 +9,7 @@ import dev.finaxis.core.tenancy.TenantStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-/**
- * Inserts organizations, their tenants, members and roles (tenancy design, section 3.4). Only the
- * statements the {@code finaxis_tenancy} role is granted are written here: nothing updates or
- * deletes an organization, tenant or member.
- *
- * <p>Runs in the caller's transaction, so the service decides what commits together.
- */
+// Inserts only: the finaxis_tenancy role may not update or delete an organization, tenant or member.
 @Repository
 public class JdbcOrganizations {
 
@@ -25,7 +19,7 @@ public class JdbcOrganizations {
         this.jdbc = jdbc;
     }
 
-    /** Inserts a customer organization; the platform organization comes only from a migration. */
+    // Customer organizations only; the platform's comes from a migration.
     public void insertOrganization(OrganizationId id, String name) {
         jdbc.sql("INSERT INTO tenancy.organizations (id, name, is_platform) VALUES (:id, :name, false)")
                 .param("id", id.value())

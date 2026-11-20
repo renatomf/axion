@@ -14,12 +14,6 @@ import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-/**
- * Reads tenants from {@code tenancy.tenants} (tenancy design, section 3.4).
- *
- * <p>Runs in the caller's transaction: {@code JdbcClient} uses the connection Spring has bound to
- * the current transaction, if there is one.
- */
 @Repository
 public class JdbcTenants {
 
@@ -29,7 +23,6 @@ public class JdbcTenants {
         this.jdbc = jdbc;
     }
 
-    /** The tenant with this ID, if there is one. */
     public Optional<TenantView> find(TenantId id) {
         return jdbc.sql("""
                         SELECT id, organization_id, environment, status
@@ -38,13 +31,11 @@ public class JdbcTenants {
                         """).param("id", id.value()).query(JdbcTenants::tenant).optional();
     }
 
-    /** The tenants of these organizations, in no particular order. */
     public List<TenantView> findByOrganizations(Collection<OrganizationId> organizations) {
         if (organizations.isEmpty()) {
             // "IN ()" is not valid SQL; no organizations have no tenants.
             return List.of();
         }
-        // JdbcClient expands a collection parameter into one placeholder per element: IN (?, ?, …).
         return jdbc.sql("""
                         SELECT id, organization_id, environment, status
                           FROM tenancy.tenants
