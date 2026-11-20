@@ -165,6 +165,72 @@ paths:
           $ref: "components.yaml#/responses/NotFound"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
+  /internal/tenants/{tenant_id}/api_keys/{key_id}/roll:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/KeyId"
+    post:
+      operationId: rollApiKey
+      tags: [API keys]
+      summary: Roll an API key
+      description: >-
+        Replaces one of the tenant's keys without downtime: issues a new key
+        with the same name and scopes, and lets the old one keep working for
+        a grace period, so the new key can be deployed before the old one
+        stops. The response is the only time the new key's secret is shown.
+        A key is rolled at most once; its replacement is the key to roll
+        next. The caller must hold every scope of the key. During the grace
+        period both keys count towards the limit of 10 working keys; a grace
+        period of zero always fits. The body is optional. Requires
+        `api_keys:manage` and an authentication in the last 5 minutes;
+        otherwise the `403` has the code `step_up_required` and an RFC 9470
+        `WWW-Authenticate` challenge.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RollApiKeyRequest"
+      responses:
+        "201":
+          description: >-
+            The key was rolled; the new key's secret is in this response only.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RolledApiKey"
+        "400":
+          $ref: "components.yaml#/responses/BadRequest"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The caller may not manage API keys (`insufficient_permission`),
+            lacks one of the key's scopes (`insufficient_permission`), or
+            must authenticate again (`step_up_required`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "409":
+          description: >-
+            The key was revoked or already rolled (`key_not_rollable`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "422":
+          description: >-
+            The grace period is invalid (`validation_failed`, with `errors`),
+            or the tenant already has 10 working keys (`limit_exceeded`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
 components:
   parameters:
     KeyId:
@@ -385,6 +451,32 @@ components:
             API. Only its hash is stored: if it is lost, issue a new key.
           type: string
           pattern: "^sk_(test|live)_[0-9A-Za-z]{36}$"
+    RollApiKeyRequest:
+      description: How to roll a key.
+      type: object
+      properties:
+        grace_period_seconds:
+          description: >-
+            How long the old key keeps working, in seconds, from zero to 7
+            days. Zero ends it at once. Without it, 24 hours.
+          type: integer
+          minimum: 0
+          maximum: 604800
+          default: 86400
+      examples:
+        - grace_period_seconds: 3600
+    RolledApiKey:
+      description: >-
+        A key just rolled: its replacement, with the secret, which is never
+        shown again, and the old key as lists show it, with the end of its
+        grace period in `expires_at`.
+      type: object
+      required: [replacement, rolled]
+      properties:
+        replacement:
+          $ref: "#/components/schemas/IssuedApiKey"
+        rolled:
+          $ref: "#/components/schemas/ApiKey"
     ApiKeyScope:
       description: >-
         A permission an API key may carry. Human-only permissions, such as
