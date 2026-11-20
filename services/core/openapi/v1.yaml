@@ -37,6 +37,7 @@ components:
         can change them. A missing, malformed, unknown, revoked or expired
         key gets `401` with code `unauthorized`, the same answer whatever
         the reason; a working key of a tenant that is not active gets `403`
-        with code `tenant_inactive`.
+        with code `tenant_inactive`. Each operation requires one scope; a
+        key without it gets `403` with code `insufficient_permission`.
       type: http
       scheme: bearer
