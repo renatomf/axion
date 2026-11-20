@@ -1,8 +1,11 @@
 package dev.finaxis.core.access.application;
 
 import dev.finaxis.core.access.AccessApi;
+import dev.finaxis.core.access.ApiKeyCaller;
 import dev.finaxis.core.access.ApiKeyId;
 import dev.finaxis.core.access.ApiKeyView;
+import dev.finaxis.core.access.AuthenticationResult;
+import dev.finaxis.core.access.AuthenticationResult.Reason;
 import dev.finaxis.core.access.IssueResult;
 import dev.finaxis.core.access.IssuedApiKey;
 import dev.finaxis.core.access.MemberCaller;
@@ -127,6 +130,34 @@ public class AccessService implements AccessApi {
         IssuedApiKey replacement = insertKey(roller, old.name(), old.scopes(), now);
         return new RollResult.Rolled(
                 replacement, keys.find(roller.tenant(), key).orElseThrow());
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>A revoked key is {@code REVOKED} even within a roll's grace period: revoking ends a key at
+     * once. A key works until the instant its grace period ends, and not at that instant, as {@link
+     * JdbcApiKeys#countActive} counts it.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public AuthenticationResult authenticate(String credential) {
+        Optional<ApiKeySecret> secret = ApiKeySecret.parse(credential);
+        if (secret.isEmpty()) {
+            return new AuthenticationResult.Rejected(Reason.MALFORMED, Optional.empty());
+        }
+        Optional<JdbcApiKeys.Credential> found = keys.findByHash(secret.get().hash());
+        if (found.isEmpty()) {
+            return new AuthenticationResult.Rejected(Reason.UNKNOWN, Optional.empty());
+        }
+        JdbcApiKeys.Credential key = found.get();
+        if (key.revokedAt().isPresent()) {
+            return new AuthenticationResult.Rejected(Reason.REVOKED, Optional.of(key.id()));
+        }
+        if (key.expiresAt().filter(end -> !end.isAfter(clock.instant())).isPresent()) {
+            return new AuthenticationResult.Rejected(Reason.EXPIRED, Optional.of(key.id()));
+        }
+        return new AuthenticationResult.Authenticated(new ApiKeyCaller(key.tenant(), key.id(), key.scopes()));
     }
 
     /** Stores a new key for the member's tenant and returns it with its secret. */
