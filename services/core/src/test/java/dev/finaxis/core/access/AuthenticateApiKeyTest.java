@@ -17,6 +17,10 @@ import dev.finaxis.core.tenancy.Role;
 import dev.finaxis.core.tenancy.TenancyApi;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -129,6 +133,71 @@ class AuthenticateApiKeyTest {
                 .update();
 
         assertThat(access.authenticate(key.secret())).isEqualTo(new Rejected(Reason.REVOKED, Optional.of(key.id())));
+    }
+
+    @Test
+    void recordsTheFirstUseOfAKey() {
+        var key = issued(Environment.TEST, Set.of(CHARGES_READ));
+        // Truncated as the service truncates its clock, so a use in the same microsecond is between.
+        var before = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+        access.authenticate(key.secret());
+
+        var after = Instant.now();
+        assertThat(lastUsedAt(key)).hasValueSatisfying(used -> assertThat(used).isBetween(before, after));
+    }
+
+    @Test
+    void leavesARecentUseAsItIs() {
+        var key = issued(Environment.TEST, Set.of(CHARGES_READ));
+        var recent = setLastUsedAt(key, Instant.now().minus(Duration.ofMinutes(30)));
+
+        access.authenticate(key.secret());
+
+        assertThat(lastUsedAt(key)).contains(recent);
+    }
+
+    @Test
+    void recordsAUseOnceTheLastIsAnHourOld() {
+        var key = issued(Environment.TEST, Set.of(CHARGES_READ));
+        var old = setLastUsedAt(key, Instant.now().minus(Duration.ofHours(2)));
+
+        access.authenticate(key.secret());
+
+        assertThat(lastUsedAt(key)).hasValueSatisfying(used -> assertThat(used).isAfter(old.plus(Duration.ofHours(1))));
+    }
+
+    @Test
+    void recordsNoUseForAKeyThatAuthenticatesNothing() {
+        var revoked = issued(Environment.TEST, Set.of(CHARGES_READ));
+        access.revoke(admin(Environment.TEST), revoked.id());
+        var ofInactiveTenant = issued(Environment.LIVE, Set.of(CHARGES_READ));
+        jdbc.sql("UPDATE tenancy.tenants SET status = 'SUSPENDED' WHERE id = ?")
+                .param(organization.live().value())
+                .update();
+
+        access.authenticate(revoked.secret());
+        access.authenticate(ofInactiveTenant.secret());
+
+        assertThat(lastUsedAt(revoked)).isEmpty();
+        assertThat(lastUsedAt(ofInactiveTenant)).isEmpty();
+    }
+
+    private Optional<Instant> lastUsedAt(IssuedApiKey key) {
+        return jdbc.sql("SELECT last_used_at FROM access.api_keys WHERE id = ?")
+                .param(key.id().value())
+                .query((row, rowNumber) -> Optional.ofNullable(row.getObject(1, OffsetDateTime.class)))
+                .single()
+                .map(OffsetDateTime::toInstant);
+    }
+
+    /** Writes the key's last use, truncated as PostgreSQL stores it, and returns what was written. */
+    private Instant setLastUsedAt(IssuedApiKey key, Instant value) {
+        var stored = value.truncatedTo(ChronoUnit.MICROS);
+        jdbc.sql("UPDATE access.api_keys SET last_used_at = ? WHERE id = ?")
+                .params(stored.atOffset(ZoneOffset.UTC), key.id().value())
+                .update();
+        return stored;
     }
 
     /** The caller tenant resolution would build for the organization's admin. */

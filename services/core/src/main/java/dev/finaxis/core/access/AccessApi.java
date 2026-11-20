@@ -75,7 +75,8 @@ public interface AccessApi {
      *
      * <p>A text that is not a key, in shape or checksum, is rejected before any query; otherwise one
      * indexed lookup by the secret's hash finds the key. The key's tenant and scopes come from the
-     * stored key, never from the request.
+     * stored key, never from the request. A key that authenticates has its last use recorded, to
+     * within an hour.
      *
      * @param credential the bearer token exactly as the caller sent it, which may be any text
      * @return {@link AuthenticationResult.Authenticated} with the caller for a working key of an
