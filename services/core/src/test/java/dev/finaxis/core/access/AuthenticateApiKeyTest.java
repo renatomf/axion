@@ -200,7 +200,6 @@ class AuthenticateApiKeyTest {
         return stored;
     }
 
-    /** The caller tenant resolution would build for the organization's admin. */
     private MemberCaller admin(Environment environment) {
         var tenant = environment == Environment.TEST ? organization.test() : organization.live();
         return new MemberCaller(tenant, environment, organization.admin(), Role.permissionsOf(Set.of(Role.ADMIN)));

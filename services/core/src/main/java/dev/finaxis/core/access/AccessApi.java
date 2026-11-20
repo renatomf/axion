@@ -14,96 +14,47 @@ import java.util.Set;
 public interface AccessApi {
 
     /**
-     * Issues a key for the issuer's tenant, with a name and scopes.
+     * Issues a key for the issuer's tenant. Scopes must be permissions the issuer holds.
      *
-     * <p>The issuer is a member already resolved to the tenant, so the tenant exists and the member
-     * belongs to it. Checking that the member may manage API keys, and has recently authenticated, is
-     * the endpoint's job ({@code @RequiresPermission} and {@code @RequiresStepUp}).
-     *
-     * @param name a label for the key, 1 to {@value #MAX_NAME_LENGTH} characters, not blank
-     * @param scopes what the key may do: at least one permission, every one of them an API key scope
-     * @return {@link IssueResult.Issued} with the key and its secret, {@link
-     *     IssueResult.ScopesNotHeld} if the issuer lacks one of the scopes, or {@link
-     *     IssueResult.LimitReached} if the tenant already has {@value #MAX_ACTIVE_KEYS} working keys
-     * @throws IllegalArgumentException if the name is blank or too long, there are no scopes, or one
-     *     of them is a human-only permission, which the endpoint's contract rejects first
+     * @throws IllegalArgumentException for an invalid name or a scope that is not an API key scope
      */
     IssueResult issue(MemberCaller issuer, String name, Set<Permission> scopes);
 
-    /**
-     * Every key of the tenant, newest first, including revoked and expired ones: a key is never
-     * deleted, and its row is the record of what it could do. A tenant has at most {@value
-     * #MAX_ACTIVE_KEYS} working keys, but the keys it revoked keep accumulating.
-     */
+    /** Every key of the tenant, newest first, revoked and expired ones included: keys are never deleted. */
     List<ApiKeyView> keys(TenantId tenant);
 
     /**
-     * Revokes one of the tenant's keys: it stops working on the next request, and for good. Revoking
-     * a key that is already revoked changes nothing, so a retried request is harmless.
+     * Revokes one of the revoker's tenant's keys; revoking it again changes nothing.
      *
-     * <p>Like {@link #issue}, it takes the resolved member, not a bare key ID: the key is looked up
-     * only among the member's tenant's keys, so a key of another tenant is treated as one that does
-     * not exist. Checking the permission and the step-up is the endpoint's job.
-     *
-     * @return the key as it is now, or empty if the tenant has no key with this ID
+     * @return the key as it is now, or empty if the tenant has no such key
      */
     Optional<ApiKeyView> revoke(MemberCaller revoker, ApiKeyId key);
 
     /**
-     * Replaces one of the tenant's keys without downtime: issues a new key with the same name and
-     * scopes, and lets the old one keep working for a grace period, so the tenant can deploy the new
-     * key before the old one stops. A grace period of zero ends the old key at once.
+     * Replaces a key without downtime: a new key with the same name and scopes, while the old one
+     * keeps working for the grace period.
      *
-     * <p>Like {@link #revoke}, it takes the resolved member, so a key of another tenant is treated as
-     * one that does not exist, and the new key records this member as its issuer. Checking the
-     * permission and the step-up is the endpoint's job.
-     *
-     * @param grace how long the old key keeps working, from zero to {@link #MAX_ROLL_GRACE}
-     * @return {@link RollResult.Rolled} with the new key and its secret, {@link
-     *     RollResult.KeyNotFound} if the tenant has no key with this ID, {@link
-     *     RollResult.KeyNotRollable} if the key was revoked or already rolled, {@link
-     *     RollResult.ScopesNotHeld} if the member lacks one of the key's scopes, or {@link
-     *     RollResult.LimitReached} if the replacement would pass {@value #MAX_ACTIVE_KEYS} working
-     *     keys
-     * @throws IllegalArgumentException if the grace period is negative or longer than {@link
-     *     #MAX_ROLL_GRACE}, which the endpoint's contract rejects first
+     * @throws IllegalArgumentException if the grace period is outside zero to {@link #MAX_ROLL_GRACE}
      */
     RollResult roll(MemberCaller roller, ApiKeyId key, Duration grace);
 
     /**
-     * Resolves the credential a caller sent on {@code /v1} to the key it names (section 4.4).
-     *
-     * <p>A text that is not a key, in shape or checksum, is rejected before any query; otherwise one
-     * indexed lookup by the secret's hash finds the key. The key's tenant and scopes come from the
-     * stored key, never from the request. A key that authenticates has its last use recorded, to
-     * within an hour.
-     *
-     * @param credential the bearer token exactly as the caller sent it, which may be any text
-     * @return {@link AuthenticationResult.Authenticated} with the caller for a working key of an
-     *     active tenant, {@link AuthenticationResult.TenantInactive} for a working key of any other
-     *     tenant, or {@link AuthenticationResult.Rejected} with the reason
+     * Resolves a {@code /v1} credential, any text, to the key it names (section 4.4). Tenant and
+     * scopes come from the stored key, never from the request.
      */
     AuthenticationResult authenticate(String credential);
 
-    /** The longest key name, in characters, as the schema allows. */
     int MAX_NAME_LENGTH = 100;
 
-    /**
-     * Whether {@link #issue} accepts a key name: not blank, as {@link String#isBlank} decides, and at
-     * most {@value #MAX_NAME_LENGTH} characters, counted by code point as PostgreSQL's {@code
-     * char_length} counts, so an emoji counts once. Endpoints check a request with this rule, so that
-     * their validation and the module's never disagree.
-     */
+    /** Not blank, and at most {@value #MAX_NAME_LENGTH} code points, as PostgreSQL's {@code char_length} counts. */
     static boolean isValidName(String name) {
         return !name.isBlank() && name.codePointCount(0, name.length()) <= MAX_NAME_LENGTH;
     }
 
-    /** The most keys a tenant may have that are neither revoked nor expired (section 4.3). */
+    /** Working keys: neither revoked nor expired. */
     int MAX_ACTIVE_KEYS = 10;
 
-    /** The longest grace period a roll may give the old key (section 4.3). */
     Duration MAX_ROLL_GRACE = Duration.ofDays(7);
 
-    /** The grace period the endpoint gives when the request names none (section 4.3). */
     Duration DEFAULT_ROLL_GRACE = Duration.ofHours(24);
 }

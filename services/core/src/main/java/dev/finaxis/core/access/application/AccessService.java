@@ -30,10 +30,6 @@ import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * The access module's implementation of {@link AccessApi}. Other modules depend on the interface;
- * Spring passes them this bean, the only implementation.
- */
 @Service
 public class AccessService implements AccessApi {
 
@@ -41,7 +37,6 @@ public class AccessService implements AccessApi {
     private final TenancyApi tenancy;
     private final Clock clock;
     private final UuidV7Generator ids;
-    // Thread-safe, so one instance serves every request.
     private final SecureRandom random = new SecureRandom();
 
     public AccessService(JdbcApiKeys keys, TenancyApi tenancy, Clock clock) {
@@ -51,13 +46,6 @@ public class AccessService implements AccessApi {
         this.ids = new UuidV7Generator(clock);
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * <p>The limit is counted under a per-tenant lock held until the transaction ends, so concurrent
-     * requests are counted one after the other and cannot pass the limit together. The arguments are
-     * checked before the lock is taken, so a request that would fail anyway does not wait for it.
-     */
     @Override
     @Transactional
     public IssueResult issue(MemberCaller issuer, String name, Set<Permission> scopes) {
@@ -69,6 +57,7 @@ public class AccessService implements AccessApi {
             return new IssueResult.ScopesNotHeld(missing);
         }
 
+        // Concurrent issues are counted one after another, so they cannot pass the limit together.
         keys.lockTenantKeys(issuer.tenant());
         Instant now = now();
         if (keys.countActive(issuer.tenant(), now) >= MAX_ACTIVE_KEYS) {
@@ -91,13 +80,6 @@ public class AccessService implements AccessApi {
         return keys.find(revoker.tenant(), key);
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * <p>Takes the same per-tenant lock as {@link #issue}, since the replacement counts towards the
-     * limit. A revocation does not take it, so the old key is ended with a conditional update that
-     * also catches a revocation made after the key was read.
-     */
     @Override
     @Transactional
     public RollResult roll(MemberCaller roller, ApiKeyId key, Duration grace) {
@@ -111,8 +93,7 @@ public class AccessService implements AccessApi {
         if (old.revokedAt().isPresent() || old.expiresAt().isPresent()) {
             return new RollResult.KeyNotRollable();
         }
-        // The replacement is a new key, so it may not do more than the member who rolls it could,
-        // even if the member who issued the old key could.
+        // The replacement may not exceed the roller's permissions, whoever issued the old key.
         Set<Permission> missing = EnumSet.copyOf(old.scopes());
         missing.removeAll(roller.permissions());
         if (!missing.isEmpty()) {
@@ -120,15 +101,13 @@ public class AccessService implements AccessApi {
         }
 
         Instant now = now();
-        // The old key is working, so it is counted. During a grace period both keys work; without
-        // one, the replacement takes the old key's place.
+        // During a grace period both keys work; without one, the replacement takes the old key's place.
         int activeAfterRoll = keys.countActive(roller.tenant(), now) + (grace.isZero() ? 0 : 1);
         if (activeAfterRoll > MAX_ACTIVE_KEYS) {
             return new RollResult.LimitReached(MAX_ACTIVE_KEYS);
         }
 
-        // Ends the old key first: if it no longer works, nothing has been written yet. Truncated
-        // like now(), since a Duration may carry nanoseconds.
+        // Conditional: a revocation does not take the lock, so it may have happened since the read.
         if (!keys.expire(roller.tenant(), key, now.plus(grace).truncatedTo(ChronoUnit.MICROS))) {
             return new RollResult.KeyNotRollable();
         }
@@ -137,16 +116,6 @@ public class AccessService implements AccessApi {
                 replacement, keys.find(roller.tenant(), key).orElseThrow());
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * <p>A revoked key is {@code REVOKED} even within a roll's grace period: revoking ends a key at
-     * once. A key works until the instant its grace period ends, and not at that instant, as {@link
-     * JdbcApiKeys#countActive} counts it.
-     *
-     * <p>Not read-only: a key that authenticates may have its {@code last_used_at} written, at most
-     * once an hour (section 4.3). Most requests find it recent and write nothing.
-     */
     @Override
     @Transactional
     public AuthenticationResult authenticate(String credential) {
@@ -166,21 +135,17 @@ public class AccessService implements AccessApi {
         if (key.expiresAt().filter(end -> !end.isAfter(now)).isPresent()) {
             return new AuthenticationResult.Rejected(Reason.EXPIRED, Optional.of(key.id()));
         }
-        // Only a working key reaches this check, so an invalid credential never learns whether a
-        // tenant is active. A key's tenant always exists: the key was issued by one of its members.
+        // Checked after the key, so an invalid credential never learns whether a tenant is active.
         TenantView tenant = tenancy.tenant(key.tenant()).orElseThrow();
         if (tenant.status() != TenantStatus.ACTIVE) {
             return new AuthenticationResult.TenantInactive(key.id());
         }
-        // Only a request the key authenticates counts as a use, so last_used_at tells a member
-        // whether something still relies on the key before they revoke it.
         if (key.useIsDue(now)) {
             keys.recordUse(key.id(), now);
         }
         return new AuthenticationResult.Authenticated(new ApiKeyCaller(key.tenant(), key.id(), key.scopes()));
     }
 
-    /** Stores a new key for the member's tenant and returns it with its secret. */
     private IssuedApiKey insertKey(MemberCaller issuer, String name, Set<Permission> scopes, Instant now) {
         // The tenant's environment, not the issuer's choice, decides the key's prefix.
         var secret = ApiKeySecret.generate(issuer.environment(), random);
@@ -189,11 +154,7 @@ public class AccessService implements AccessApi {
         return new IssuedApiKey(id, name, scopes, now, secret);
     }
 
-    /**
-     * The current instant, to the microsecond. PostgreSQL keeps microseconds; without truncating, an
-     * instant returned to the caller would carry nanoseconds the stored row does not, and lists would
-     * show another instant.
-     */
+    // PostgreSQL keeps microseconds; a returned instant must match the stored row.
     private Instant now() {
         return clock.instant().truncatedTo(ChronoUnit.MICROS);
     }
@@ -214,7 +175,7 @@ public class AccessService implements AccessApi {
         }
     }
 
-    /** The schema checks the same rules; checking here first gives a clear error, not a constraint name. */
+    // The schema checks the same rules; checking first gives a clear error, not a constraint name.
     private static void requireApiKeyScopes(Set<Permission> scopes) {
         if (scopes.isEmpty()) {
             throw new IllegalArgumentException("A key needs at least one scope");

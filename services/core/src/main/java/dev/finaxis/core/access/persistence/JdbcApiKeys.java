@@ -20,21 +20,10 @@ import java.util.stream.Collectors;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-/**
- * Reads and writes {@code access.api_keys} (tenancy design, section 3.4), within the grants of the
- * {@code finaxis_access} role.
- *
- * <p>Runs in the caller's transaction: {@code JdbcClient} uses the connection Spring has bound to
- * the current transaction, if there is one.
- */
 @Repository
 public class JdbcApiKeys {
 
-    /**
-     * How stale a key's {@code last_used_at} may be (section 4.3): it is written again only once
-     * this long has passed, so a key that authenticates many requests an hour adds one write an
-     * hour, not one per request.
-     */
+    /** A busy key adds one write an hour, not one per request (section 4.3). */
     public static final Duration LAST_USE_PRECISION = Duration.ofHours(1);
 
     private final JdbcClient jdbc;
@@ -43,17 +32,8 @@ public class JdbcApiKeys {
         this.jdbc = jdbc;
     }
 
-    /**
-     * Waits until no other transaction is issuing or rolling a key for this tenant, and keeps the
-     * others waiting until this transaction ends. Without it, two requests could each count nine keys
-     * and both insert a tenth.
-     *
-     * <p>An advisory lock is a lock on a number, not on a row: there is no tenant row in this
-     * module's schema to lock. The two-number form keeps it apart from advisory locks other code may
-     * take: the first number names this table, the second the tenant. Two tenants whose IDs hash to
-     * the same number only wait for each other. The {@code xact} variant is released when the
-     * transaction commits or rolls back, so it can never be left behind.
-     */
+    // Without it, two requests could each count nine keys and both insert a tenth. Advisory, since
+    // this schema has no tenant row to lock; released when the transaction ends.
     public void lockTenantKeys(TenantId tenant) {
         jdbc.sql("SELECT pg_advisory_xact_lock(hashtext('access.api_keys'), hashtext(CAST(:tenant AS text)))")
                 .param("tenant", tenant.value())
@@ -61,10 +41,6 @@ public class JdbcApiKeys {
                 .singleRow();
     }
 
-    /**
-     * The tenant's keys that still work at this instant: neither revoked nor past the end of a roll's
-     * grace period.
-     */
     public int countActive(TenantId tenant, Instant now) {
         return jdbc.sql("""
                         SELECT count(*)
@@ -79,7 +55,6 @@ public class JdbcApiKeys {
                 .single();
     }
 
-    /** Stores a new key. Only the hash of its secret is written; the secret itself never is. */
     public void insert(
             ApiKeyId id,
             TenantId tenant,
@@ -89,8 +64,7 @@ public class JdbcApiKeys {
             Set<Permission> scopes,
             MemberId createdBy,
             Instant createdAt) {
-        // The driver sends a Java String[] as a PostgreSQL text array. Sorted, so a key's scopes
-        // are stored in the same order however the caller's set iterates.
+        // Sorted, so stored scopes do not depend on set iteration order.
         String[] scopeCodes = scopes.stream().map(Permission::code).sorted().toArray(String[]::new);
         jdbc.sql("""
                         INSERT INTO access.api_keys
@@ -108,10 +82,7 @@ public class JdbcApiKeys {
                 .update();
     }
 
-    /**
-     * Every key of the tenant, revoked and expired ones included, newest first. Ordered by {@code
-     * created_at}, not by ID: two UUIDv7 of the same millisecond are in random order.
-     */
+    // By created_at, not ID: two UUIDv7 of the same millisecond are in random order.
     public List<ApiKeyView> findByTenant(TenantId tenant) {
         return jdbc.sql("""
                         SELECT id, name, last_four, scopes, created_at, expires_at, revoked_at, last_used_at
@@ -124,7 +95,6 @@ public class JdbcApiKeys {
                 .list();
     }
 
-    /** The tenant's key with this ID; empty if there is none, including when another tenant has it. */
     public Optional<ApiKeyView> find(TenantId tenant, ApiKeyId id) {
         return jdbc.sql("""
                         SELECT id, name, last_four, scopes, created_at, expires_at, revoked_at, last_used_at
@@ -138,13 +108,7 @@ public class JdbcApiKeys {
                 .optional();
     }
 
-    /**
-     * The key whose secret has this hash, whatever its tenant: authentication runs before any tenant
-     * is known, and the secret the caller sent is what names the key. The hash is unique and
-     * indexed, so this is one index lookup.
-     *
-     * @return the key, revoked and expired ones included, or empty if no key has this hash
-     */
+    // Any tenant: authentication runs before a tenant is known.
     public Optional<Credential> findByHash(byte[] secretHash) {
         return jdbc.sql("""
                         SELECT id, tenant_id, scopes, expires_at, revoked_at, last_used_at
@@ -162,11 +126,6 @@ public class JdbcApiKeys {
                 .optional();
     }
 
-    /**
-     * What authentication needs to know about a key: whose it is, what it may do, and whether it
-     * still works. Unlike {@link ApiKeyView}, it names the tenant, which authentication learns from
-     * it.
-     */
     public record Credential(
             ApiKeyId id,
             TenantId tenant,
@@ -175,27 +134,14 @@ public class JdbcApiKeys {
             Optional<Instant> revokedAt,
             Optional<Instant> lastUsedAt) {
 
-        /**
-         * Whether a use at this instant should be recorded: the key was never used, or its last use
-         * on record is at least {@link #LAST_USE_PRECISION} old. The same rule as {@link
-         * #recordUse}, checked on the row already read, so most requests skip the update entirely.
-         */
+        // Same rule as recordUse, on the row already read, so most requests skip the update.
         public boolean useIsDue(Instant now) {
             return lastUsedAt.isEmpty() || !lastUsedAt.get().isAfter(now.minus(LAST_USE_PRECISION));
         }
     }
 
-    /**
-     * Records that the key authenticated a request at this instant, unless its last use on record is
-     * less than {@link #LAST_USE_PRECISION} old.
-     *
-     * <p>The condition is in the {@code UPDATE} itself, not only in {@link Credential#useIsDue}: many
-     * requests with the same key may find it due at once, and only the first to lock the row writes.
-     * The others wait for that lock, then find the new value and update nothing, so the hour is never
-     * written twice and {@code last_used_at} never moves backwards.
-     *
-     * @return whether the key was updated
-     */
+    // The condition is in the UPDATE too: concurrent requests that all find the key due write once,
+    // and last_used_at never moves backwards.
     public boolean recordUse(ApiKeyId id, Instant usedAt) {
         return jdbc.sql("""
                         UPDATE access.api_keys
@@ -210,13 +156,7 @@ public class JdbcApiKeys {
                 == 1;
     }
 
-    /**
-     * Marks the tenant's key revoked at this instant, unless it already is: the first revocation is
-     * the one on record. Does nothing for a key of another tenant.
-     *
-     * <p>Two concurrent revocations of one key cannot both write: the first locks the row, and the
-     * second, once it may proceed, finds {@code revoked_at} set and updates nothing.
-     */
+    // The first revocation is the one on record; a concurrent second one finds it and writes nothing.
     public void revoke(TenantId tenant, ApiKeyId id, Instant revokedAt) {
         jdbc.sql("""
                         UPDATE access.api_keys
@@ -231,17 +171,7 @@ public class JdbcApiKeys {
                 .update();
     }
 
-    /**
-     * Sets when the tenant's key stops working, the end of a roll's grace period, if it has neither
-     * been revoked nor rolled before: a key is rolled at most once, so its grace period can never be
-     * extended and it never has two replacements.
-     *
-     * <p>As with {@link #revoke}, two concurrent rolls of one key cannot both write: the second
-     * waits for the first's row lock, then finds {@code expires_at} set.
-     *
-     * @return whether the key was updated; false if the tenant has no such key, or it was revoked or
-     *     already rolled
-     */
+    // A key rolls once, so its grace period is never extended; a concurrent second roll writes nothing.
     public boolean expire(TenantId tenant, ApiKeyId id, Instant expiresAt) {
         return jdbc.sql("""
                         UPDATE access.api_keys
@@ -258,7 +188,6 @@ public class JdbcApiKeys {
                 == 1;
     }
 
-    /** Maps one row to a view. A {@code RowMapper} receives each row in turn; this is one. */
     private static ApiKeyView view(ResultSet row, int rowNumber) throws SQLException {
         return new ApiKeyView(
                 new ApiKeyId(row.getObject("id", UUID.class)),
@@ -271,18 +200,16 @@ public class JdbcApiKeys {
                 instant(row, "last_used_at"));
     }
 
-    /** The {@code scopes} column, a PostgreSQL text array, as permissions. */
     private static Set<Permission> scopes(ResultSet row) throws SQLException {
         String[] codes = (String[]) row.getArray("scopes").getArray();
         return Arrays.stream(codes).map(Permission::fromCode).collect(Collectors.toUnmodifiableSet());
     }
 
-    /** A {@code timestamptz} column as an instant; empty when the column is null. */
     private static Optional<Instant> instant(ResultSet row, String column) throws SQLException {
         return Optional.ofNullable(row.getObject(column, OffsetDateTime.class)).map(OffsetDateTime::toInstant);
     }
 
-    /** An instant as JDBC 4.2 binds it to a {@code timestamptz}, whatever the JVM's time zone. */
+    // Bound as an offset, so the JVM's time zone never shifts the stored instant.
     private static OffsetDateTime utc(Instant instant) {
         return instant.atOffset(ZoneOffset.UTC);
     }

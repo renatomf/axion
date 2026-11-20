@@ -12,11 +12,8 @@ import net.jqwik.api.constraints.CharRange;
 import net.jqwik.api.constraints.IntRange;
 
 /**
- * Properties that hold for every API key (tenancy and access design, section 8).
- *
- * <p>Each key comes from a {@code SHA1PRNG} {@link SecureRandom} seeded by jqwik, which produces the
- * same characters for the same seed: a failing key can be reproduced from the seed jqwik reports.
- * Production code uses the platform's default {@code SecureRandom}, which cannot be seeded.
+ * Properties of every API key (tenancy design, section 8). Keys come from a {@code SHA1PRNG} seeded
+ * by jqwik, so a failing key can be reproduced from the reported seed.
  */
 class ApiKeySecretPropertiesTest {
 
@@ -50,7 +47,6 @@ class ApiKeySecretPropertiesTest {
     private static SecureRandom seeded(long seed) {
         try {
             SecureRandom random = SecureRandom.getInstance("SHA1PRNG");
-            // Seeding before the first use replaces the generator's own seed, so the output is fixed.
             random.setSeed(seed);
             return random;
         } catch (NoSuchAlgorithmException e) {

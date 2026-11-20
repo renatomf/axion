@@ -7,14 +7,9 @@ import dev.finaxis.core.tenancy.Permission;
 import java.util.Set;
 
 /**
- * A member of an organization calling {@code /internal} with an access token, acting on one of the
- * organization's tenants (tenancy design, section 5.1).
+ * A member calling {@code /internal}, acting on a tenant of their organization.
  *
- * @param tenant the tenant named in the request path, resolved through the member's memberships
- * @param environment the tenant's environment, read when the tenant was resolved, so that code
- *     acting on the tenant, such as issuing an API key with the right prefix, needs no second query
- * @param member the person's member ID in the tenant's organization
- * @param permissions the permissions of the member's roles; the set cannot be changed
+ * @param environment the tenant's, read when it was resolved, so issuing a key needs no second query
  */
 public record MemberCaller(TenantId tenant, Environment environment, MemberId member, Set<Permission> permissions)
         implements Caller {
