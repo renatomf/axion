@@ -89,6 +89,20 @@ All frontend standards arrive with the console (block H, PRs 1.50–1.65):
 | Feature flags (database-backed, audited) for kill switches and gradual rollout | Not scheduled yet |
 | Every pull request answers the correctness, tests, security, observability and documentation checklist | Pull request template (Review) |
 
+## Comments and documentation
+
+Code says what it does; a comment says only what the code cannot. A reader is assumed to know Java, Spring and PostgreSQL.
+
+| Standard | Enforced by |
+|---|---|
+| Javadoc on a module's public API, the types in its root package and in `shared`: one or two sentences on what it guarantees, with the design doc section it implements | Review |
+| No Javadoc inside a module (`application`, `domain`, `persistence`, `web`, `security`) unless the contract is not obvious from the name and the types | Review |
+| A comment explains *why*, never *what*: a security rule, a concurrency guard, an invariant, a non-obvious query. Two or three lines at most; a longer reason belongs in the design doc, referenced by section | Review |
+| No comment explains the language or a framework (what `@Valid`, `JdbcClient` or `OncePerRequestFilter` does) | Review |
+| A test's name states the behavior it proves; a comment only where the setup is not obvious | Review |
+| An abstraction (interface, enum, wrapper) needs more than one use or a module boundary; otherwise the code stays direct | Review |
+| Documents are as short as their reader allows: design docs and ADRs record decisions and their alternatives; `CONTRIBUTING.md` holds commands and rules, not tutorials | Review |
+
 ## Changing a standard
 
 A standard changes in a pull request that updates this document and, when the change is significant, the overview design and an ADR. Prefer adding a check that enforces it over adding a sentence.

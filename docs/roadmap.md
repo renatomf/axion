@@ -150,6 +150,8 @@ Estimates assume the Spring learning curve. Quality is never traded for schedule
 | ↳ 1.24b | Rate limit filter | Buckets applied after authentication; `429 rate_limited` with `Retry-After` |
 | ↳ 1.24c | Member limits and headers | Per-member buckets on `/internal`; `RateLimit-Policy` and `RateLimit` headers |
 
+**Cleanup before 1.22.** The existing code is brought to the [comment standard](architecture/engineering-standards.md#comments-and-documentation), one module per PR (`access`, `tenancy`, `ledger`, then `shared`, `web` and `observability`), and `CONTRIBUTING.md` is trimmed to commands and rules. These PRs change no behavior and take no roadmap number.
+
 ### 4.4 Block D — Idempotency
 
 | PR | Title | Delivers |
