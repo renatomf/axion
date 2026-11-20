@@ -131,6 +131,7 @@ Estimates assume the Spring learning curve. Quality is never traded for schedule
 | ↳ 1.20j | API key rolling endpoint | `POST …/api_keys/{key_id}/roll` ([#119](https://github.com/renatomf/finaxis/pull/119)) |
 | 1.21 | API key authentication | Filter for `/v1`; tenant context derived from the credential |
 | ↳ 1.21a | API key authentication | `AccessApi.authenticate` and its outcomes, in the access module ([#121](https://github.com/renatomf/finaxis/pull/121)) |
+| ↳ 1.21b | API key authentication on `/v1` | The `/v1` filter chain; one `401` for every rejected key, `403 tenant_inactive` ([#123](https://github.com/renatomf/finaxis/pull/123)) |
 | 1.22 | Row-Level Security | RLS policies and per-module DB roles |
 | 1.23 | Tenant isolation harness | A test that walks every OpenAPI operation attempting cross-tenant access |
 | 1.24 | Rate limiting | Per-tenant and per-key limits, `429` with `Retry-After` |
