@@ -140,7 +140,7 @@ Estimates assume the Spring learning curve. Quality is never traded for schedule
 | ↳ 1.22b | Tenant policies | `shared.current_tenant()`; RLS on `access.api_keys`; the key lookup and last use through `SECURITY DEFINER` functions owned by `finaxis_access_lookup` ([#151](https://github.com/renatomf/finaxis/pull/151)) |
 | ↳ 1.22c | Module roles | Each module's API entry point switches the transaction to its role with `SET LOCAL ROLE`, restoring the caller's on return ([#153](https://github.com/renatomf/finaxis/pull/153)) |
 | ↳ 1.22d | Login role | `finaxis_app` with `NOINHERIT`, a member of every module role; migrations run as the owner with credentials of their own; the ledger's commit-time checks run as `finaxis_ledger_checks` ([#155](https://github.com/renatomf/finaxis/pull/155)) |
-| ↳ 1.22e | Ledger jobs role | The balance verifier runs as `finaxis_ledger_jobs`, which may only read the ledger |
+| ↳ 1.22e | Ledger jobs role | The balance verifier runs as `finaxis_ledger_jobs`, which may only read the ledger ([#157](https://github.com/renatomf/finaxis/pull/157)) |
 | ↳ 1.22f | Ledger policies | The platform tenant beside the tenant; the read and write policies of the ledger tables, and read-only ones for `finaxis_ledger_jobs` and `finaxis_ledger_checks` |
 | 1.23 | Tenant isolation harness | A test that walks every OpenAPI operation attempting cross-tenant access |
 | ↳ 1.23a | Isolation harness | Operations read from the OpenAPI contracts; an operation without a fixture fails the suite |
