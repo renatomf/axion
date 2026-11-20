@@ -9,14 +9,7 @@ import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.method.support.ModelAndViewContainer;
 
-/**
- * Passes the {@link Caller} that {@link PermissionInterceptor} established to a controller method
- * that declares a parameter of type {@code Caller}, {@code MemberCaller} or {@code ApiKeyCaller}.
- *
- * <p>A {@link HandlerMethodArgumentResolver} is how Spring MVC fills controller parameters, the same
- * way it fills {@code @PathVariable} or {@code @RequestBody} ones. The caller never comes from the
- * request itself, so no client can supply it.
- */
+/** Passes the {@link Caller} that {@link PermissionInterceptor} established; no client can supply it. */
 final class CallerArgumentResolver implements HandlerMethodArgumentResolver {
 
     @Override
@@ -24,10 +17,6 @@ final class CallerArgumentResolver implements HandlerMethodArgumentResolver {
         return Caller.class.isAssignableFrom(parameter.getParameterType());
     }
 
-    /**
-     * @throws IllegalStateException if there is no caller of the parameter's type: the method lacks
-     *     {@code @RequiresPermission}, or asks for a kind of caller its endpoint does not have
-     */
     @Override
     public Object resolveArgument(
             MethodParameter parameter,

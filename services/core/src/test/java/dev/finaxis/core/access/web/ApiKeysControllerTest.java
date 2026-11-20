@@ -39,14 +39,8 @@ import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * {@code GET} and {@code POST /internal/tenants/{tenant_id}/api_keys}, and {@code POST
- * …/api_keys/{key_id}/roll} and {@code …/revoke}, against a real PostgreSQL, every response checked
- * against the contract.
- *
- * <p>The member's token is built with Spring Security's {@code jwt()}, which skips decoding and
- * validation: real tokens are proven in {@link TenantResolutionTest}, and here only the subject
- * matters, and, for issuing, rolling and revoking, a recent {@code auth_time}, which step-up requires. Each test runs in a transaction rolled back at its end, as in {@link
- * CurrentMemberControllerTest}, with which it shares a Spring context.
+ * The API key endpoints of {@code /internal}, every response checked against the contract. Tokens
+ * skip decoding: real ones are proven in {@link TenantResolutionTest}.
  */
 @SpringBootTest
 @Import({PostgresTestConfiguration.class, KeycloakTestConfiguration.class})
@@ -558,11 +552,7 @@ class ApiKeysControllerTest {
         assertThat(access.keys(organization.test()).getFirst().expiresAt()).isEmpty();
     }
 
-    /**
-     * When a key of the organization's test tenant stops working, read through the module API. The
-     * key is found by its ID: a replacement issued in the same transaction has the same {@code
-     * created_at}, so the order of a list does not tell the two apart.
-     */
+    // Found by ID: a replacement issued in the same transaction has the same created_at.
     private Instant expiresAt(IssuedApiKey key) {
         return access.keys(organization.test()).stream()
                 .filter(view -> view.id().equals(key.id()))
@@ -572,10 +562,6 @@ class ApiKeysControllerTest {
                 .orElseThrow();
     }
 
-    /**
-     * Rolls a key as the member, who authenticated this long ago, with this body or none, and checks
-     * the response against the contract.
-     */
     private MvcTestResult roll(TenantId tenant, String keyId, @Nullable String body, Duration sinceAuthentication) {
         var request = mvc.post()
                 .uri("/internal/tenants/{tenant_id}/api_keys/{key_id}/roll", tenant.publicId(), keyId)
@@ -591,10 +577,6 @@ class ApiKeysControllerTest {
         return result;
     }
 
-    /**
-     * Revokes a key as the member, who authenticated this long ago, and checks the response against
-     * the contract.
-     */
     private MvcTestResult revoke(TenantId tenant, String keyId, Duration sinceAuthentication) {
         MvcTestResult result = mvc.post()
                 .uri("/internal/tenants/{tenant_id}/api_keys/{key_id}/revoke", tenant.publicId(), keyId)
@@ -607,10 +589,6 @@ class ApiKeysControllerTest {
         return result;
     }
 
-    /**
-     * Issues a key as the member, who authenticated a minute ago, and checks the response against the
-     * contract.
-     */
     private MvcTestResult issue(TenantId tenant, String body) {
         MvcTestResult result = mvc.post()
                 .uri("/internal/tenants/{tenant_id}/api_keys", tenant.publicId())
@@ -625,7 +603,6 @@ class ApiKeysControllerTest {
         return result;
     }
 
-    /** Lists the tenant's keys as the member, and checks the response against the contract. */
     private MvcTestResultAssert list(TenantId tenant) {
         MvcTestResult result = mvc.get()
                 .uri("/internal/tenants/{tenant_id}/api_keys", tenant.publicId())
@@ -635,15 +612,10 @@ class ApiKeysControllerTest {
         return assertThat(result);
     }
 
-    /**
-     * Issues a key that may read and write charges through the module API, as the organization's
-     * admin, in this environment.
-     */
     private IssuedApiKey issued(NewOrganization owner, Environment environment, String name) {
         return issued(owner, environment, name, Set.of(Permission.CHARGES_READ, Permission.CHARGES_WRITE));
     }
 
-    /** Issues a key with these scopes through the module API, as the organization's admin. */
     private IssuedApiKey issued(NewOrganization owner, Environment environment, String name, Set<Permission> scopes) {
         TenantId tenant = environment == Environment.TEST ? owner.test() : owner.live();
         var admin = new MemberCaller(tenant, environment, owner.admin(), Role.ADMIN.permissions());

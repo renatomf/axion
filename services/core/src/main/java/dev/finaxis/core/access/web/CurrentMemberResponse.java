@@ -5,23 +5,11 @@ import dev.finaxis.core.tenancy.TenantView;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * The body of {@code GET /internal/me}, shaped as the {@code CurrentMember} schema of {@code
- * openapi/internal.yaml}. Jackson writes a record as a JSON object with one property per component,
- * named as the component.
- *
- * <p>The response has its own types instead of returning {@link Membership}: the contract, not the
- * module's types, decides what the API shows, so a field added to {@code Membership} never leaks
- * into the response by accident.
- *
- * @param organizations the caller's organizations, in the order of {@code TenancyApi.memberships}
- */
+// Own types, not Membership: a field added to the module's type never leaks into the response.
 record CurrentMemberResponse(List<Organization> organizations) {
 
-    /** A {@code MemberOrganization} of the contract. */
     record Organization(String id, String name, List<String> roles, List<Tenant> tenants) {}
 
-    /** A {@code Tenant} of the contract. */
     record Tenant(String id, String environment, String status) {}
 
     static CurrentMemberResponse of(List<Membership> memberships) {
@@ -33,8 +21,7 @@ record CurrentMemberResponse(List<Organization> organizations) {
         return new Organization(
                 membership.organization().publicId().toString(),
                 membership.organizationName(),
-                // Sorted in the order Role declares them, so the response does not depend on how a
-                // set happens to iterate.
+                // Sorted, so the response does not depend on set iteration order.
                 membership.roles().stream()
                         .sorted()
                         .map(CurrentMemberResponse::lowercase)
@@ -47,7 +34,6 @@ record CurrentMemberResponse(List<Organization> organizations) {
                 tenant.id().publicId().toString(), lowercase(tenant.environment()), lowercase(tenant.status()));
     }
 
-    /** The API spells enumerations in lowercase snake_case: {@code READ_ONLY} becomes {@code read_only}. */
     private static String lowercase(Enum<?> value) {
         return value.name().toLowerCase(Locale.ROOT);
     }

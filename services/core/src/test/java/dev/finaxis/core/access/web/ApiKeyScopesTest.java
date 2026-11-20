@@ -32,13 +32,7 @@ import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * How a {@code /v1} endpoint's {@code @RequiresPermission} is checked against the scopes of the API
- * key that calls it, through the whole application and a real PostgreSQL.
- *
- * <p>{@link ScopedController}, which exists only in this test, stands in for real {@code /v1}
- * endpoints.
- */
+/** A {@code /v1} endpoint's {@code @RequiresPermission} against the calling key's scopes. */
 @SpringBootTest
 @Import({PostgresTestConfiguration.class, ApiKeyScopesTest.ScopedController.class})
 @AutoConfigureMockMvc
@@ -115,7 +109,6 @@ class ApiKeyScopesTest {
                 .isLenientlyEqualTo(INSUFFICIENT_PERMISSION);
     }
 
-    /** A key issued by the organization's admin, on the test tenant. */
     private IssuedApiKey issued(Set<Permission> scopes) {
         var admin = new MemberCaller(
                 organization.test(), Environment.TEST, organization.admin(), Role.permissionsOf(Set.of(Role.ADMIN)));

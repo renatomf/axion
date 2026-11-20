@@ -12,11 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jwt.Jwt;
 
-/**
- * The claim rules of a member's access token, without Keycloak: each test starts from a token that
- * passes and changes one claim. The signature is not involved; it is checked against a real
- * Keycloak in {@code MemberAuthenticationTest}.
- */
+/** The claim rules, without Keycloak: each test changes one claim of a token that passes. */
 class MemberTokenValidationTest {
 
     private static final String ISSUER = "http://keycloak.test/realms/finaxis";
