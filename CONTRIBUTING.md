@@ -159,6 +159,7 @@ The core's APIs are designed contract-first: the OpenAPI 3.1 documents in [`serv
 
 - A pull request that adds or changes an endpoint changes its contract first, in the same pull request.
 - Operations reference shared building blocks instead of copying them, for example `$ref: components.yaml#/responses/Unauthorized`.
+- **Request validation.** A request body is a record annotated with Bean Validation constraints (`@NotBlank`, `@Size`…) and taken as `@Valid @RequestBody`. A body that cannot be read answers `400 bad_request`; one whose fields break a constraint answers `422 validation_failed`, with `errors` naming each field and why (`components.yaml#/responses/ValidationFailed`). Rejected values are never echoed. Rules that need the database or the caller, such as a limit, are checked by the module and have codes of their own.
 - **Contract tests.** An endpoint's tests check every response they get against its contract with [`OpenApiContract`](services/core/src/test/java/dev/finaxis/core/OpenApiContract.java): the operation, the status and the media type must be documented, and the body must match the schema. Objects are checked strictly, so a property the contract does not list fails the test; document it first.
 - [Spectral](https://docs.stoplight.io/docs/spectral) lints both contracts ([`.spectral.yaml`](.spectral.yaml)): the standard OpenAPI rules, plus paths under `/v1` or `/internal` with snake_case segments, snake_case properties, and error responses (`4xx`, `5xx`) only as `application/problem+json`. Warnings fail the lint.
 
