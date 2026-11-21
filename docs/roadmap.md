@@ -173,6 +173,8 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | ↳ 1.30a | Simulated payer | The payer API, which reads the amount and the transaction ID from a BR Code; `EndToEndId` generation; the simulator's database and its payments; the operator token ([#194](https://github.com/renatomf/finaxis/pull/194)) |
 | ↳ 1.30b | Signed callbacks | Credit notifications to the core, delivered at least once from the simulator's database, retried with backoff, signed with Ed25519 under RFC 9421; the payer and the message the payer API accepts, which only the notification carries, and each payment's delivery state ([#196](https://github.com/renatomf/finaxis/pull/196)) |
 | 1.31 | Chaos API | Fault rules for latency, failures, lost responses, duplicates, reordering and delays, applied to the next matching deliveries; an outage switch |
+| ↳ 1.31a | Fault rules | The chaos rules API, rules held in memory and applied to the next matching attempts: latency, failures and lost responses; the faults applied, recorded on each delivery and counted |
+| ↳ 1.31b | Delivery faults and outage | Delays, duplicates and reordering, applied when a delivery is created; the outage switch; manual redelivery of a refused or failed delivery |
 
 ### 4.6 Block F — Billing and settlement
 
