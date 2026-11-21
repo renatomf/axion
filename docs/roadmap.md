@@ -161,7 +161,7 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | 1.26 | Idempotency keys | Table, interceptor, stored responses, `409` and `422` semantics |
 | ↳ 1.26a | Idempotency store | The `idempotency` module: the keys table, its constraints and database roles; a key claimed under a transaction-scoped lock and stored with its response in the operation's transaction; scheduled removal of expired keys ([#179](https://github.com/renatomf/finaxis/pull/179)) |
 | ↳ 1.26b | Idempotency interceptor | `Idempotency-Key` required on `/v1` writes; a repeat replays the stored response; `409` for a request still in progress, `422` for a key reused with another body ([#181](https://github.com/renatomf/finaxis/pull/181)) |
-| 1.27 | Idempotency proof | 50 parallel repeats yield one effect |
+| 1.27 | Idempotency proof | 50 parallel repeats yield one effect ([#183](https://github.com/renatomf/finaxis/pull/183)) |
 
 ### 4.5 Block E — Rails simulator
 
