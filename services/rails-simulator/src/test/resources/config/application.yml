@@ -3,6 +3,14 @@
 # so these values are added to the main file instead of replacing it.
 
 simulator:
+  core:
+    # Nothing listens on the discard port: a test that sends to the core
+    # starts a stub and points this URL at it.
+    url: http://127.0.0.1:9
+  dispatcher:
+    # Off, so a test reads a delivery as it was written; the delivery tests
+    # turn it on.
+    enabled: false
   operator:
     # Tests send this token; it opens nothing outside them.
     token: operator-token-for-tests-only-0000

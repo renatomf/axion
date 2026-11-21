@@ -1,6 +1,5 @@
 package dev.finaxis.simulator.spi;
 
-import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -18,9 +17,7 @@ public record EndToEndId(String value) {
     private static final Pattern FORMAT = Pattern.compile("E[0-9]{8}[0-9]{12}[A-Za-z0-9]{11}");
     private static final DateTimeFormatter MINUTE =
             DateTimeFormatter.ofPattern("uuuuMMddHHmm").withZone(ZoneOffset.UTC);
-    private static final String ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     private static final int RANDOM_LENGTH = 11;
-    private static final SecureRandom RANDOM = new SecureRandom();
 
     public EndToEndId {
         if (!FORMAT.matcher(value).matches()) {
@@ -33,11 +30,8 @@ public record EndToEndId(String value) {
      * table's primary key detects one, and the caller draws again.
      */
     public static EndToEndId generate(Ispb institution, Instant createdAt) {
-        var value = new StringBuilder("E").append(institution.digits()).append(MINUTE.format(createdAt));
-        for (int i = 0; i < RANDOM_LENGTH; i++) {
-            value.append(ALPHABET.charAt(RANDOM.nextInt(ALPHABET.length())));
-        }
-        return new EndToEndId(value.toString());
+        return new EndToEndId(
+                "E" + institution.digits() + MINUTE.format(createdAt) + RandomCharacters.draw(RANDOM_LENGTH));
     }
 
     @Override

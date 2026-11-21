@@ -9,7 +9,7 @@ default:
     @just --list
 
 # Start a profile of local infrastructure (core, auth or rails) and wait until it is healthy
-up profile="core": _env
+up profile="core": _env _signing-key
     {{ compose }} --profile {{ profile }} up --detach --wait
     {{ compose }} --profile {{ profile }} run --rm core-database
 
@@ -34,6 +34,23 @@ _env:
     grep -E '^[A-Z_]+=' "$example" | while IFS='=' read -r key _; do
         grep -q "^$key=" "$env" || { grep "^$key=" "$example" >> "$env"; echo "Added $key to $env"; }
     done
+
+# Add a signing key pair for the rails simulator to infra/compose/.env, unless it has one
+_signing-key:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    env=infra/compose/.env
+    # A key per machine, never in the repository (rails simulator design,
+    # section 6.4). Delete the three lines from .env to replace it.
+    grep -q '^RAILS_SIMULATOR_SIGNING_PRIVATE_KEY=.' "$env" && exit 0
+    private=$(openssl genpkey -algorithm ed25519 -outform DER | openssl base64 -A)
+    public=$(openssl base64 -d -A <<< "$private" | openssl pkey -inform DER -pubout -outform DER | openssl base64 -A)
+    {
+        echo "RAILS_SIMULATOR_SIGNING_KEY_ID=rails-$(date -u +%Y-%m)"
+        echo "RAILS_SIMULATOR_SIGNING_PRIVATE_KEY=$private"
+        echo "RAILS_SIMULATOR_SIGNING_PUBLIC_KEY=$public"
+    } >> "$env"
+    echo "Added a rails simulator signing key pair to $env"
 
 # Lint the OpenAPI contracts of the core and the rails simulator, after testing the project's lint rules
 lint-api:

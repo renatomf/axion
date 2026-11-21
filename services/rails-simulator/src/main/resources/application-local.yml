@@ -15,6 +15,11 @@ spring:
     username: rails_simulator
     password: ${RAILS_SIMULATOR_DB_PASSWORD}
 
+simulator:
+  core:
+    # The core started with `./gradlew bootRun` in services/core.
+    url: http://localhost:8080
+
 management:
   endpoint:
     health:

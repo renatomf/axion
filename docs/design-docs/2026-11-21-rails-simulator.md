@@ -309,18 +309,26 @@ payments
 deliveries
   id                   uuid primary key
   end_to_end_id        char(32) not null references payments
+  message_id           char(32) not null      -- the message's messageId, for logs and X-Correlation-Id
   kind                 text not null          -- original | duplicate | redelivery (CHECK)
   message              bytea not null         -- the exact bytes sent on every attempt
   status               text not null          -- pending | delivered | refused | failed (CHECK)
   attempts             integer not null
-  next_attempt_at      timestamptz null       -- null once delivered, refused or failed
-  last_outcome         text null              -- the last status code or error
+  next_attempt_at      timestamptz null       -- set only while pending (CHECK)
   faults               jsonb not null         -- chaos faults applied (section 7.1)
   created_at           timestamptz not null
   index (next_attempt_at) where status = 'pending'
+
+delivery_attempts
+  delivery_id          uuid not null references deliveries
+  number               integer not null       -- from 1; primary key with delivery_id
+  attempted_at         timestamptz not null
+  response_status      integer null           -- the core's status code, if it answered
+  error                text null              -- timeout | connection_failed, if it did not (CHECK)
+  outcome              text not null          -- delivered | retried | refused | failed (CHECK)
 ```
 
-The payer's personal data lives only inside `message`, the bytes the core receives; the simulator queries nothing by it.
+The payer's personal data lives only inside `message`, the bytes the core receives; the simulator queries nothing by it. Each attempt is a row of its own, written with the delivery's new state, so the payer API can show every attempt (section 4.4) and a disputed payment shows how often it was sent (section 12).
 
 ### 8.4 Observability
 

@@ -170,7 +170,7 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | 1.28 | Simulator design doc | Scope, simulated messages, deviations from official specs, chaos controls ([#185](https://github.com/renatomf/finaxis/pull/185)) |
 | 1.29 | Simulator skeleton | `services/rails-simulator` Gradle project and Spring Boot skeleton, Compose service, CI build and image ([#187](https://github.com/renatomf/finaxis/pull/187)) |
 | 1.30 | Pix payment simulation | Simulated payer, `EndToEndId`, signed callbacks to the core |
-| ↳ 1.30a | Simulated payer | The payer API, which reads the amount and the transaction ID from a BR Code; `EndToEndId` generation; the simulator's database and its payments; the operator token |
+| ↳ 1.30a | Simulated payer | The payer API, which reads the amount and the transaction ID from a BR Code; `EndToEndId` generation; the simulator's database and its payments; the operator token ([#194](https://github.com/renatomf/finaxis/pull/194)) |
 | ↳ 1.30b | Signed callbacks | Credit notifications to the core, delivered at least once from the simulator's database, retried with backoff, signed with Ed25519 under RFC 9421; the payer and the message the payer API accepts, which only the notification carries, and each payment's delivery state |
 | 1.31 | Chaos API | Fault rules for latency, failures, lost responses, duplicates, reordering and delays, applied to the next matching deliveries; an outage switch |
 

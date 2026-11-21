@@ -150,6 +150,14 @@ services:
       SPRING_DATASOURCE_USERNAME: rails_simulator
       SPRING_DATASOURCE_PASSWORD: ${RAILS_SIMULATOR_DB_PASSWORD:?set RAILS_SIMULATOR_DB_PASSWORD in infra/compose/.env}
       RAILS_SIMULATOR_OPERATOR_TOKEN: ${RAILS_SIMULATOR_OPERATOR_TOKEN:?set RAILS_SIMULATOR_OPERATOR_TOKEN in infra/compose/.env}
+      RAILS_SIMULATOR_SIGNING_KEY_ID: ${RAILS_SIMULATOR_SIGNING_KEY_ID:?run just up rails to generate the signing key}
+      RAILS_SIMULATOR_SIGNING_PRIVATE_KEY: ${RAILS_SIMULATOR_SIGNING_PRIVATE_KEY:?run just up rails to generate the signing key}
+      # The core runs on the host, outside Compose (rails simulator design,
+      # section 8.2).
+      RAILS_SIMULATOR_CORE_URL: http://host.docker.internal:8080
+    # Docker Desktop defines host.docker.internal; on Linux, map it to the host.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       # Bound to localhost only: the simulator is never exposed to the network.
       # RAILS_SIMULATOR_PORT changes the host port if 8090 is already taken.

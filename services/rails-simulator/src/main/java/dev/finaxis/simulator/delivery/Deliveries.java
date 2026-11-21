@@ -1,0 +1,55 @@
+package dev.finaxis.simulator.delivery;
+
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import java.time.Clock;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * The messages owed to the core. A message is recorded in the transaction that settles what it notifies,
+ * so a payment is never committed without the delivery that tells the core of it (rails simulator design,
+ * section 6.1).
+ */
+@Service
+public class Deliveries {
+
+    public static final String PENDING = "rails_sim.deliveries.pending";
+
+    private final DeliveryRepository deliveries;
+    private final Clock clock;
+
+    Deliveries(DeliveryRepository deliveries, Clock clock, MeterRegistry meters) {
+        this.deliveries = deliveries;
+        this.clock = clock;
+        // Read from the database when the gauge is read: the one count every dispatcher agrees on.
+        Gauge.builder(PENDING, deliveries, DeliveryRepository::countPending)
+                .description("Deliveries owed to the core, due now or later")
+                .register(meters);
+    }
+
+    /**
+     * Records a message to deliver now, in the caller's transaction.
+     *
+     * @param endToEndId the payment the message notifies
+     * @param messageId the message's {@code messageId}
+     * @param message the exact bytes to send on every attempt
+     * @return the delivery's id
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public UUID schedule(String endToEndId, String messageId, byte[] message) {
+        var id = UUID.randomUUID();
+        deliveries.insert(id, endToEndId, messageId, message, clock.instant().truncatedTo(ChronoUnit.MICROS));
+        return id;
+    }
+
+    /** The deliveries of a payment, oldest first, each with its attempts in order. */
+    @Transactional(readOnly = true)
+    public List<Delivery> of(String endToEndId) {
+        return deliveries.findByEndToEndId(endToEndId);
+    }
+}

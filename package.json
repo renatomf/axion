@@ -9,7 +9,7 @@
   },
   "scripts": {
     "prepare": "lefthook install",
-    "lint:api": "spectral lint --fail-severity warn services/core/openapi/v1.yaml services/core/openapi/internal.yaml && spectral lint --fail-severity warn --ruleset services/rails-simulator/openapi/.spectral.yaml services/rails-simulator/openapi/simulator.yaml",
+    "lint:api": "spectral lint --fail-severity warn services/core/openapi/v1.yaml services/core/openapi/internal.yaml && spectral lint --fail-severity warn --ruleset services/rails-simulator/openapi/.spectral.yaml services/rails-simulator/openapi/simulator.yaml services/rails-simulator/openapi/rails.yaml",
     "test:api-rules": "scripts/test-api-rules.sh"
   },
   "devDependencies": {
