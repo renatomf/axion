@@ -170,9 +170,9 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | 1.28 | Simulator design doc | Scope, simulated messages, deviations from official specs, chaos controls |
 | 1.29 | Simulator skeleton | `services/rails-simulator` Gradle project and Spring Boot skeleton, Compose service, CI build and image |
 | 1.30 | Pix payment simulation | Simulated payer, `EndToEndId`, signed callbacks to the core |
-| ↳ 1.30a | Simulated payer | A payer that pays a BR Code; `EndToEndId` generation |
-| ↳ 1.30b | Signed callbacks | Payment callbacks to the core, signed and retried |
-| 1.31 | Chaos API | Latency, failures, duplicates, out-of-order and late callbacks, on demand |
+| ↳ 1.30a | Simulated payer | The payer API, which reads the amount and the transaction ID from a BR Code; `EndToEndId` generation; the simulator's database and its payments |
+| ↳ 1.30b | Signed callbacks | Credit notifications to the core, delivered at least once from the simulator's database, retried with backoff, signed with Ed25519 under RFC 9421 |
+| 1.31 | Chaos API | Fault rules for latency, failures, lost responses, duplicates, reordering and delays, applied to the next matching deliveries; an outage switch |
 
 ### 4.6 Block F — Billing and settlement
 
@@ -189,7 +189,7 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | ↳ 1.37a | Risk rules | `RiskApi` with the amount rule and the velocity rule |
 | ↳ 1.37b | Risk before charging | The decision applied to charge creation |
 | 1.38 | Rails anti-corruption layer | Callback endpoint, signature verification, `EndToEndId` deduplication |
-| ↳ 1.38a | Callback endpoint | The rails callback endpoint and its signature verification |
+| ↳ 1.38a | Callback endpoint | The rails callback endpoint and its signature verification (RFC 9421, Ed25519) |
 | ↳ 1.38b | Callback translation | `EndToEndId` deduplication; rails messages translated into billing commands |
 | 1.39 | Settlement | One transaction: charge `PAID` + ledger entry + outbox event |
 | 1.40 | Late payments | Payment after expiration: credited and flagged for review |
