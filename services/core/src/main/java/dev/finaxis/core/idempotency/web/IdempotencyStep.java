@@ -14,13 +14,16 @@ import org.springframework.web.servlet.ModelAndView;
 
 /**
  * Requires an {@code Idempotency-Key} on every {@code POST} under {@code /v1} (idempotency design,
- * section 3.1). It runs after the permission check, so a caller learns nothing here that it could
- * not learn from a request it may make.
+ * section 3.1), and reads its body, of at most 64 KiB, before the controller runs (section 3.3). It
+ * runs after the permission check, so a caller learns nothing here that it could not learn from a
+ * request it may make.
  */
 @Component
 final class IdempotencyStep implements HandlerStep {
 
     static final String HEADER = "Idempotency-Key";
+
+    static final int MAX_BODY = 64 * 1024;
 
     private static final String PUBLIC_API = "/v1/";
 
@@ -37,7 +40,7 @@ final class IdempotencyStep implements HandlerStep {
             return next.invoke(request, response);
         }
         key(request);
-        return next.invoke(request, response);
+        return next.invoke(CachedBodyRequest.read(request, MAX_BODY), response);
     }
 
     static boolean isPublicApiWrite(HttpServletRequest request) {

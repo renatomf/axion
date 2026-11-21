@@ -28,6 +28,7 @@ import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -48,6 +49,13 @@ class IdempotencyStepTest {
         @PostMapping(PATH)
         String write() {
             return "written";
+        }
+
+        /** Answers with the length of the body it received. */
+        @RequiresPermission(CHARGES_WRITE)
+        @PostMapping(PATH + "/echo")
+        String echo(@RequestBody byte[] body) {
+            return Integer.toString(body.length);
         }
 
         @RequiresPermission(CHARGES_WRITE)
@@ -104,6 +112,16 @@ class IdempotencyStepTest {
     }
 
     @Test
+    void passesABodyOfAtMost64KibToTheController() {
+        echo(new byte[IdempotencyStep.MAX_BODY]).hasStatusOk().hasBodyTextEqualTo("65536");
+    }
+
+    @Test
+    void refusesABodyOver64Kib() {
+        assertProblem(echo(new byte[IdempotencyStep.MAX_BODY + 1]), HttpStatus.CONTENT_TOO_LARGE, "content_too_large");
+    }
+
+    @Test
     void requiresNoKeyOnARead() {
         assertThat(mvc.get().uri(PATH).header("Authorization", "Bearer " + key.secret()))
                 .hasStatusOk()
@@ -124,6 +142,15 @@ class IdempotencyStepTest {
                 .uri(PATH)
                 .header("Authorization", "Bearer " + caller.secret())
                 .header(IdempotencyStep.HEADER, idempotencyKey));
+    }
+
+    private MvcTestResultAssert echo(byte[] body) {
+        return assertThat(mvc.post()
+                .uri(PATH + "/echo")
+                .header("Authorization", "Bearer " + key.secret())
+                .header(IdempotencyStep.HEADER, "order-1")
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .content(body));
     }
 
     private static void assertProblem(MvcTestResultAssert result, HttpStatus status, String code) {

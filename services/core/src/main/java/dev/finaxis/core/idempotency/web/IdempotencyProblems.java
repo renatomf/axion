@@ -26,6 +26,13 @@ final class IdempotencyProblems {
                 "An Idempotency-Key is 1 to 255 visible ASCII characters.");
     }
 
+    static ErrorResponseException contentTooLarge(int limit) {
+        return problem(
+                HttpStatus.CONTENT_TOO_LARGE,
+                "content_too_large",
+                "A request body is at most " + limit / 1024 + " KiB.");
+    }
+
     private static ErrorResponseException problem(HttpStatus status, String code, String detail) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
         problem.setProperty("code", code);
