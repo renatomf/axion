@@ -1,15 +1,14 @@
 package dev.finaxis.core.access.web;
 
 import dev.finaxis.core.tenancy.TenancyApi;
+import dev.finaxis.core.web.HandlerStep;
 import java.time.Clock;
 import java.util.List;
-import org.springframework.boot.webmvc.autoconfigure.WebMvcRegistrations;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
-import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter;
 
 @Configuration(proxyBeanMethods = false)
 class AccessWebConfiguration implements WebMvcConfigurer {
@@ -34,12 +33,7 @@ class AccessWebConfiguration implements WebMvcConfigurer {
     }
 
     @Bean
-    static WebMvcRegistrations tenantBinding() {
-        return new WebMvcRegistrations() {
-            @Override
-            public RequestMappingHandlerAdapter getRequestMappingHandlerAdapter() {
-                return new TenantBindingHandlerAdapter();
-            }
-        };
+    static HandlerStep tenantBinding() {
+        return new TenantBindingStep();
     }
 }

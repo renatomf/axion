@@ -209,7 +209,8 @@ class EnvironmentIsolationTest {
                 .uri("/v1/isolation/settlements")
                 .param("debit", debit.value().toString())
                 .param("credit", credit.value().toString())
-                .header("Authorization", "Bearer " + testKey.secret()));
+                .header("Authorization", "Bearer " + testKey.secret())
+                .header("Idempotency-Key", UUID.randomUUID().toString()));
     }
 
     private AccountId openAvailable(TenantId tenant, Environment environment) {

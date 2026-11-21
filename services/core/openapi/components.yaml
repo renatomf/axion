@@ -64,6 +64,26 @@ schemas:
       detail:
         description: What is wrong with the field, for humans; may change.
         type: string
+parameters:
+  IdempotencyKey:
+    name: Idempotency-Key
+    in: header
+    required: true
+    description: >-
+      Names one logical operation, so that retrying it has the effect of one
+      request. Choose a new key, such as a random UUID, for each operation, and
+      send it unchanged on every retry of that operation. A key is 1 to 255
+      visible ASCII characters and belongs to the tenant; it is honored for at
+      least 24 hours. A repeat of a request that completed gets the first
+      response again, with `Idempotent-Replayed: true`. A missing key gets
+      `400` with code `idempotency_key_required`, a malformed one `400` with
+      code `invalid_idempotency_key`. See the idempotency guide in `docs/api`.
+    schema:
+      type: string
+      minLength: 1
+      maxLength: 255
+      pattern: "^[!-~]+$"
+    example: 5f0c6a8e-3b1d-4f7a-9c2e-8d4b6a1f0e37
 responses:
   BadRequest:
     description: >-
@@ -116,6 +136,34 @@ responses:
       application/problem+json:
         schema:
           $ref: "#/schemas/Problem"
+  ContentTooLarge:
+    description: >-
+      The request body is over 64 KiB, with the code `content_too_large`.
+    content:
+      application/problem+json:
+        schema:
+          $ref: "#/schemas/Problem"
+  RequestInProgress:
+    description: >-
+      A request with the same `Idempotency-Key` is still running, with the code
+      `request_in_progress`. Retry after `Retry-After`: the retry gets that
+      request's response.
+    headers:
+      Retry-After:
+        $ref: "#/headers/Retry-After"
+    content:
+      application/problem+json:
+        schema:
+          $ref: "#/schemas/Problem"
+  IdempotencyKeyReused:
+    description: >-
+      The `Idempotency-Key` was used for a request with another path or body,
+      with the code `idempotency_key_reused`. The body is compared byte for
+      byte: a retry must send the same bytes.
+    content:
+      application/problem+json:
+        schema:
+          $ref: "#/schemas/Problem"
   InternalServerError:
     description: An unexpected error; the detail is always generic.
     content:
@@ -144,3 +192,10 @@ headers:
     schema:
       type: string
     example: '"key";r=99;t=1, "tenant";r=199;t=1'
+  Idempotent-Replayed:
+    description: >-
+      `true` on a response repeated from an earlier request with the same
+      `Idempotency-Key`: the operation did not run again. Absent otherwise.
+    schema:
+      type: string
+      enum: ["true"]

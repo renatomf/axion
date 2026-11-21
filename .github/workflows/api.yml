@@ -1,6 +1,7 @@
 # Lints the OpenAPI contracts of the core (services/core/openapi/) with
 # Spectral on every push and pull request: the standard OpenAPI rules plus
-# the project's conventions, configured in .spectral.yaml.
+# the project's conventions, configured in .spectral.yaml and tested
+# against the fixtures in services/core/openapi/rule-fixtures/.
 name: API contracts
 
 on:
@@ -36,6 +37,10 @@ jobs:
       # fail if package.json and the lockfile disagree.
       - name: Install tooling
         run: pnpm install --frozen-lockfile
+
+      # Each project rule must report the operations its fixture breaks.
+      - name: Test lint rules
+        run: pnpm run test:api-rules
 
       - name: Lint
         run: pnpm run lint:api
