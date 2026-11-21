@@ -133,7 +133,7 @@ just image            # build the container image finaxis-core:dev
 just image rails-simulator  # build the container image finaxis-rails-simulator:dev
 ```
 
-- Settings come from the git-ignored `infra/compose/.env`. `just up` creates it from [`.env.example`](infra/compose/.env.example) and adds settings the example gained later, never changing existing values. Change `FINAXIS_DB_PORT`, `KEYCLOAK_PORT` or `RAILS_SIMULATOR_PORT` there if a port is taken.
+- Settings come from the git-ignored `infra/compose/.env`. `just up` creates it from [`.env.example`](infra/compose/.env.example) and adds settings the example gained later, never changing existing values. Change `FINAXIS_DB_PORT`, `KEYCLOAK_PORT` or `RAILS_SIMULATOR_PORT` there if a port is taken. The rails simulator's operator API takes `RAILS_SIMULATOR_OPERATOR_TOKEN` from there as its bearer token; its contract is [`simulator.yaml`](services/rails-simulator/openapi/simulator.yaml).
 - Ports are bound to `127.0.0.1`, and images are pinned by digest.
 - The `finaxis` database user is the owner, for local administration only; the service connects with the modules' least-privilege roles.
 - To start from an empty database: `docker compose --file infra/compose/compose.yaml --profile "*" down --volumes`.
