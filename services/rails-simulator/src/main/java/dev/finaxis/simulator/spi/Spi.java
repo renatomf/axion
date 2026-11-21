@@ -73,7 +73,10 @@ public class Spi {
         Payment payment = record(order, institution);
         var notification = notification(payment, order);
         deliveries.schedule(
-                payment.endToEndId().value(), notification.messageId(), json.writeValueAsBytes(notification));
+                payment.endToEndId().value(),
+                payment.transactionId(),
+                notification.messageId(),
+                json.writeValueAsBytes(notification));
         // Counted once committed: a payment rolled back never happened.
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override

@@ -53,8 +53,8 @@ class ChaosRulesTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> rules.add(Fault.LATENCY, FaultParameters.NONE, Match.ANY, 1));
         assertThatIllegalArgumentException()
-                .isThrownBy(
-                        () -> rules.add(Fault.FAIL, new FaultParameters(Duration.ZERO, Duration.ZERO), Match.ANY, 1));
+                .isThrownBy(() ->
+                        rules.add(Fault.FAIL, FaultParameters.latency(Duration.ZERO, Duration.ZERO), Match.ANY, 1));
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> rules.add(
                         Fault.LATENCY,
@@ -69,6 +69,45 @@ class ChaosRulesTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> rules.add(Fault.FAIL, FaultParameters.NONE, Match.ANY, 1001));
         assertThat(rules.list()).isEmpty();
+    }
+
+    @Test
+    void keepsADurationForDelayOnly() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> rules.add(Fault.DELAY, FaultParameters.NONE, Match.ANY, 1));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> rules.add(Fault.FAIL, FaultParameters.delay(Duration.ofSeconds(1)), Match.ANY, 1));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> rules.add(Fault.DELAY, FaultParameters.delay(Duration.ZERO), Match.ANY, 1));
+        assertThatIllegalArgumentException()
+                .isThrownBy(
+                        () -> rules.add(Fault.DELAY, FaultParameters.delay(Duration.ofSeconds(3601)), Match.ANY, 1));
+        assertThat(rules.list()).isEmpty();
+    }
+
+    @Test
+    void appliesTheFaultsAtCreationOnlyWhenADeliveryIsCreated() {
+        Duration delay = Duration.ofSeconds(90);
+        FaultRule delayed = rules.add(Fault.DELAY, FaultParameters.delay(delay), Match.ANY, 1);
+        FaultRule fail = rules.add(Fault.FAIL, FaultParameters.NONE, Match.ANY, 1);
+
+        CreationFaults created = rules.atCreation(END_TO_END_ID, "chaos8");
+
+        assertThat(created.applied()).containsExactly(new AppliedFault(delayed.id(), Fault.DELAY, null, delay));
+        assertThat(created.delay()).contains(delay);
+        assertThat(rules.list()).containsExactly(fail);
+        assertThat(rules.atAttempt(END_TO_END_ID, "chaos8", 1).applied())
+                .extracting(AppliedFault::rule)
+                .containsExactly(fail.id());
+        assertThat(rules.atCreation(END_TO_END_ID, "chaos8")).isEqualTo(CreationFaults.NONE);
+    }
+
+    @Test
+    void writesDurationsInSeconds() {
+        assertThat(Durations.inSeconds(Duration.ofMinutes(90))).isEqualTo("PT5400S");
+        assertThat(Durations.inSeconds(Duration.ofMillis(1500))).isEqualTo("PT1.5S");
+        assertThat(Durations.inSeconds(Duration.ofMillis(250))).isEqualTo("PT0.25S");
+        assertThat(Durations.inSeconds(Duration.ZERO)).isEqualTo("PT0S");
     }
 
     @Test

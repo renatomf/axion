@@ -2,6 +2,7 @@ package dev.finaxis.simulator.payer;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import dev.finaxis.simulator.chaos.AppliedFault;
+import dev.finaxis.simulator.chaos.Durations;
 import dev.finaxis.simulator.delivery.Deliveries;
 import dev.finaxis.simulator.delivery.Delivery;
 import dev.finaxis.simulator.spi.Debtor;
@@ -189,7 +190,7 @@ class PaymentController {
     record FaultView(
             String rule,
             String fault,
-            int attempt,
+            @Nullable Integer attempt,
             @Nullable String waited) {
 
         static FaultView of(AppliedFault applied) {
@@ -198,7 +199,7 @@ class PaymentController {
                     applied.rule().toString(),
                     applied.fault().tag(),
                     applied.attempt(),
-                    waited == null ? null : waited.toString());
+                    waited == null ? null : Durations.inSeconds(waited));
         }
     }
 

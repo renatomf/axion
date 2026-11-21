@@ -30,7 +30,7 @@ class ChaosController {
 
     private static final Logger LOG = LoggerFactory.getLogger(ChaosController.class);
 
-    private static final Pattern DURATION = Pattern.compile("PT[0-9]{1,2}(\\.[0-9]{1,3})?S");
+    private static final Pattern DURATION = Pattern.compile("PT[0-9]{1,4}(\\.[0-9]{1,3})?S");
     private static final Pattern TRANSACTION_ID = Pattern.compile("[A-Za-z0-9]{1,25}");
     private static final String FAULTS =
             Arrays.stream(Fault.values()).map(Fault::tag).collect(Collectors.joining(", "));
@@ -58,21 +58,7 @@ class ChaosController {
         if (times == null || times < 1 || times > FaultRule.MAX_TIMES) {
             throw badRequest("times must be an integer from 1 to " + FaultRule.MAX_TIMES + ".");
         }
-        FaultParameters parameters = FaultParameters.NONE;
-        if (fault == Fault.LATENCY) {
-            Duration min = duration("min", request.min());
-            Duration max = duration("max", request.max());
-            if (max.compareTo(FaultRule.MAX_LATENCY) > 0) {
-                throw badRequest("max must not exceed " + FaultRule.MAX_LATENCY + ".");
-            }
-            if (min.compareTo(max) > 0) {
-                throw badRequest("min must not exceed max.");
-            }
-            parameters = FaultParameters.latency(min, max);
-        } else if (request.min() != null || request.max() != null) {
-            throw badRequest("min and max apply only to latency.");
-        }
-        FaultRule rule = rules.add(fault, parameters, match(request.match()), times);
+        FaultRule rule = rules.add(fault, parameters(fault, request), match(request.match()), times);
         LOG.atInfo()
                 .addKeyValue("rule", rule.id())
                 .addKeyValue("fault", fault.tag())
@@ -100,10 +86,48 @@ class ChaosController {
         LOG.atInfo().addKeyValue("rule", id).log("Fault rule removed");
     }
 
-    private static Duration duration(String field, @Nullable String value) {
-        if (value == null) {
+    private static FaultParameters parameters(Fault fault, RuleRequest request) {
+        if (fault != Fault.LATENCY && (request.min() != null || request.max() != null)) {
+            throw badRequest("min and max apply only to latency.");
+        }
+        if (fault != Fault.DELAY && request.duration() != null) {
+            throw badRequest("duration applies only to delay.");
+        }
+        return switch (fault) {
+            case LATENCY -> latency(request.min(), request.max());
+            case DELAY -> FaultParameters.delay(delay(request.duration()));
+            case FAIL, LOST_RESPONSE -> FaultParameters.NONE;
+        };
+    }
+
+    private static FaultParameters latency(@Nullable String minimum, @Nullable String maximum) {
+        if (minimum == null || maximum == null) {
             throw badRequest("min and max are required for latency.");
         }
+        Duration min = duration("min", minimum);
+        Duration max = duration("max", maximum);
+        if (max.compareTo(FaultRule.MAX_LATENCY) > 0) {
+            throw badRequest("max must not exceed " + Durations.inSeconds(FaultRule.MAX_LATENCY) + ".");
+        }
+        if (min.compareTo(max) > 0) {
+            throw badRequest("min must not exceed max.");
+        }
+        return FaultParameters.latency(min, max);
+    }
+
+    private static Duration delay(@Nullable String value) {
+        if (value == null) {
+            throw badRequest("duration is required for delay.");
+        }
+        Duration duration = duration("duration", value);
+        if (!duration.isPositive() || duration.compareTo(FaultRule.MAX_DELAY) > 0) {
+            throw badRequest(
+                    "duration must be more than zero and at most " + Durations.inSeconds(FaultRule.MAX_DELAY) + ".");
+        }
+        return duration;
+    }
+
+    private static Duration duration(String field, String value) {
         if (!DURATION.matcher(value).matches()) {
             throw badRequest(field + " must be an ISO 8601 duration of seconds, such as PT1.5S.");
         }
@@ -153,6 +177,7 @@ class ChaosController {
             @Nullable String fault,
             @Nullable String min,
             @Nullable String max,
+            @Nullable String duration,
             @Nullable MatchRequest match,
             @Nullable Integer times) {}
 
@@ -167,23 +192,28 @@ class ChaosController {
             String fault,
             @Nullable String min,
             @Nullable String max,
+            @Nullable String duration,
             MatchView match,
             int times,
             int remaining,
             String createdAt) {
 
         static RuleView of(FaultRule rule) {
-            Duration min = rule.parameters().min();
-            Duration max = rule.parameters().max();
+            FaultParameters parameters = rule.parameters();
             return new RuleView(
                     rule.id().toString(),
                     rule.fault().tag(),
-                    min == null ? null : min.toString(),
-                    max == null ? null : max.toString(),
+                    inSeconds(parameters.min()),
+                    inSeconds(parameters.max()),
+                    inSeconds(parameters.duration()),
                     new MatchView(rule.match().endToEndId(), rule.match().transactionId()),
                     rule.times(),
                     rule.remaining(),
                     Iso20022.dateTime(rule.createdAt()));
+        }
+
+        private static @Nullable String inSeconds(@Nullable Duration duration) {
+            return duration == null ? null : Durations.inSeconds(duration);
         }
     }
 

@@ -68,6 +68,15 @@ class ChaosApiTest {
     }
 
     @Test
+    void addsADelayRuleWithItsDuration() {
+        MvcTestResult result = add("{\"fault\": \"delay\", \"duration\": \"PT90S\", \"times\": 1}");
+
+        assertThat(result).hasStatus(HttpStatus.CREATED);
+        assertThat(result).bodyJson().extractingPath("$.duration").isEqualTo("PT90S");
+        assertThat(result).bodyJson().doesNotHavePath("$.min");
+    }
+
+    @Test
     void listsTheRulesInForceOldestFirst() {
         add("{\"fault\": \"fail\", \"times\": 1}");
         add("{\"fault\": \"lost_response\", \"times\": 1}");
@@ -106,7 +115,7 @@ class ChaosApiTest {
     @ParameterizedTest
     @CsvSource(delimiter = '|', textBlock = """
             {"times": 1}                                                       | fault is required.
-            {"fault": "delay", "times": 1}                                     | fault must be one of latency, fail, lost_response.
+            {"fault": "drop", "times": 1}                                      | fault must be one of latency, fail, lost_response, delay.
             {"fault": "fail"}                                                  | times must be an integer from 1 to 1000.
             {"fault": "fail", "times": 0}                                      | times must be an integer from 1 to 1000.
             {"fault": "fail", "times": 1001}                                   | times must be an integer from 1 to 1000.
@@ -115,6 +124,10 @@ class ChaosApiTest {
             {"fault": "latency", "min": "PT0S", "max": "PT21S", "times": 1}    | max must not exceed PT20S.
             {"fault": "latency", "min": "PT2S", "max": "PT1S", "times": 1}     | min must not exceed max.
             {"fault": "fail", "min": "PT1S", "times": 1}                       | min and max apply only to latency.
+            {"fault": "delay", "times": 1}                                     | duration is required for delay.
+            {"fault": "delay", "duration": "PT0S", "times": 1}                 | duration must be more than zero and at most PT3600S.
+            {"fault": "delay", "duration": "PT3600.001S", "times": 1}          | duration must be more than zero and at most PT3600S.
+            {"fault": "fail", "duration": "PT1S", "times": 1}                  | duration applies only to delay.
             {"fault": "fail", "match": {"endToEndId": "E1"}, "times": 1}       | match.endToEndId must be an EndToEndId.
             {"fault": "fail", "match": {"transactionId": "a-b"}, "times": 1}   | match.transactionId must have 1 to 25 letters or digits.
             """)

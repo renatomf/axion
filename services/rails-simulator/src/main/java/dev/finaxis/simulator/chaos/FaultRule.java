@@ -17,6 +17,9 @@ public record FaultRule(
     /** The longest {@code latency}: under the dispatcher's 30-second lease, so a waiting delivery is never claimed twice. */
     public static final Duration MAX_LATENCY = Duration.ofSeconds(20);
 
+    /** The longest {@code delay}: enough for a notification to arrive after its charge expired. */
+    public static final Duration MAX_DELAY = Duration.ofHours(1);
+
     public static final int MAX_TIMES = 1000;
 
     public FaultRule {
@@ -33,6 +36,13 @@ public record FaultRule(
                 && max != null
                 && (min.isNegative() || min.compareTo(max) > 0 || max.compareTo(MAX_LATENCY) > 0)) {
             throw new IllegalArgumentException("A latency range runs from zero to " + MAX_LATENCY);
+        }
+        Duration duration = parameters.duration();
+        if ((fault == Fault.DELAY) != (duration != null)) {
+            throw new IllegalArgumentException("Only delay, and always delay, has a duration");
+        }
+        if (duration != null && (!duration.isPositive() || duration.compareTo(MAX_DELAY) > 0)) {
+            throw new IllegalArgumentException("A delay is more than zero and at most " + MAX_DELAY);
         }
     }
 

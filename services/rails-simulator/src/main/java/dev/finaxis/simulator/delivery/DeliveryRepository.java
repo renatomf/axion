@@ -2,6 +2,7 @@ package dev.finaxis.simulator.delivery;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import dev.finaxis.simulator.chaos.AppliedFault;
+import dev.finaxis.simulator.chaos.Durations;
 import dev.finaxis.simulator.chaos.Fault;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -39,7 +40,7 @@ class DeliveryRepository {
     private record StoredFault(
             String rule,
             String fault,
-            int attempt,
+            @Nullable Integer attempt,
             @Nullable String waited) {
 
         static StoredFault of(AppliedFault applied) {
@@ -48,7 +49,7 @@ class DeliveryRepository {
                     applied.rule().toString(),
                     applied.fault().tag(),
                     applied.attempt(),
-                    waited == null ? null : waited.toString());
+                    waited == null ? null : Durations.inSeconds(waited));
         }
 
         AppliedFault applied() {
@@ -117,17 +118,27 @@ class DeliveryRepository {
         }
     }
 
-    void insert(UUID id, String endToEndId, String messageId, byte[] message, Instant createdAt) {
-        var now = utc(createdAt);
+    /** Records a pending delivery, due at {@code nextAttemptAt}, with the faults applied as it was created. */
+    void insert(
+            UUID id,
+            String endToEndId,
+            String messageId,
+            byte[] message,
+            Instant createdAt,
+            Instant nextAttemptAt,
+            List<AppliedFault> faults) {
         jdbc.sql("""
-                        INSERT INTO deliveries (id, end_to_end_id, message_id, kind, message, status, next_attempt_at, created_at)
-                        VALUES (:id, :endToEndId, :messageId, 'original', :message, 'pending', :now, :now)
+                        INSERT INTO deliveries (id, end_to_end_id, message_id, kind, message, status, next_attempt_at, faults, created_at)
+                        VALUES (:id, :endToEndId, :messageId, 'original', :message, 'pending', :nextAttemptAt,
+                                CAST(:faults AS jsonb), :createdAt)
                         """)
                 .param("id", id)
                 .param("endToEndId", endToEndId)
                 .param("messageId", messageId)
                 .param("message", message)
-                .param("now", now)
+                .param("nextAttemptAt", utc(nextAttemptAt))
+                .param("faults", json(faults))
+                .param("createdAt", utc(createdAt))
                 .update();
     }
 
@@ -184,10 +195,7 @@ class DeliveryRepository {
                         """)
                 .param("id", delivery.id())
                 .param("number", number)
-                .param(
-                        "faults",
-                        json.writeValueAsString(
-                                faults.stream().map(StoredFault::of).toList()))
+                .param("faults", json(faults))
                 .param("status", outcome.status().name().toLowerCase(Locale.ROOT))
                 .param("nextAttemptAt", nextAttemptAt == null ? null : utc(nextAttemptAt))
                 .update();
@@ -255,6 +263,10 @@ class DeliveryRepository {
                 row.getBytes("message"),
                 row.getInt("attempts"),
                 row.getObject("created_at", OffsetDateTime.class).toInstant());
+    }
+
+    private String json(List<AppliedFault> faults) {
+        return json.writeValueAsString(faults.stream().map(StoredFault::of).toList());
     }
 
     private static OffsetDateTime utc(Instant instant) {

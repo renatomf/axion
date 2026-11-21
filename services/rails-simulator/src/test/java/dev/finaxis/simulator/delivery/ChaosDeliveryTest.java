@@ -120,6 +120,33 @@ class ChaosDeliveryTest {
     }
 
     @Test
+    void postponesTheFirstAttemptByTheDelay() {
+        Duration delay = Duration.ofSeconds(1);
+        FaultRule rule = chaos.add(Fault.DELAY, FaultParameters.delay(delay), new Match(null, "chaosDelay1"), 1);
+        Payment payment = pay("chaosDelay1");
+
+        Delivery created = delivery(payment);
+        assertThat(created.nextAttemptAt()).isEqualTo(created.createdAt().plus(delay));
+        await().atMost(WAIT).until(() -> delivery(payment).status() == DeliveryStatus.DELIVERED);
+        Delivery delivered = delivery(payment);
+        assertThat(attempts(payment)).containsExactly("1 delivered 200");
+        assertThat(delivered.faults()).containsExactly(new AppliedFault(rule.id(), Fault.DELAY, null, delay));
+        assertThat(Duration.between(
+                        delivered.createdAt(), delivered.attempts().getFirst().attemptedAt()))
+                .isGreaterThanOrEqualTo(delay);
+    }
+
+    @Test
+    void countsAFaultAppliedAtCreationOnceCommitted() {
+        double before = faultsCounted("delay");
+        chaos.add(Fault.DELAY, FaultParameters.delay(Duration.ofMillis(1)), new Match(null, "chaosCount2"), 1);
+
+        pay("chaosCount2");
+
+        assertThat(faultsCounted("delay")).isEqualTo(before + 1);
+    }
+
+    @Test
     void countsEachFaultApplied() {
         double before = faultsCounted("lost_response");
         chaos.add(Fault.LOST_RESPONSE, FaultParameters.NONE, new Match(null, "chaosCount1"), 2);
