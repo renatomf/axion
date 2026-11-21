@@ -192,3 +192,44 @@ A refused message is never dropped silently: it stays in the simulator's databas
 ### 5.4 Orders, later
 
 Phase 2 adds the first orders, core to simulator: a payout is a `pacs.008` the core sends, and its result a `pacs.002` the simulator returns. They follow this document's conventions, mirrored: the same JSON naming, the same contract file, signed by the sender's key with the same scheme, delivered at least once, and answered asynchronously by a message, never in the HTTP response. Their design belongs to the payouts design doc.
+
+## 6. Delivery
+
+### 6.1 At least once
+
+The simulator writes the payment and its delivery in one transaction, with the exact bytes of the message. A dispatcher sends what is due:
+
+1. Every 250 ms, claim up to 16 due deliveries with `FOR UPDATE SKIP LOCKED`, and move their `next_attempt_at` 30 seconds ahead, as a lease, in the same transaction.
+2. Send each, outside any transaction, with a connect timeout of 1 second and a response timeout of 5.
+3. Record the outcome: done, refused, or the next attempt (section 6.2).
+
+A crash between steps 2 and 3 leaves a delivery whose lease expires, so it is sent again, possibly to a core that already received it. That duplicate is deliberate: at least once is the rails' guarantee, and the core's deduplication on `EndToEndId` is what makes the effect single. Retries and duplicates send the stored bytes, so every copy of a message is identical and only its signature differs.
+
+Deliveries are concurrent and unordered, as on the rails: two payments are notified in no guaranteed order, even for one charge.
+
+### 6.2 Retries
+
+A failed attempt is retried after a delay drawn uniformly between zero and `min(5 minutes, 1 second × 2^(attempt − 1))`, the "full jitter" of exponential backoff, or after the core's `Retry-After` if it is longer. After 24 hours without success the delivery is marked `failed`, counted, and kept for manual redelivery. An outage of the core of an hour therefore drains on its own once the core returns, a few minutes at most after it.
+
+### 6.3 Signatures
+
+Each request the simulator sends is signed under HTTP Message Signatures (RFC 9421) with Ed25519 (RFC 8032), over a digest of its body (RFC 9530):
+
+```
+POST /rails/pix/credits HTTP/1.1
+Content-Type: application/json
+Content-Digest: sha-256=:<SHA-256 of the body, base64>:
+Signature-Input: rails=("@method" "@path" "content-type" "content-digest");created=1795271412;keyid="rails-2026-11";alg="ed25519"
+Signature: rails=:<64-byte Ed25519 signature, base64>:
+```
+
+- The signature covers the method, the path, the content type and the digest of the body, so neither the message nor where it was sent can change without breaking it. The host is left out because proxies may rewrite it.
+- `created` is the moment of signing, and each attempt is signed afresh. The core refuses a signature more than 5 minutes old or more than 1 minute in the future, so a captured request cannot be replayed later; within the window a replay is a duplicate, and deduplication absorbs it.
+- `keyid` names the key, so the core can verify messages signed by the old key and the new one during a rotation.
+- Java supports Ed25519 since version 15, and an RFC 9421 signature over four components is a short canonical string: neither side needs a library. RFC 9421's own Ed25519 example (appendix B.2.6) is the known vector for both.
+
+The core's verification is PR 1.38a's: the digest first, then the signature, then the time window, and only then the body is parsed. A failure is `401` with no detail.
+
+### 6.4 Keys
+
+The simulator's private key is configuration, never in the repository: locally, a `just` recipe generates the pair and writes both halves to `infra/compose/.env`; in tests, each run generates its own. The core is configured with public keys only, by `keyid`, so reading its configuration, its logs or its database gives nothing that can sign. A rotation adds the new public key to the core, moves the simulator to the new private key, and removes the old public key once no delivery signed with it can still be retried.
