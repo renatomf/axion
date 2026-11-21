@@ -15,7 +15,9 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.Serial;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
 import org.jspecify.annotations.Nullable;
@@ -79,12 +81,16 @@ final class IdempotencyStep implements HandlerStep {
                 new IdempotentRequest(tenant(), key, Fingerprint.of(path(request), cached.body()), correlationId());
         ContentCachingResponseWrapper capturing = new ContentCachingResponseWrapper(response);
         Operation operation = new Operation(cached, capturing, handler, next);
+        Map<String, List<String>> headersBefore = headers(response);
 
         IdempotentResult result;
         try {
             result = idempotency.execute(idempotent, operation);
-        } catch (OperationFailure failure) {
-            throw failure.cause;
+        } catch (RuntimeException failure) {
+            // The operation rolled back, even when its commit failed after it answered, so the
+            // headers it wrote, such as a Location, describe nothing and must not reach the client.
+            discardOperationHeaders(response, headersBefore);
+            throw failure instanceof OperationFailure checked ? checked.cause : failure;
         }
         return switch (result) {
             case IdempotentResult.Executed executed -> {
@@ -134,6 +140,24 @@ final class IdempotencyStep implements HandlerStep {
     private static String correlationId() {
         return Objects.requireNonNull(
                 MDC.get(CorrelationIdFilter.MDC_KEY), "Every request has a correlation ID before it reaches MVC");
+    }
+
+    private static Map<String, List<String>> headers(HttpServletResponse response) {
+        Map<String, List<String>> headers = new LinkedHashMap<>();
+        for (String name : response.getHeaderNames()) {
+            headers.putIfAbsent(name, List.copyOf(response.getHeaders(name)));
+        }
+        return headers;
+    }
+
+    // Only the body is held back until the outcome is known; headers reach the response as they are
+    // written. The body is not committed yet, so a reset can still take them back.
+    private static void discardOperationHeaders(HttpServletResponse response, Map<String, List<String>> before) {
+        if (response.isCommitted()) {
+            return;
+        }
+        response.reset();
+        before.forEach((name, values) -> values.forEach(value -> response.addHeader(name, value)));
     }
 
     // The headers that describe this request, such as its correlation ID and rate limits, are already
