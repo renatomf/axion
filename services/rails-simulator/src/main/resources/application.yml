@@ -15,6 +15,13 @@ spring:
     # of silently skipping it.
     validate-migration-naming: true
 
+simulator:
+  participants:
+    # The payers' institutions, fictitious ISPBs that no institution in the
+    # Central Bank's lists of Pix and STR participants uses (rails simulator
+    # design, section 3.2). Quoted: an ISPB is a code, not a number.
+    payers: ["99990011", "99990012", "99990013"]
+
 server:
   # The core listens on 8080; the simulator on 8090 (rails simulator
   # design, section 8.2), so both run on one machine.
