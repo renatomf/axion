@@ -1,13 +1,12 @@
 package dev.finaxis.simulator.payer;
 
 import dev.finaxis.simulator.spi.EndToEndId;
+import dev.finaxis.simulator.spi.Iso20022;
+import dev.finaxis.simulator.spi.Iso20022.Amount;
 import dev.finaxis.simulator.spi.Payment;
+import dev.finaxis.simulator.spi.PaymentOrder;
 import dev.finaxis.simulator.spi.Spi;
-import java.math.BigDecimal;
 import java.net.URI;
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -29,9 +28,6 @@ class PaymentController {
 
     private static final Logger LOG = LoggerFactory.getLogger(PaymentController.class);
 
-    private static final DateTimeFormatter MILLISECONDS =
-            DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC);
-
     private final Spi spi;
 
     PaymentController(Spi spi) {
@@ -48,13 +44,14 @@ class PaymentController {
                     null);
         }
         BrCode code = BrCode.read(text);
-        Payment payment = spi.settle(code.amountMinor(), code.transactionId(), code.text());
+        Payment payment = spi.settle(new PaymentOrder(
+                code.amountMinor(), code.transactionId(), code.pixKey(), code.text(), SyntheticPayers.any(), null));
         // The EndToEndId only: the code's content and the payer stay out of the logs.
         LOG.info("Settled Pix payment {}", payment.endToEndId());
 
         URI location = URI.create("/pix/payments/" + payment.endToEndId());
         return ResponseEntity.created(location)
-                .body(new PaymentCreated(payment.endToEndId().value(), timestamp(payment.settledAt())));
+                .body(new PaymentCreated(payment.endToEndId().value(), Iso20022.dateTime(payment.settledAt())));
     }
 
     @GetMapping("/pix/payments/{endToEndId}")
@@ -82,10 +79,6 @@ class PaymentController {
         }
     }
 
-    private static String timestamp(Instant instant) {
-        return MILLISECONDS.format(instant);
-    }
-
     /** {@code brCode} is nullable so that a body without it is a 400 with a detail, not a null inside the code. */
     record PaymentRequest(@Nullable String brCode) {}
 
@@ -102,13 +95,11 @@ class PaymentController {
             return new PaymentView(
                     payment.endToEndId().value(),
                     payment.transactionId(),
-                    new Amount(BigDecimal.valueOf(payment.amountMinor(), 2).toPlainString(), "BRL"),
+                    Amount.ofMinor(payment.amountMinor()),
                     new Agent(payment.debtorInstitution().digits()),
-                    timestamp(payment.settledAt()));
+                    Iso20022.dateTime(payment.settledAt()));
         }
     }
-
-    record Amount(String amount, String currency) {}
 
     record Agent(String ispb) {}
 }
