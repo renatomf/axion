@@ -85,6 +85,32 @@ class RateLimitsTest {
                 .isEmpty();
     }
 
+    @Test
+    void letsAMemberSpendTheirBurstThenRefusesThem() {
+        String member = UUID.randomUUID().toString();
+
+        assertThat(acquired(member, 50)).isEqualTo(40);
+        // 20 a second: the next token comes in 50 milliseconds.
+        assertThat(limits.tryAcquire(member)).contains(Duration.ofMillis(50));
+    }
+
+    @Test
+    void keepsMembersApart() {
+        acquired(UUID.randomUUID().toString(), 40);
+
+        assertThat(limits.tryAcquire(UUID.randomUUID().toString())).isEmpty();
+    }
+
+    private int acquired(String member, int attempts) {
+        int acquired = 0;
+        for (int i = 0; i < attempts; i++) {
+            if (limits.tryAcquire(member).isEmpty()) {
+                acquired++;
+            }
+        }
+        return acquired;
+    }
+
     private int acquired(ApiKeyCaller caller, int attempts) {
         int acquired = 0;
         for (int i = 0; i < attempts; i++) {

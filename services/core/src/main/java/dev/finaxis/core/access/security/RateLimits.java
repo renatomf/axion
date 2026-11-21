@@ -15,9 +15,10 @@ import java.time.Instant;
 import java.util.Optional;
 
 /**
- * The request budget of {@code /v1} callers (tenancy design, section 6): a token bucket per tenant
- * and one per API key, sized by the environment. A request takes one token from each, or from
- * neither when either is empty.
+ * The request budget of authenticated callers (tenancy design, section 6). On {@code /v1}, a token
+ * bucket per tenant and one per API key, sized by the environment: a request takes one token from
+ * each, or from neither when either is empty. On {@code /internal}, a bucket per member, identified
+ * by the subject of their access token, so it holds whichever tenant the request names.
  *
  * <p>Buckets live in memory, so each core instance enforces its own copy of a limit. The caches are
  * bounded: a bucket dropped for size or idleness comes back full, which an idle bucket already is.
@@ -41,11 +42,14 @@ final class RateLimits {
         };
     }
 
+    static final Limit PER_MEMBER = new Limit(20, 40);
+
     static final long MAX_BUCKETS = 100_000;
     static final Duration IDLE = Duration.ofMinutes(10);
 
     private final Cache<TenantId, Bucket> tenants = cache();
     private final Cache<ApiKeyId, Bucket> keys = cache();
+    private final Cache<String, Bucket> members = cache();
     private final TimeMeter time;
 
     RateLimits(Clock clock) {
@@ -65,6 +69,16 @@ final class RateLimits {
             // The request is refused, so it must not spend its key's token either.
             key.addTokens(1);
             return Optional.of(Duration.ofNanos(byTenant.getNanosToWaitForRefill()));
+        }
+        return Optional.empty();
+    }
+
+    /** As {@link #tryAcquire(ApiKeyCaller)}, for the member whose access token has this subject. */
+    Optional<Duration> tryAcquire(String memberSubject) {
+        Bucket member = members.get(memberSubject, _ -> bucket(PER_MEMBER));
+        ConsumptionProbe probe = member.tryConsumeAndReturnRemaining(1);
+        if (!probe.isConsumed()) {
+            return Optional.of(Duration.ofNanos(probe.getNanosToWaitForRefill()));
         }
         return Optional.empty();
     }
