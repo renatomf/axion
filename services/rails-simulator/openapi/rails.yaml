@@ -1,0 +1,252 @@
+# Contract of the messages the rails simulator sends to the core (rails
+# simulator design, section 5). It belongs to the simulator, as the SPI's
+# message catalog belongs to the Central Bank; the core's anti-corruption
+# layer reads it from here. Lint it with `just lint-api`.
+openapi: 3.1.1
+info:
+  title: Finaxis Simulated Rails Messages
+  version: 0.1.0
+  summary: The messages the simulated Pix rails send to the core.
+  description: |
+    Each message is the JSON counterpart of an ISO 20022 message: fields take
+    their names from the ISO 20022 elements in camel case, and their codes from
+    the SPI's catalog. Only the fields the core uses are sent.
+
+    - Amounts are decimal strings with two fraction digits, never JSON numbers.
+    - Times are UTC with milliseconds.
+    - Receivers ignore fields they do not know, so a message can gain a field.
+    - Names and tax IDs are personal data: synthetic, but handled as real.
+
+    Every message is delivered at least once: the receiver deduplicates on the
+    `endToEndId`. Each request is signed under HTTP Message Signatures (RFC
+    9421) with Ed25519, over the method, the path, the content type and the
+    `Content-Digest` (RFC 9530) of the body. The receiver verifies the digest,
+    then the signature, then that `created` is at most 5 minutes old and at
+    most 1 minute ahead, before it parses the body.
+  license:
+    name: Apache 2.0
+    identifier: Apache-2.0
+  contact:
+    url: https://github.com/renatomf/finaxis
+servers:
+  - url: http://localhost:8080
+    description: The core, the receiver of every message, in local development
+webhooks:
+  pixCredit:
+    post:
+      operationId: notifyPixCredit
+      summary: Notify a settled Pix credit
+      description: >-
+        The SPI has settled a Pix payment to Finaxis: the money is already in
+        its settlement account. The receiver cannot refuse the credit, only
+        record it; it answers once the message is durably recorded, before it
+        acts on it. Sent to `POST /rails/pix/credits` on the core.
+      parameters:
+        - $ref: "#/components/parameters/ContentDigest"
+        - $ref: "#/components/parameters/SignatureInput"
+        - $ref: "#/components/parameters/Signature"
+        - $ref: "#/components/parameters/CorrelationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreditNotification"
+      responses:
+        "2XX":
+          description: >-
+            Accepted, including a duplicate the receiver already had. The
+            delivery is done; the body is ignored.
+        "408":
+          description: Not received in time; retried.
+        "429":
+          description: Not now; retried, no sooner than `Retry-After`.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+        "4XX":
+          description: >-
+            Refused for good, such as a bad signature or an unreadable body.
+            Not retried; kept for an operator to redeliver.
+        "5XX":
+          description: Not received; retried, no sooner than `Retry-After` if given.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+components:
+  parameters:
+    ContentDigest:
+      name: Content-Digest
+      in: header
+      required: true
+      description: The SHA-256 of the body, under RFC 9530.
+      schema:
+        type: string
+        pattern: "^sha-256=:[A-Za-z0-9+/]{43}=:$"
+      example: "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+    SignatureInput:
+      name: Signature-Input
+      in: header
+      required: true
+      description: >-
+        The covered components and the signature's parameters, under the label
+        `rails`: `created` is the time of signing in seconds since the epoch,
+        `keyid` names the simulator's key, so a rotation can be verified with
+        either key, and `alg` is always `ed25519`.
+      schema:
+        type: string
+      example: >-
+        rails=("@method" "@path" "content-type" "content-digest");created=1795271412;keyid="rails-2026-11";alg="ed25519"
+    Signature:
+      name: Signature
+      in: header
+      required: true
+      description: The 64-byte Ed25519 signature of the signature base, under the label `rails`.
+      schema:
+        type: string
+        pattern: "^rails=:[A-Za-z0-9+/]{86}==:$"
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: true
+      description: The message's `messageId`, so one notification is traced across both processes.
+      schema:
+        $ref: "#/components/schemas/MessageId"
+  headers:
+    RetryAfter:
+      description: Seconds to wait, or an HTTP date.
+      schema:
+        type: string
+  schemas:
+    CreditNotification:
+      description: >-
+        A Pix credit the SPI has settled, the counterpart of an ISO 20022
+        `pacs.008` credit transfer.
+      type: object
+      required:
+        - messageId
+        - messageType
+        - creationDateTime
+        - endToEndId
+        - transactionId
+        - localInstrument
+        - interbankSettlementAmount
+        - acceptanceDateTime
+        - debtor
+        - debtorAccount
+        - debtorAgent
+        - creditorAgent
+      properties:
+        messageId:
+          $ref: "#/components/schemas/MessageId"
+        messageType:
+          type: string
+          const: pacs.008
+        creationDateTime:
+          description: When the message was written.
+          allOf:
+            - $ref: "#/components/schemas/Timestamp"
+        endToEndId:
+          $ref: "#/components/schemas/EndToEndId"
+        transactionId:
+          description: The BR Code's transaction ID, by which the core finds the charge.
+          type: string
+          pattern: "^[A-Za-z0-9]{1,25}$"
+        localInstrument:
+          description: How the payment was initiated; `QRDN`, a dynamic QR code.
+          type: string
+          enum: [QRDN]
+        interbankSettlementAmount:
+          $ref: "#/components/schemas/Amount"
+        acceptanceDateTime:
+          description: When the SPI settled the payment.
+          allOf:
+            - $ref: "#/components/schemas/Timestamp"
+        debtor:
+          description: The payer. Personal data.
+          type: object
+          required: [name, taxId]
+          properties:
+            name:
+              type: string
+              minLength: 1
+              maxLength: 140
+            taxId:
+              description: The payer's CPF, 11 digits.
+              type: string
+              pattern: "^[0-9]{11}$"
+        debtorAccount:
+          description: The payer's account at the payer's institution.
+          type: object
+          required: [branch, number, type]
+          properties:
+            branch:
+              type: string
+              pattern: "^[0-9]{4}$"
+            number:
+              type: string
+              pattern: "^[0-9]{1,20}$"
+            type:
+              description: The account type; `CACC`, a checking account.
+              type: string
+              enum: [CACC]
+        debtorAgent:
+          $ref: "#/components/schemas/Agent"
+        creditorAgent:
+          $ref: "#/components/schemas/Agent"
+        creditorAccount:
+          description: Present when the BR Code carried a Pix key.
+          type: object
+          required: [proxy]
+          properties:
+            proxy:
+              description: The Pix key the BR Code carried.
+              type: string
+              minLength: 1
+              maxLength: 77
+        remittanceInformation:
+          description: The payer's message, when there is one.
+          type: string
+          minLength: 1
+          maxLength: 140
+    MessageId:
+      description: >-
+        Unique per message: M, the sender's ISPB and 23 letters or digits. The
+        copies of one message share it.
+      type: string
+      pattern: "^M[0-9]{8}[A-Za-z0-9]{23}$"
+      examples: [M99990011aB3dE5gH7jK2mN4pQ6rS8tU]
+    EndToEndId:
+      description: >-
+        The payment's identity on both sides: E, the payer institution's ISPB,
+        the UTC minute of creation (yyyyMMddHHmm) and 11 letters or digits.
+      type: string
+      pattern: "^E[0-9]{8}[0-9]{12}[A-Za-z0-9]{11}$"
+      examples: [E99990011202611211430aB3dE5gH7jK]
+    Agent:
+      description: A Pix participant.
+      type: object
+      required: [ispb]
+      properties:
+        ispb:
+          description: Its eight-digit ISPB, fictitious.
+          type: string
+          pattern: "^[0-9]{8}$"
+    Amount:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          description: A decimal string with two fraction digits, never a JSON number.
+          type: string
+          pattern: "^[0-9]+\\.[0-9]{2}$"
+          examples: ["100.00"]
+        currency:
+          type: string
+          const: BRL
+    Timestamp:
+      description: A time in UTC with milliseconds.
+      type: string
+      format: date-time
+      pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+      examples: ["2026-11-21T14:30:12.345Z"]
