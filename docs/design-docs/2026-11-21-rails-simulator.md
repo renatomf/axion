@@ -276,3 +276,52 @@ The chaos API changes how the simulator delivers, not what it settles: a payment
 | `PUT`, `DELETE /chaos/outage` | Start and end an outage |
 
 The operator API is contract-first, in `services/rails-simulator/openapi/simulator.yaml`, beside the message contract.
+
+## 8. Service
+
+### 8.1 The process
+
+`services/rails-simulator` is its own Gradle project: Java 25 and Spring Boot, the core's quality gates (Spotless, Error Prone, NullAway, zero warnings, ArchUnit) and its conventions (an injected `Clock`, JSON logs, `JdbcClient`). It shares no code with the core. The rails are another organization's system, and a shared library would couple the core to its own counterpart; it would also let one bug hide on both sides. The simulator decodes BR Codes with its own reader, so a code the core's encoder gets wrong is refused instead of read back by the same mistake.
+
+Its packages follow what it simulates: `payer` (the payer API and BR Code reading), `spi` (settlement and messages), `delivery` (the dispatcher and signatures) and `chaos`.
+
+### 8.2 Network
+
+| Port | Serves | Reached by |
+|---|---|---|
+| `8090` | The operator API and the health endpoint | Tests, the core's fault-injection suite, the console's demo mode through its BFF, a developer |
+
+The simulator is never exposed publicly. In Compose its port is bound to `127.0.0.1`, as the database's is; in the public demo, the BFF calls it server-side for the "the student pays" scene (demo script, scene 4), and the browser never reaches it. The operator API requires a bearer token from configuration, compared in constant time. The core's URL is configuration as well: locally the core runs on the host, and Compose maps `host.docker.internal` to it.
+
+### 8.3 Storage
+
+A database of its own, `rails_simulator`, on the PostgreSQL server of Compose, with its own login role, as Keycloak's (ADR 0005). The core's roles have no `CONNECT` on it, and the simulator's role none on the core's database: the two systems share a server, not data. Migrations are Flyway's, in the simulator's project.
+
+```
+payments
+  end_to_end_id        char(32) primary key   -- format of section 4.3 (CHECK)
+  transaction_id       text not null          -- 1–25 letters or digits (CHECK)
+  amount_minor         bigint not null        -- > 0 (CHECK)
+  debtor_ispb          char(8) not null
+  br_code              text not null
+  settled_at           timestamptz not null
+
+deliveries
+  id                   uuid primary key
+  end_to_end_id        char(32) not null references payments
+  kind                 text not null          -- original | duplicate | redelivery (CHECK)
+  message              bytea not null         -- the exact bytes sent on every attempt
+  status               text not null          -- pending | delivered | refused | failed (CHECK)
+  attempts             integer not null
+  next_attempt_at      timestamptz null       -- null once delivered, refused or failed
+  last_outcome         text null              -- the last status code or error
+  faults               jsonb not null         -- chaos faults applied (section 7.1)
+  created_at           timestamptz not null
+  index (next_attempt_at) where status = 'pending'
+```
+
+The payer's personal data lives only inside `message`, the bytes the core receives; the simulator queries nothing by it.
+
+### 8.4 Observability
+
+Metrics: `rails_sim_payments_total`, `rails_sim_delivery_attempts_total{outcome}` (`delivered`, `retried`, `refused`, `failed`), `rails_sim_deliveries_pending`, and `rails_sim_faults_applied_total{fault}`. Logs carry the `EndToEndId` and the `messageId`, never a name, a tax ID or a Pix key; each delivery sends the `messageId` as its `X-Correlation-Id`, so a notification is traced across both processes.
