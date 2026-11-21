@@ -12,3 +12,19 @@ server:
   # The core listens on 8080; the simulator on 8090 (rails simulator
   # design, section 8.2), so both run on one machine.
   port: 8090
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Expose only the health endpoint over HTTP. Other endpoints
+        # (env, beans, metrics...) can leak internals and stay closed.
+        include: health
+  endpoint:
+    health:
+      # Report only UP or DOWN; component details stay hidden.
+      show-details: never
+      probes:
+        # /actuator/health/liveness and /actuator/health/readiness,
+        # for container orchestrators.
+        enabled: true
