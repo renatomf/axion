@@ -36,7 +36,7 @@ final class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
     private final AccessApi access;
     private final ProblemDetailsSecurityHandler rejections;
     private final AuthenticationFailures failures;
-    private final ApiKeyRateLimits limits;
+    private final RateLimits limits;
     private final BearerTokenResolver bearer = new DefaultBearerTokenResolver();
     private final SecurityContextHolderStrategy contexts = SecurityContextHolder.getContextHolderStrategy();
 
@@ -44,7 +44,7 @@ final class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
             AccessApi access,
             ProblemDetailsSecurityHandler rejections,
             AuthenticationFailures failures,
-            ApiKeyRateLimits limits) {
+            RateLimits limits) {
         this.access = access;
         this.rejections = rejections;
         this.failures = failures;

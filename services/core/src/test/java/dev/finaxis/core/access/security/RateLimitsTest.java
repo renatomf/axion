@@ -14,10 +14,10 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
-class ApiKeyRateLimitsTest {
+class RateLimitsTest {
 
     private final MutableClock clock = new MutableClock(Instant.parse("2026-11-20T12:00:00Z"));
-    private final ApiKeyRateLimits limits = new ApiKeyRateLimits(clock);
+    private final RateLimits limits = new RateLimits(clock);
 
     @Test
     void letsAKeySpendItsBurstThenRefusesIt() {

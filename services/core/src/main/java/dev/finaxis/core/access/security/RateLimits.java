@@ -22,7 +22,7 @@ import java.util.Optional;
  * <p>Buckets live in memory, so each core instance enforces its own copy of a limit. The caches are
  * bounded: a bucket dropped for size or idleness comes back full, which an idle bucket already is.
  */
-final class ApiKeyRateLimits {
+final class RateLimits {
 
     /** Refilled at {@code perSecond} tokens a second, holding at most {@code burst}. */
     record Limit(long perSecond, long burst) {}
@@ -48,7 +48,7 @@ final class ApiKeyRateLimits {
     private final Cache<ApiKeyId, Bucket> keys = cache();
     private final TimeMeter time;
 
-    ApiKeyRateLimits(Clock clock) {
+    RateLimits(Clock clock) {
         this.time = new ClockTimeMeter(clock);
     }
 

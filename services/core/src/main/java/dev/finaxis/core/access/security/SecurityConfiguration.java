@@ -59,7 +59,7 @@ class SecurityConfiguration {
         ProblemDetailsSecurityHandler rejections = new ProblemDetailsSecurityHandler(resolver);
         var failures = new AuthenticationFailures(meters);
         http.addFilterBefore(
-                new ApiKeyAuthenticationFilter(access, rejections, failures, new ApiKeyRateLimits(clock)),
+                new ApiKeyAuthenticationFilter(access, rejections, failures, new RateLimits(clock)),
                 AnonymousAuthenticationFilter.class);
 
         return build(http, rejections);
