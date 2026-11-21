@@ -50,6 +50,9 @@ testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgr
 # failure to the smallest input that still breaks the property. A JUnit Platform
 # engine, so its tests run next to the JUnit Jupiter ones.
 jqwik = { module = "net.jqwik:jqwik", version.ref = "jqwik" }
+# Waits in tests for a condition that work on another thread makes true,
+# polling until it holds or a timeout fails the test.
+awaitility = { module = "org.awaitility:awaitility" }
 # Architecture rules written as unit tests.
 archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
 # Lets Gradle launch JUnit tests; Gradle 9 requires it on the test runtime classpath.
