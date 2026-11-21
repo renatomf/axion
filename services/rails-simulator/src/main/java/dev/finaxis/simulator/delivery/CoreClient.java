@@ -44,12 +44,15 @@ class CoreClient implements AutoCloseable {
      *
      * @param status the response's status code, if one came
      * @param retryAfter the response's {@code Retry-After}, if any
-     * @param error {@code timeout} or {@code connection_failed}, if no answer came
+     * @param error {@code timeout}, {@code connection_failed} or, when a chaos fault kept the attempt from
+     *     being sent, {@code not_sent}, if no answer came
      */
     record Response(
             @Nullable Integer status,
             @Nullable String retryAfter,
             @Nullable String error) {
+
+        static final String NOT_SENT = "not_sent";
 
         static Response failed(String error) {
             return new Response(null, null, error);

@@ -1,5 +1,7 @@
 package dev.finaxis.simulator.delivery;
 
+import dev.finaxis.simulator.chaos.AttemptFaults;
+import dev.finaxis.simulator.chaos.ChaosRules;
 import dev.finaxis.simulator.delivery.DeliveryRepository.Due;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
@@ -21,7 +23,8 @@ import org.springframework.stereotype.Component;
  * Sends the due deliveries to the core, at least once each (rails simulator design, section 6.1): claim
  * a batch under a lease, send each outside any transaction, record what came of it, and schedule a retry
  * when the core did not accept it (section 6.2). A crash between sending and recording sends the message
- * again when the lease ends; the core deduplicates.
+ * again when the lease ends; the core deduplicates. The chaos rules matching an attempt change how it is
+ * sent (section 7.2).
  */
 @Component
 @ConditionalOnBooleanProperty(name = "simulator.dispatcher.enabled", matchIfMissing = true)
@@ -36,13 +39,15 @@ class Dispatcher {
 
     private final DeliveryRepository deliveries;
     private final CoreClient core;
+    private final ChaosRules chaos;
     private final Clock clock;
     private final MeterRegistry meters;
     private final RetryPolicy retries = new RetryPolicy(RandomGenerator.getDefault());
 
-    Dispatcher(DeliveryRepository deliveries, CoreClient core, Clock clock, MeterRegistry meters) {
+    Dispatcher(DeliveryRepository deliveries, CoreClient core, ChaosRules chaos, Clock clock, MeterRegistry meters) {
         this.deliveries = deliveries;
         this.core = core;
+        this.chaos = chaos;
         this.clock = clock;
         this.meters = meters;
     }
@@ -58,27 +63,47 @@ class Dispatcher {
     }
 
     private void deliver(Due delivery) {
-        CoreClient.Response response = core.send(delivery.message(), delivery.messageId());
+        int attempt = delivery.attempts() + 1;
+        AttemptFaults faults = chaos.atAttempt(delivery.endToEndId(), delivery.transactionId(), attempt);
+        faults.latency().ifPresent(Dispatcher::sleep);
+        CoreClient.Response response = faults.fails()
+                ? CoreClient.Response.failed(CoreClient.Response.NOT_SENT)
+                : core.send(delivery.message(), delivery.messageId());
         Instant attemptedAt = now();
-        DeliveryOutcome outcome = DeliveryOutcome.of(response);
+        // A lost answer, whatever it said, leaves the simulator as if none came: retried, without a Retry-After.
+        DeliveryOutcome outcome = faults.losesResponse() ? DeliveryOutcome.RETRIED : DeliveryOutcome.of(response);
+        String retryAfter = faults.losesResponse() ? null : response.retryAfter();
         Optional<Instant> nextAttemptAt = Optional.empty();
         if (outcome == DeliveryOutcome.RETRIED) {
-            nextAttemptAt = retries.nextAttempt(
-                    delivery.createdAt(), attemptedAt, delivery.attempts() + 1, response.retryAfter());
+            nextAttemptAt = retries.nextAttempt(delivery.createdAt(), attemptedAt, attempt, retryAfter);
             if (nextAttemptAt.isEmpty()) {
                 outcome = DeliveryOutcome.FAILED;
             }
         }
-        deliveries.recordAttempt(delivery, attemptedAt, response, outcome, nextAttemptAt.orElse(null), List.of());
+        deliveries.recordAttempt(
+                delivery, attemptedAt, response, outcome, nextAttemptAt.orElse(null), faults.applied());
         meters.counter(ATTEMPTS, "outcome", outcome.tag()).increment();
         LOG.atInfo()
                 .addKeyValue("end_to_end_id", delivery.endToEndId())
                 .addKeyValue("message_id", delivery.messageId())
-                .addKeyValue("attempt", delivery.attempts() + 1)
+                .addKeyValue("attempt", attempt)
                 .addKeyValue("outcome", outcome.tag())
                 .addKeyValue("response_status", response.status())
                 .addKeyValue("error", response.error())
+                .addKeyValue(
+                        "faults",
+                        faults.applied().stream()
+                                .map(applied -> applied.fault().tag())
+                                .toList())
                 .log("Delivery attempt");
+    }
+
+    private static void sleep(Duration latency) {
+        try {
+            Thread.sleep(latency);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private Instant now() {

@@ -374,12 +374,15 @@ components:
           minimum: 100
           maximum: 599
         error:
-          description: Why no answer came; absent when one did.
+          description: >-
+            Why no answer came; absent when one did. `not_sent` when a `fail`
+            fault kept the attempt from being sent.
           type: string
-          enum: [timeout, connection_failed]
+          enum: [timeout, connection_failed, not_sent]
         outcome:
           description: >-
-            `delivered`, the core accepted it; `retried`, it is tried again;
+            `delivered`, the core accepted it; `retried`, it is tried again,
+            also after an answer a `lost_response` fault discarded;
             `refused`, the core refused it for good; `failed`, the 24 hours of
             retries ran out.
           type: string

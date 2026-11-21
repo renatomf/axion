@@ -63,14 +63,23 @@ class DeliveryRepository {
 
         private final UUID id;
         private final String endToEndId;
+        private final String transactionId;
         private final String messageId;
         private final byte[] message;
         private final int attempts;
         private final Instant createdAt;
 
-        Due(UUID id, String endToEndId, String messageId, byte[] message, int attempts, Instant createdAt) {
+        Due(
+                UUID id,
+                String endToEndId,
+                String transactionId,
+                String messageId,
+                byte[] message,
+                int attempts,
+                Instant createdAt) {
             this.id = id;
             this.endToEndId = endToEndId;
+            this.transactionId = transactionId;
             this.messageId = messageId;
             this.message = message.clone();
             this.attempts = attempts;
@@ -83,6 +92,11 @@ class DeliveryRepository {
 
         String endToEndId() {
             return endToEndId;
+        }
+
+        /** The transaction ID of the payment's BR Code, which fault rules may match. */
+        String transactionId() {
+            return transactionId;
         }
 
         String messageId() {
@@ -124,14 +138,15 @@ class DeliveryRepository {
      */
     List<Due> claimDue(Instant now, Instant leaseUntil, int limit) {
         return jdbc.sql("""
-                        UPDATE deliveries SET next_attempt_at = :leaseUntil
-                        WHERE id IN (
+                        UPDATE deliveries d SET next_attempt_at = :leaseUntil
+                        FROM payments p
+                        WHERE p.end_to_end_id = d.end_to_end_id AND d.id IN (
                             SELECT id FROM deliveries
                             WHERE status = 'pending' AND next_attempt_at <= :now
                             ORDER BY next_attempt_at
                             LIMIT :limit
                             FOR UPDATE SKIP LOCKED)
-                        RETURNING id, end_to_end_id, message_id, message, attempts, created_at
+                        RETURNING d.id, d.end_to_end_id, p.transaction_id, d.message_id, d.message, d.attempts, d.created_at
                         """)
                 .param("now", utc(now))
                 .param("leaseUntil", utc(leaseUntil))
@@ -235,6 +250,7 @@ class DeliveryRepository {
         return new Due(
                 row.getObject("id", UUID.class),
                 row.getString("end_to_end_id"),
+                row.getString("transaction_id"),
                 row.getString("message_id"),
                 row.getBytes("message"),
                 row.getInt("attempts"),
