@@ -314,7 +314,9 @@ Limits protect the platform from one caller's bug or abuse, not tenants from eac
 | Per member | 20 requests/s, bursts of 40 | 20 requests/s, bursts of 40 |
 
 - Each bucket is a token bucket (Bucket4j). A request takes one token from each bucket that applies and is rejected if any is empty.
-- A rejected request gets `429` with code `rate_limited`, a `Retry-After` header and the `RateLimit-Policy` and `RateLimit` headers of the IETF draft, so a client can slow down before it is rejected.
+- A member's bucket is keyed by the subject of their access token, so it holds across every tenant the member acts on.
+- Every authenticated response carries the `RateLimit-Policy` and `RateLimit` headers of the IETF draft, one member per bucket (`"key"`, `"tenant"` or `"member"`), so a client can slow down before it is rejected. A token bucket is reported as a quota of its burst over the seconds a full burst takes to refill.
+- A rejected request gets `429` with code `rate_limited` and a `Retry-After` header, in whole seconds rounded up.
 - Buckets live in memory, in a bounded cache. Phase 1 runs one core instance, so a limit is exact. With several instances each enforces its own copy, so the effective limit multiplies; a shared store (PostgreSQL or Redis) is the documented path when the core scales out (phase 5).
 - Unauthenticated traffic never reaches the buckets: the reverse proxy limits it per IP address (overview, section 4.2), and the BFF limits each session (section 4.4).
 
