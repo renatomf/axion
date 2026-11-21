@@ -203,3 +203,46 @@ public record KeyReused() implements IdempotentResult {}                        
 - `IdempotencyKey` and `Fingerprint` exist only valid: a key of 1 to 255 visible ASCII characters, a fingerprint of 32 bytes.
 - The module, `idempotency`, depends on `shared` only. Its persistence uses `JdbcClient`, as the other modules do: the lock, the lookup and the insert are three exact statements.
 - The metric `finaxis_idempotency_requests_total{outcome}` counts `executed`, `replayed`, `in_progress` and `key_reused`. Logs carry the SHA-256 of the key, never the key: it is text the client chose and may hold anything.
+
+## 8. Testing
+
+| Suite | What it proves | PR |
+|---|---|---|
+| Domain unit | A key outside 1 to 255 visible ASCII characters is refused; the fingerprint changes with any byte of the path or the body | 1.26a |
+| Schema (Testcontainers) | The constraints of section 5; the module role can neither update nor delete; with tenant A bound, B's keys are invisible, and one key in two tenants is two rows; the jobs role reads and deletes expired rows only | 1.26a |
+| Store | A committed key replays; another fingerprint is `KeyReused`; a held lock is `InProgress`; an operation that throws leaves neither a row nor its effect; a `5xx` is not stored | 1.26a |
+| Removal | Expired rows are removed in batches; a key still honored stays | 1.26a |
+| Web | A missing or invalid key gets `400`, a body over 64 KiB `413`; a replay is byte for byte, with `Idempotent-Replayed`; a rejected body is not stored; a key without the scope gets `403` and a revoked key `401`, not the replay | 1.26b |
+| Contract | The Spectral rule fails a `/v1` `POST` without the header | 1.26b |
+| `financial-integrity` | 50 parallel repeats of one key yield one effect, and every answer is the stored response or `409`; a failure injected after the effect leaves nothing behind, and the retry has one effect | 1.27 |
+
+Until `POST /v1/charges` (PR 1.35b), the web and proof suites call a `/v1` endpoint that exists only in the tests. Its effect is a ledger entry with a new source ID on every run, so the ledger's own idempotency cannot hide a duplicate: only the key can prevent the second entry.
+
+## 9. Trade-offs and alternatives
+
+| Alternative | Why it was rejected |
+|---|---|
+| **Commit an `IN_PROGRESS` row before the operation**, as in the overview and in Stripe's published design | The claim, the operation and the result need separate transactions. A crash after the operation commits and before the result does leaves the key `IN_PROGRESS` until a timeout lets a retry run the operation again: a second effect. Avoiding it needs recovery points in every operation. One transaction makes it impossible, at the price of no remote calls during `/v1` writes, which the outbox already avoids |
+| **Wait for the first request** instead of answering `409` | Each repeat would hold a connection and a thread until the first request finishes; 50 parallel repeats would exhaust the pool for every tenant |
+| **Keys in Redis** or another store | Not atomic with the effect: the moment between committing a charge and recording its key is exactly the failure this design removes |
+| **An optional header**, as at Stripe | A retry without a key creates a second charge. A rule for every write cannot be forgotten by a client or by a new endpoint |
+| **Store `5xx` responses**, as Stripe does | Turns a transient failure into the answer for 24 hours. Stripe stores them because its effects may have happened; here a `5xx` rolled back, so the retry is safe |
+| **A canonical JSON fingerprint** (RFC 8785) | Tolerates re-serialization, but needs a canonicalizer, with its number and Unicode rules, on every write. Clients retry the same bytes, and a byte comparison is simple to explain |
+| **Keys per API key** | A tenant rolling its key during retries would run the operation twice |
+| **A servlet filter** | Runs before the permission check, so a key without the scope would get a stored response |
+| **Daily partitions** from the start | Batch deletes are enough for phase 1 volumes; partitions remain the scale path |
+
+## 10. Security considerations
+
+The store answers on behalf of the operations, from a copy of their responses. The threats are a caller obtaining a response it should not see, an effect repeated, and repeats used to keep the core busy.
+
+| STRIDE | Threat | Mitigation |
+|---|---|---|
+| **Spoofing** | A caller obtains another tenant's stored response by guessing its key | Keys are per tenant; the tenant comes from the credential, the lookup filters by it and Row-Level Security hides other tenants' rows; a guessed key is a new request of the caller's own tenant |
+| **Spoofing** | A captured request is replayed to repeat its effect | Within the retention period the replay gets the stored response and has no effect (overview, section 4.6); after it, the request is new, and money stays idempotent on its own facts (ledger source keys, `EndToEndId`) |
+| **Tampering** | A client reuses a key to change an operation after the fact | The fingerprint covers the path and the body, and any difference is `422 idempotency_key_reused`; stored rows are never changed |
+| **Repudiation** | A tenant disputes that a retried request ran once | The row keeps the correlation ID of the request that ran; replays are logged with it and counted |
+| **Information disclosure** | Stored responses expose personal data or secrets | They are protected like the resources (Row-Level Security, module role), kept for the retention period only and never logged. A response that returns a secret shown once must not be stored in plaintext; the events and webhooks design (PR 1.43) settles it for webhook signing secrets, the first such `/v1` response |
+| **Information disclosure** | Logs carry whatever a client put in its keys | Logs carry the key's hash, never the key |
+| **Denial of service** | A flood of repeats or of new keys | A repeat answers `409` at once and holds no connection; new keys are bounded by the rate limits; bodies and stored responses are capped at 64 KiB; expired rows are removed every hour |
+| **Elevation of privilege** | A replay gives a caller a response it could not obtain itself | The step runs after authentication, rate limiting and the permission check; the jobs role sees expired rows only; the module role can neither change nor delete a row |
