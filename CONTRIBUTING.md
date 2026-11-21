@@ -126,7 +126,7 @@ Local services run in Docker Compose ([`infra/compose/compose.yaml`](infra/compo
 ```bash
 just up               # the core profile: PostgreSQL 17 on 127.0.0.1:5432
 just up auth          # the auth profile: PostgreSQL and Keycloak 26 on http://localhost:8180
-just up rails         # the rails profile: the rails simulator on http://localhost:8090
+just up rails         # the rails profile: PostgreSQL and the rails simulator on http://localhost:8090
 just down             # stop every profile; data stays in the postgres-data volume
 just keycloak-reset   # re-import the realm file, dropping Keycloak's database and its users
 just image            # build the container image finaxis-core:dev

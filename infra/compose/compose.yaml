@@ -4,13 +4,13 @@
 # Services join a profile so only what a task needs is started:
 #   core  PostgreSQL for the core service
 #   auth  PostgreSQL and Keycloak, for the console and authentication tests
-#   rails the rails simulator, the core's counterpart for payments
+#   rails PostgreSQL and the rails simulator, the core's counterpart for payments
 #   jobs  one-shot setup jobs, run by `just up`
 name: finaxis
 
 services:
   postgres:
-    profiles: [core, auth]
+    profiles: [core, auth, rails]
     # Pinned by digest: a tag can be moved, a digest cannot.
     # Dependabot bumps the tag and the digest together.
     image: postgres:17.12-bookworm@sha256:40865bc877a289da75963d97d72b59633f639fc5af7a4e856bfa3714cae5b536
@@ -119,6 +119,26 @@ services:
       keycloak-database:
         condition: service_completed_successfully
 
+  # One-shot job: creates the rails simulator's own role and database on this
+  # server (rails simulator design, section 8.3), then exits. Idempotent, so it
+  # runs on every start.
+  rails-simulator-database:
+    profiles: [rails]
+    image: postgres:17.12-bookworm@sha256:40865bc877a289da75963d97d72b59633f639fc5af7a4e856bfa3714cae5b536
+    environment:
+      PGHOST: postgres
+      PGUSER: finaxis
+      PGDATABASE: finaxis
+      PGPASSWORD: ${FINAXIS_DB_PASSWORD:?set FINAXIS_DB_PASSWORD in infra/compose/.env}
+      RAILS_SIMULATOR_DB_PASSWORD: ${RAILS_SIMULATOR_DB_PASSWORD:?set RAILS_SIMULATOR_DB_PASSWORD in infra/compose/.env}
+    command: [psql, --no-psqlrc, --set=ON_ERROR_STOP=1, --file=/scripts/create-database.sql]
+    volumes:
+      - ../rails-simulator/create-database.sql:/scripts/create-database.sql:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   # The simulated payment rails (rails simulator design, section 8), built
   # from services/rails-simulator. No `image:` key: the image is local, so
   # Dependabot has no registry tag to bump here; it bumps the Dockerfile's.
@@ -131,6 +151,9 @@ services:
       - "127.0.0.1:${RAILS_SIMULATOR_PORT:-8090}:8090"
     # No healthcheck: the distroless image has no shell or HTTP client to call
     # /actuator/health from inside. Callers ask the endpoint from outside.
+    depends_on:
+      rails-simulator-database:
+        condition: service_completed_successfully
 
 volumes:
   postgres-data:
