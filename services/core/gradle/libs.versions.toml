@@ -54,6 +54,8 @@ archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref
 jspecify = { module = "org.jspecify:jspecify" }
 # Token-bucket rate limiting, in memory; the JDK 17+ build of its core module.
 bucket4j-core = { module = "com.bucket4j:bucket4j_jdk17-core", version.ref = "bucket4j" }
+# In-memory cache with a size bound and expiry, to hold the rate-limit buckets.
+caffeine = { module = "com.github.ben-manes.caffeine:caffeine" }
 # Test toolkit: JUnit Jupiter (JUnit 6), AssertJ, Mockito and Spring's test support.
 spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
 # MockMvc support for testing Spring MVC endpoints without a real server.
