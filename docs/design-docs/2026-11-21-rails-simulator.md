@@ -346,3 +346,45 @@ The references are the Central Bank's *Regulamento Pix* (BCB Resolution No. 1 of
 | Other products | Pix Automático, MED, Pix Saque and Troco, boleto | Not simulated | Each comes with its feature |
 
 A later design that adds a message lists its own deviations in the same form.
+
+## 10. Testing
+
+| Suite | What it proves | PR |
+|---|---|---|
+| Unit | The BR Code reader accepts the examples of the BCB manual and refuses each rule of section 4.2; the `EndToEndId` always has the format of section 4.3 (jqwik property); backoff delays stay within their bounds | 1.30a, 1.30b |
+| Signature | The signer reproduces the Ed25519 vector of RFC 9421, appendix B.2.6; a change to the body, the path or the method breaks the signature | 1.30b |
+| Storage (Testcontainers) | The constraints of section 8.3; a payment and its delivery commit together or not at all | 1.30a |
+| Delivery (Testcontainers, stub core) | One payment, one delivery; `5xx` and timeouts retried with backoff, `Retry-After` honored; other `4xx` stop; a delivery pending at a restart is sent after it; every attempt sends the same bytes and validates against `rails.yaml` | 1.30b |
+| Chaos | Each fault of section 7.2, with `times`, has exactly its effect on the matching deliveries and none on the others; an outage holds every delivery and the backlog drains when it ends | 1.31 |
+| Fault injection (core) | The core's suite runs the simulator's image with Testcontainers and drives it through the chaos API: duplicates post once, late payments are credited and flagged, a mid-settlement failure leaves nothing half-posted | 1.42 |
+
+## 11. Trade-offs and alternatives
+
+| Alternative | Why it was rejected |
+|---|---|
+| **Stubs inside the core's tests** (WireMock, a fake adapter) | No real network boundary: no real timeouts, no outage to survive, no game day. The overview makes the simulator a process for this reason (section 3.1) |
+| **State in memory** | A restart would lose notifications for payments already settled: the payer debited, the core never told. Recovering from an outage is a goal, so the outage must not destroy the evidence |
+| **HMAC-SHA256**, as the webhooks | Both sides would hold the secret, so anyone who reads the core's configuration could forge a payment. With Ed25519 the core holds only a public key |
+| **Mutual TLS** in addition | Closer to the RSFN, but it authenticates the connection, not the message, and costs a certificate authority in Compose. The signature is required in any case; mTLS can be added later without changing the messages |
+| **A detached JWS** over the body | Standard, but it covers the body only; RFC 9421 also binds the method and path |
+| **ISO 20022 XML** | Most faithful, but it needs the SPI's schemas, XML signatures and a mapping layer on both sides, for no property the core's design depends on |
+| **Polling, as the SPI's messaging interface** | More faithful, but the core would need a poller and the simulator a stream protocol. Push keeps the overview's shape; polling can replace it behind the anti-corruption layer |
+| **Serving the BR Code location from the core** | Faithful to dynamic codes, but it adds a public endpoint and a JWS signing key to billing before any payment works. It is the first extension if fidelity is pursued |
+| **A shared library** with the core (`Money`, `Cpf`, the BR Code) | Couples the core to its counterpart, and one bug would agree with itself on both sides |
+| **Random faults only** | Tests would assert probabilities; count-based rules make every outcome exact, and probabilities remain for game days |
+| **Toxiproxy** for network faults | Produces latency and broken connections, but not duplicates, reordering or late messages, which are message-level. It may complement the chaos API later |
+
+## 12. Security considerations
+
+The simulator is a test system, but the core treats it as the rails: a message it accepts moves money in the ledger. The threats are a forged or altered credit, a replayed one, and the chaos API used to disrupt or mislead.
+
+| STRIDE | Threat | Mitigation |
+|---|---|---|
+| **Spoofing** | Someone on the network sends the core a credit notification for a payment that never happened | Ed25519 signature under RFC 9421, verified before the body is read (section 6.3); the private key exists only in the simulator's configuration; the core's endpoint is not routed by the public proxy |
+| **Spoofing** | A leak of the core's configuration is used to sign a forged credit | The core holds public keys only (section 6.4) |
+| **Tampering** | The amount, the transaction ID or the target of a message is changed in transit | The signature covers the body's digest, the method and the path |
+| **Repudiation** | A payment is disputed: was it sent, and how often? | The simulator keeps every message, attempt, outcome and fault applied; the core records the `messageId`, the `EndToEndId` and the `keyid` of what it accepted |
+| **Replay** | A captured notification is sent again to credit twice | A signature older than 5 minutes is refused; within the window, the core deduplicates by `EndToEndId` |
+| **Information disclosure** | Payers' names and tax IDs cross the network or reach logs | All data is synthetic; on a local network without TLS (section 9). Neither process logs personal data; the simulator stores it only inside the message |
+| **Denial of service** | The chaos API or the payer API is used to stop payments or flood the core | Both require the operator token and are bound to localhost or reached server-side by the BFF; the core's endpoint caps bodies and rate-limits the simulator |
+| **Elevation of privilege** | The simulator's database role reads or changes the core's data | Separate databases and roles: neither side can connect to the other's |
