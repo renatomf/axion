@@ -11,7 +11,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.random.RandomGenerator;
-import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Component;
 
 /**
@@ -34,13 +33,11 @@ public class ChaosRules {
     }
 
     /** Puts a rule in force for the next {@code times} matching attempts. */
-    public synchronized FaultRule add(
-            Fault fault, @Nullable Duration min, @Nullable Duration max, Match match, int times) {
+    public synchronized FaultRule add(Fault fault, FaultParameters parameters, Match match, int times) {
         var rule = new FaultRule(
                 UUID.randomUUID(),
                 fault,
-                min,
-                max,
+                parameters,
                 match,
                 times,
                 times,
@@ -92,8 +89,8 @@ public class ChaosRules {
 
     /** A wait drawn uniformly within the rule's range, both ends included, to the millisecond. */
     private Duration waited(FaultRule rule) {
-        Duration min = rule.min();
-        Duration max = rule.max();
+        Duration min = rule.parameters().min();
+        Duration max = rule.parameters().max();
         if (min == null || max == null) {
             throw new IllegalStateException("A latency rule without a range");
         }

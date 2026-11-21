@@ -7,6 +7,7 @@ import dev.finaxis.simulator.PostgresTestConfiguration;
 import dev.finaxis.simulator.chaos.AppliedFault;
 import dev.finaxis.simulator.chaos.ChaosRules;
 import dev.finaxis.simulator.chaos.Fault;
+import dev.finaxis.simulator.chaos.FaultParameters;
 import dev.finaxis.simulator.chaos.FaultRule;
 import dev.finaxis.simulator.chaos.Match;
 import dev.finaxis.simulator.delivery.StubCore.Received;
@@ -64,7 +65,7 @@ class ChaosDeliveryTest {
 
     @Test
     void failsAnAttemptWithoutSendingIt() {
-        FaultRule rule = chaos.add(Fault.FAIL, null, null, new Match(null, "chaosFail1"), 1);
+        FaultRule rule = chaos.add(Fault.FAIL, FaultParameters.NONE, new Match(null, "chaosFail1"), 1);
         Payment payment = pay("chaosFail1");
 
         await().atMost(WAIT).until(() -> delivery(payment).status() == DeliveryStatus.DELIVERED);
@@ -75,7 +76,7 @@ class ChaosDeliveryTest {
 
     @Test
     void appliesARuleToExactlyItsTimes() {
-        chaos.add(Fault.FAIL, null, null, new Match(null, "chaosFail2"), 2);
+        chaos.add(Fault.FAIL, FaultParameters.NONE, new Match(null, "chaosFail2"), 2);
         Payment failed = pay("chaosFail2");
         Payment untouched = pay("chaosFail3");
 
@@ -90,7 +91,7 @@ class ChaosDeliveryTest {
 
     @Test
     void sendsAnAttemptAndDiscardsTheAnswer() {
-        FaultRule rule = chaos.add(Fault.LOST_RESPONSE, null, null, new Match(null, "chaosLost1"), 1);
+        FaultRule rule = chaos.add(Fault.LOST_RESPONSE, FaultParameters.NONE, new Match(null, "chaosLost1"), 1);
         Payment payment = pay("chaosLost1");
 
         await().atMost(WAIT).until(() -> delivery(payment).status() == DeliveryStatus.DELIVERED);
@@ -105,7 +106,8 @@ class ChaosDeliveryTest {
     @Test
     void waitsWithinTheLatencyBeforeSending() {
         Duration latency = Duration.ofMillis(500);
-        FaultRule rule = chaos.add(Fault.LATENCY, latency, latency, new Match(null, "chaosLatency1"), 1);
+        FaultRule rule = chaos.add(
+                Fault.LATENCY, FaultParameters.latency(latency, latency), new Match(null, "chaosLatency1"), 1);
         Payment payment = pay("chaosLatency1");
 
         await().atMost(WAIT).until(() -> delivery(payment).status() == DeliveryStatus.DELIVERED);
@@ -120,7 +122,7 @@ class ChaosDeliveryTest {
     @Test
     void countsEachFaultApplied() {
         double before = faultsCounted("lost_response");
-        chaos.add(Fault.LOST_RESPONSE, null, null, new Match(null, "chaosCount1"), 2);
+        chaos.add(Fault.LOST_RESPONSE, FaultParameters.NONE, new Match(null, "chaosCount1"), 2);
         Payment payment = pay("chaosCount1");
 
         await().atMost(WAIT).until(() -> delivery(payment).status() == DeliveryStatus.DELIVERED);

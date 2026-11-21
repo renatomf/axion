@@ -58,21 +58,21 @@ class ChaosController {
         if (times == null || times < 1 || times > FaultRule.MAX_TIMES) {
             throw badRequest("times must be an integer from 1 to " + FaultRule.MAX_TIMES + ".");
         }
-        @Nullable Duration min = null;
-        @Nullable Duration max = null;
+        FaultParameters parameters = FaultParameters.NONE;
         if (fault == Fault.LATENCY) {
-            min = duration("min", request.min());
-            max = duration("max", request.max());
+            Duration min = duration("min", request.min());
+            Duration max = duration("max", request.max());
             if (max.compareTo(FaultRule.MAX_LATENCY) > 0) {
                 throw badRequest("max must not exceed " + FaultRule.MAX_LATENCY + ".");
             }
             if (min.compareTo(max) > 0) {
                 throw badRequest("min must not exceed max.");
             }
+            parameters = FaultParameters.latency(min, max);
         } else if (request.min() != null || request.max() != null) {
             throw badRequest("min and max apply only to latency.");
         }
-        FaultRule rule = rules.add(fault, min, max, match(request.match()), times);
+        FaultRule rule = rules.add(fault, parameters, match(request.match()), times);
         LOG.atInfo()
                 .addKeyValue("rule", rule.id())
                 .addKeyValue("fault", fault.tag())
@@ -173,8 +173,8 @@ class ChaosController {
             String createdAt) {
 
         static RuleView of(FaultRule rule) {
-            Duration min = rule.min();
-            Duration max = rule.max();
+            Duration min = rule.parameters().min();
+            Duration max = rule.parameters().max();
             return new RuleView(
                     rule.id().toString(),
                     rule.fault().tag(),

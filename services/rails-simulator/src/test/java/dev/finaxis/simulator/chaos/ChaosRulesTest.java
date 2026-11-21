@@ -19,7 +19,7 @@ class ChaosRulesTest {
 
     @Test
     void putsARuleInForceForItsTimes() {
-        FaultRule rule = rules.add(Fault.FAIL, null, null, new Match(null, "chaos1"), 3);
+        FaultRule rule = rules.add(Fault.FAIL, FaultParameters.NONE, new Match(null, "chaos1"), 3);
 
         assertThat(rule.times()).isEqualTo(3);
         assertThat(rule.remaining()).isEqualTo(3);
@@ -29,16 +29,16 @@ class ChaosRulesTest {
 
     @Test
     void listsTheRulesOldestFirst() {
-        FaultRule first = rules.add(Fault.FAIL, null, null, Match.ANY, 1);
-        FaultRule second = rules.add(Fault.LOST_RESPONSE, null, null, Match.ANY, 1);
+        FaultRule first = rules.add(Fault.FAIL, FaultParameters.NONE, Match.ANY, 1);
+        FaultRule second = rules.add(Fault.LOST_RESPONSE, FaultParameters.NONE, Match.ANY, 1);
 
         assertThat(rules.list()).containsExactly(first, second);
     }
 
     @Test
     void removesOneRuleOrEvery() {
-        FaultRule first = rules.add(Fault.FAIL, null, null, Match.ANY, 1);
-        FaultRule second = rules.add(Fault.FAIL, null, null, Match.ANY, 1);
+        FaultRule first = rules.add(Fault.FAIL, FaultParameters.NONE, Match.ANY, 1);
+        FaultRule second = rules.add(Fault.FAIL, FaultParameters.NONE, Match.ANY, 1);
 
         assertThat(rules.remove(first.id())).isTrue();
         assertThat(rules.remove(first.id())).isFalse();
@@ -50,21 +50,30 @@ class ChaosRulesTest {
 
     @Test
     void keepsARangeForLatencyOnly() {
-        assertThatIllegalArgumentException().isThrownBy(() -> rules.add(Fault.LATENCY, null, null, Match.ANY, 1));
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> rules.add(Fault.FAIL, Duration.ZERO, Duration.ZERO, Match.ANY, 1));
+                .isThrownBy(() -> rules.add(Fault.LATENCY, FaultParameters.NONE, Match.ANY, 1));
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> rules.add(Fault.LATENCY, Duration.ofSeconds(2), Duration.ofSeconds(1), Match.ANY, 1));
+                .isThrownBy(
+                        () -> rules.add(Fault.FAIL, new FaultParameters(Duration.ZERO, Duration.ZERO), Match.ANY, 1));
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> rules.add(Fault.LATENCY, Duration.ZERO, Duration.ofSeconds(21), Match.ANY, 1));
-        assertThatIllegalArgumentException().isThrownBy(() -> rules.add(Fault.FAIL, null, null, Match.ANY, 0));
-        assertThatIllegalArgumentException().isThrownBy(() -> rules.add(Fault.FAIL, null, null, Match.ANY, 1001));
+                .isThrownBy(() -> rules.add(
+                        Fault.LATENCY,
+                        FaultParameters.latency(Duration.ofSeconds(2), Duration.ofSeconds(1)),
+                        Match.ANY,
+                        1));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> rules.add(
+                        Fault.LATENCY, FaultParameters.latency(Duration.ZERO, Duration.ofSeconds(21)), Match.ANY, 1));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> rules.add(Fault.FAIL, FaultParameters.NONE, Match.ANY, 0));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> rules.add(Fault.FAIL, FaultParameters.NONE, Match.ANY, 1001));
         assertThat(rules.list()).isEmpty();
     }
 
     @Test
     void appliesARuleToExactlyItsNextMatchingAttempts() {
-        FaultRule rule = rules.add(Fault.FAIL, null, null, new Match(null, "chaos4"), 2);
+        FaultRule rule = rules.add(Fault.FAIL, FaultParameters.NONE, new Match(null, "chaos4"), 2);
 
         assertThat(rules.atAttempt(END_TO_END_ID, "other", 1).applied()).isEmpty();
         assertThat(rules.atAttempt(END_TO_END_ID, "chaos4", 1).applied())
@@ -80,9 +89,10 @@ class ChaosRulesTest {
 
     @Test
     void appliesTheOldestRuleOfEachFault() {
-        FaultRule first = rules.add(Fault.FAIL, null, null, Match.ANY, 1);
-        FaultRule second = rules.add(Fault.FAIL, null, null, Match.ANY, 1);
-        FaultRule latency = rules.add(Fault.LATENCY, Duration.ZERO, Duration.ZERO, Match.ANY, 1);
+        FaultRule first = rules.add(Fault.FAIL, FaultParameters.NONE, Match.ANY, 1);
+        FaultRule second = rules.add(Fault.FAIL, FaultParameters.NONE, Match.ANY, 1);
+        FaultRule latency =
+                rules.add(Fault.LATENCY, FaultParameters.latency(Duration.ZERO, Duration.ZERO), Match.ANY, 1);
 
         assertThat(rules.atAttempt(END_TO_END_ID, "chaos5", 1).applied())
                 .extracting(AppliedFault::rule)
@@ -92,8 +102,8 @@ class ChaosRulesTest {
 
     @Test
     void neverFailsAndLosesTheResponseOfOneAttempt() {
-        FaultRule lost = rules.add(Fault.LOST_RESPONSE, null, null, Match.ANY, 1);
-        FaultRule fail = rules.add(Fault.FAIL, null, null, Match.ANY, 1);
+        FaultRule lost = rules.add(Fault.LOST_RESPONSE, FaultParameters.NONE, Match.ANY, 1);
+        FaultRule fail = rules.add(Fault.FAIL, FaultParameters.NONE, Match.ANY, 1);
 
         AttemptFaults first = rules.atAttempt(END_TO_END_ID, "chaos6", 1);
         AttemptFaults second = rules.atAttempt(END_TO_END_ID, "chaos6", 2);
@@ -107,7 +117,7 @@ class ChaosRulesTest {
     void drawsALatencyWithinTheRange() {
         Duration min = Duration.ofMillis(100);
         Duration max = Duration.ofMillis(105);
-        rules.add(Fault.LATENCY, min, max, Match.ANY, FaultRule.MAX_TIMES);
+        rules.add(Fault.LATENCY, FaultParameters.latency(min, max), Match.ANY, FaultRule.MAX_TIMES);
 
         for (int attempt = 1; attempt <= 200; attempt++) {
             assertThat(rules.atAttempt(END_TO_END_ID, "chaos7", attempt).latency())
