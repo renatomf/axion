@@ -29,6 +29,11 @@ tags:
     description: >-
       Pix payments of BR Codes, made by simulated payers and settled by the
       simulated SPI.
+  - name: Chaos
+    description: >-
+      Fault rules that change how the simulator delivers its messages to the
+      core, never what it settles. Rules are held in memory: a restart clears
+      them.
 paths:
   /pix/payments:
     post:
@@ -106,6 +111,97 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           description: No payment has this EndToEndId.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /chaos/rules:
+    get:
+      operationId: listFaultRules
+      tags: [Chaos]
+      summary: List the fault rules
+      description: >-
+        The rules still in force, oldest first. A rule is retired, and no
+        longer listed, once it has been applied `times` times.
+      responses:
+        "200":
+          description: The rules.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FaultRules"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      operationId: addFaultRule
+      tags: [Chaos]
+      summary: Add a fault rule
+      description: >-
+        The rule applies to the next `times` matching attempts to deliver a
+        message, then is retired. When several rules match one attempt, the
+        oldest of each fault applies, and of `fail` and `lost_response`, which
+        exclude each other, only the oldest. A test that matches its own
+        payments by `transactionId` sees exactly its faults.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FaultRuleRequest"
+      responses:
+        "201":
+          description: The rule, in force from now on.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FaultRule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      operationId: removeFaultRules
+      tags: [Chaos]
+      summary: Remove every fault rule
+      description: >-
+        Ends every fault at once; attempts from now on are sent as they would
+        be without chaos.
+      responses:
+        "204":
+          description: No rule is in force.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /chaos/rules/{id}:
+    delete:
+      operationId: removeFaultRule
+      tags: [Chaos]
+      summary: Remove a fault rule
+      description: >-
+        Ends one rule before it is retired; the faults it already applied stay
+        recorded on their deliveries.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The rule's id.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: The rule is no longer in force.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No rule in force has this id; it was never added, was removed, or is retired.
           content:
             application/problem+json:
               schema:
@@ -215,7 +311,7 @@ components:
     Delivery:
       description: One delivery of a message to the core, sent at least once.
       type: object
-      required: [id, kind, status, createdAt, attempts]
+      required: [id, kind, status, createdAt, attempts, faults]
       properties:
         id:
           type: string
@@ -239,6 +335,30 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Attempt"
+        faults:
+          description: The chaos faults applied to it, in the order applied.
+          type: array
+          items:
+            $ref: "#/components/schemas/AppliedFault"
+    AppliedFault:
+      description: A fault a chaos rule applied to one attempt.
+      type: object
+      required: [rule, fault, attempt]
+      properties:
+        rule:
+          description: The id of the rule that applied it.
+          type: string
+          format: uuid
+        fault:
+          $ref: "#/components/schemas/Fault"
+        attempt:
+          description: The number of the attempt it applied to.
+          type: integer
+          minimum: 1
+        waited:
+          description: For `latency`, how long the attempt waited before it was sent.
+          allOf:
+            - $ref: "#/components/schemas/Duration"
     Attempt:
       type: object
       required: [number, attemptedAt, outcome]
@@ -254,12 +374,15 @@ components:
           minimum: 100
           maximum: 599
         error:
-          description: Why no answer came; absent when one did.
+          description: >-
+            Why no answer came; absent when one did. `not_sent` when a `fail`
+            fault kept the attempt from being sent.
           type: string
-          enum: [timeout, connection_failed]
+          enum: [timeout, connection_failed, not_sent]
         outcome:
           description: >-
-            `delivered`, the core accepted it; `retried`, it is tried again;
+            `delivered`, the core accepted it; `retried`, it is tried again,
+            also after an answer a `lost_response` fault discarded;
             `refused`, the core refused it for good; `failed`, the 24 hours of
             retries ran out.
           type: string
@@ -270,6 +393,95 @@ components:
         `failed`, kept for an operator to redeliver.
       type: string
       enum: [pending, delivered, refused, failed]
+    FaultRuleRequest:
+      type: object
+      required: [fault, times]
+      properties:
+        fault:
+          $ref: "#/components/schemas/Fault"
+        min:
+          description: >-
+            For `latency` only, and required by it: the shortest wait before an
+            attempt is sent, an ISO 8601 duration up to `max`.
+          allOf:
+            - $ref: "#/components/schemas/Duration"
+        max:
+          description: >-
+            For `latency` only, and required by it: the longest wait, an ISO
+            8601 duration up to 20 seconds, under the dispatcher's 30-second
+            lease on a delivery.
+          allOf:
+            - $ref: "#/components/schemas/Duration"
+        match:
+          $ref: "#/components/schemas/Match"
+        times:
+          description: How many matching attempts the rule applies to before it is retired.
+          type: integer
+          minimum: 1
+          maximum: 1000
+    FaultRule:
+      type: object
+      required: [id, fault, match, times, remaining, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fault:
+          $ref: "#/components/schemas/Fault"
+        min:
+          description: For `latency`, the shortest wait.
+          allOf:
+            - $ref: "#/components/schemas/Duration"
+        max:
+          description: For `latency`, the longest wait.
+          allOf:
+            - $ref: "#/components/schemas/Duration"
+        match:
+          $ref: "#/components/schemas/Match"
+        times:
+          description: How many attempts the rule was added for.
+          type: integer
+          minimum: 1
+        remaining:
+          description: How many more attempts it applies to.
+          type: integer
+          minimum: 1
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+    FaultRules:
+      type: object
+      required: [rules]
+      properties:
+        rules:
+          description: The rules in force, oldest first.
+          type: array
+          items:
+            $ref: "#/components/schemas/FaultRule"
+    Fault:
+      description: >-
+        What the rule does to each matching attempt: `latency` waits a random
+        time between `min` and `max` before sending it; `fail` does not send
+        it, and the delivery is retried; `lost_response` sends it, discards the
+        core's answer, and the delivery is retried.
+      type: string
+      enum: [latency, fail, lost_response]
+    Match:
+      description: >-
+        Which deliveries the rule applies to: those of the payment with this
+        `endToEndId`, those of the BR Code with this `transactionId`, both
+        when both are given, and every delivery when neither is.
+      type: object
+      properties:
+        endToEndId:
+          $ref: "#/components/schemas/EndToEndId"
+        transactionId:
+          type: string
+          pattern: "^[A-Za-z0-9]{1,25}$"
+    Duration:
+      description: An ISO 8601 duration of seconds, such as `PT1.5S`.
+      type: string
+      pattern: "^PT[0-9]{1,2}(\\.[0-9]{1,3})?S$"
+      examples: [PT1.5S]
     EndToEndId:
       description: >-
         The payment's identity on both sides: E, the payer institution's ISPB,

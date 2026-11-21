@@ -1,7 +1,11 @@
 package dev.finaxis.simulator.delivery;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import dev.finaxis.simulator.chaos.AppliedFault;
+import dev.finaxis.simulator.chaos.Fault;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -14,14 +18,44 @@ import org.jspecify.annotations.Nullable;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.json.JsonMapper;
 
 @Repository
 class DeliveryRepository {
 
-    private final JdbcClient jdbc;
+    private static final TypeReference<List<StoredFault>> STORED_FAULTS = new TypeReference<>() {};
 
-    DeliveryRepository(JdbcClient jdbc) {
+    private final JdbcClient jdbc;
+    private final JsonMapper json;
+
+    DeliveryRepository(JdbcClient jdbc, JsonMapper json) {
         this.jdbc = jdbc;
+        this.json = json;
+    }
+
+    /** A fault as the column holds it: the names of the operator API, and a duration in ISO 8601. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private record StoredFault(
+            String rule,
+            String fault,
+            int attempt,
+            @Nullable String waited) {
+
+        static StoredFault of(AppliedFault applied) {
+            Duration waited = applied.waited();
+            return new StoredFault(
+                    applied.rule().toString(),
+                    applied.fault().tag(),
+                    applied.attempt(),
+                    waited == null ? null : waited.toString());
+        }
+
+        AppliedFault applied() {
+            Fault kind = Fault.ofTag(fault).orElseThrow(() -> new IllegalStateException("Unknown fault " + fault));
+            return new AppliedFault(
+                    UUID.fromString(rule), kind, attempt, waited == null ? null : Duration.parse(waited));
+        }
     }
 
     /** A delivery the dispatcher holds a lease on, to send. A class, not a record: it holds the message's bytes. */
@@ -29,14 +63,23 @@ class DeliveryRepository {
 
         private final UUID id;
         private final String endToEndId;
+        private final String transactionId;
         private final String messageId;
         private final byte[] message;
         private final int attempts;
         private final Instant createdAt;
 
-        Due(UUID id, String endToEndId, String messageId, byte[] message, int attempts, Instant createdAt) {
+        Due(
+                UUID id,
+                String endToEndId,
+                String transactionId,
+                String messageId,
+                byte[] message,
+                int attempts,
+                Instant createdAt) {
             this.id = id;
             this.endToEndId = endToEndId;
+            this.transactionId = transactionId;
             this.messageId = messageId;
             this.message = message.clone();
             this.attempts = attempts;
@@ -49,6 +92,11 @@ class DeliveryRepository {
 
         String endToEndId() {
             return endToEndId;
+        }
+
+        /** The transaction ID of the payment's BR Code, which fault rules may match. */
+        String transactionId() {
+            return transactionId;
         }
 
         String messageId() {
@@ -90,14 +138,15 @@ class DeliveryRepository {
      */
     List<Due> claimDue(Instant now, Instant leaseUntil, int limit) {
         return jdbc.sql("""
-                        UPDATE deliveries SET next_attempt_at = :leaseUntil
-                        WHERE id IN (
+                        UPDATE deliveries d SET next_attempt_at = :leaseUntil
+                        FROM payments p
+                        WHERE p.end_to_end_id = d.end_to_end_id AND d.id IN (
                             SELECT id FROM deliveries
                             WHERE status = 'pending' AND next_attempt_at <= :now
                             ORDER BY next_attempt_at
                             LIMIT :limit
                             FOR UPDATE SKIP LOCKED)
-                        RETURNING id, end_to_end_id, message_id, message, attempts, created_at
+                        RETURNING d.id, d.end_to_end_id, p.transaction_id, d.message_id, d.message, d.attempts, d.created_at
                         """)
                 .param("now", utc(now))
                 .param("leaseUntil", utc(leaseUntil))
@@ -106,14 +155,15 @@ class DeliveryRepository {
                 .list();
     }
 
-    /** Records an attempt and the delivery's new state together. */
+    /** Records an attempt, the faults applied to it and the delivery's new state together. */
     @Transactional
     void recordAttempt(
             Due delivery,
             Instant attemptedAt,
             CoreClient.Response response,
             DeliveryOutcome outcome,
-            @Nullable Instant nextAttemptAt) {
+            @Nullable Instant nextAttemptAt,
+            List<AppliedFault> faults) {
         int number = delivery.attempts() + 1;
         jdbc.sql("""
                         INSERT INTO delivery_attempts (delivery_id, number, attempted_at, response_status, error, outcome)
@@ -127,11 +177,17 @@ class DeliveryRepository {
                 .param("outcome", outcome.tag())
                 .update();
         jdbc.sql("""
-                        UPDATE deliveries SET status = :status, attempts = :number, next_attempt_at = :nextAttemptAt
+                        UPDATE deliveries
+                        SET status = :status, attempts = :number, next_attempt_at = :nextAttemptAt,
+                            faults = faults || CAST(:faults AS jsonb)
                         WHERE id = :id
                         """)
                 .param("id", delivery.id())
                 .param("number", number)
+                .param(
+                        "faults",
+                        json.writeValueAsString(
+                                faults.stream().map(StoredFault::of).toList()))
                 .param("status", outcome.status().name().toLowerCase(Locale.ROOT))
                 .param("nextAttemptAt", nextAttemptAt == null ? null : utc(nextAttemptAt))
                 .update();
@@ -158,7 +214,7 @@ class DeliveryRepository {
                 .collect(Collectors.groupingBy(
                         Map.Entry::getKey, Collectors.mapping(Map.Entry::getValue, Collectors.toList())));
         return jdbc.sql("""
-                        SELECT id, kind, status, created_at, next_attempt_at
+                        SELECT id, kind, status, created_at, next_attempt_at, faults
                         FROM deliveries
                         WHERE end_to_end_id = ?
                         ORDER BY created_at, id
@@ -173,7 +229,10 @@ class DeliveryRepository {
                             DeliveryStatus.valueOf(row.getString("status").toUpperCase(Locale.ROOT)),
                             row.getObject("created_at", OffsetDateTime.class).toInstant(),
                             next == null ? null : next.toInstant(),
-                            attempts.getOrDefault(id, List.of()));
+                            attempts.getOrDefault(id, List.of()),
+                            json.readValue(row.getString("faults"), STORED_FAULTS).stream()
+                                    .map(StoredFault::applied)
+                                    .toList());
                 })
                 .list();
     }
@@ -191,6 +250,7 @@ class DeliveryRepository {
         return new Due(
                 row.getObject("id", UUID.class),
                 row.getString("end_to_end_id"),
+                row.getString("transaction_id"),
                 row.getString("message_id"),
                 row.getBytes("message"),
                 row.getInt("attempts"),

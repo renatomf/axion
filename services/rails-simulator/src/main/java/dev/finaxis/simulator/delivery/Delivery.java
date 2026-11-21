@@ -1,5 +1,6 @@
 package dev.finaxis.simulator.delivery;
 
+import dev.finaxis.simulator.chaos.AppliedFault;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -11,6 +12,7 @@ import org.jspecify.annotations.Nullable;
  *
  * @param kind {@code original}, {@code duplicate} or {@code redelivery}
  * @param nextAttemptAt when it is sent next, while it is pending
+ * @param faults the chaos faults applied to it, in the order applied
  */
 public record Delivery(
         UUID id,
@@ -18,10 +20,12 @@ public record Delivery(
         DeliveryStatus status,
         Instant createdAt,
         @Nullable Instant nextAttemptAt,
-        List<Attempt> attempts) {
+        List<Attempt> attempts,
+        List<AppliedFault> faults) {
 
     public Delivery {
         attempts = List.copyOf(attempts);
+        faults = List.copyOf(faults);
     }
 
     /**

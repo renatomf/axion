@@ -245,18 +245,19 @@ The chaos API changes how the simulator delivers, not what it settles: a payment
 ```
 
 - `match` selects deliveries by `endToEndId`, by `transactionId`, or all of them when empty.
-- `times` applies the rule to the next *n* matching deliveries, then retires it. Alternatively, `probability` (0 to 1) with a `seed` applies it to each match by chance, until it is removed, for game days and load tests. Tests use `times`, so their outcome is exact.
+- `times` applies the rule to the next *n* matching deliveries, then retires it; for a fault applied at each attempt, the next *n* matching attempts. Alternatively, `probability` (0 to 1) with a `seed` applies it to each match by chance, until it is removed, for game days and load tests. Tests use `times`, so their outcome is exact.
+- When several rules match, the oldest of each fault applies, and of `fail` and `lost_response`, which exclude each other, only the oldest. Durations are ISO 8601 (`PT1.5S`).
 - Rules are held in memory and listed, removed one by one or all at once. A restart clears them: no fault outlives the session that set it.
-- Each delivery records the faults applied to it, so a test asserts what happened from the simulator's side as well as the core's.
+- Each delivery records the faults applied to it, with the rule and the attempt, so a test asserts what happened from the simulator's side as well as the core's.
 
 ### 7.2 Faults
 
 | Fault | Parameters | Effect | What it tests in the core |
 |---|---|---|---|
-| `latency` | `min`, `max` | Each matching attempt waits a random time in the range before it is sent | Slow rails; timeouts on the callback path |
+| `latency` | `min`, `max` | Each matching attempt waits a random time in the range, at most 20 seconds, under the dispatcher's lease, before it is sent | Slow rails; timeouts on the callback path |
 | `delay` | `duration` | The first attempt is postponed by the duration | A late notification: with a code paid after its expiry, the late payment (PR 1.40) |
-| `fail` | — | The attempt is not sent and counts as failed, then retried | Recovery through retries |
-| `lost_response` | — | The attempt is sent, its answer discarded, and it counts as failed | A message the core received and committed, sent again: deduplication under the lost-acknowledgment case |
+| `fail` | — | The attempt is not sent, is recorded as `not_sent`, and is retried | Recovery through retries |
+| `lost_response` | — | The attempt is sent, its answer and any `Retry-After` discarded; it is recorded with the core's status and retried | A message the core received and committed, sent again: deduplication under the lost-acknowledgment case |
 | `duplicate` | `copies` | The delivery is sent `copies` more times, each its own delivery, with identical bytes | Duplicate notifications post once |
 | `reorder` | `count` | The next `count` matching deliveries are held, then released together in the reverse of their creation order | Two payments of one charge, notified in the opposite order |
 
@@ -315,7 +316,7 @@ deliveries
   status               text not null          -- pending | delivered | refused | failed (CHECK)
   attempts             integer not null
   next_attempt_at      timestamptz null       -- set only while pending (CHECK)
-  faults               jsonb not null         -- chaos faults applied (section 7.1)
+  faults               jsonb not null         -- chaos faults applied, in order: rule, fault, attempt, waited (section 7.1)
   created_at           timestamptz not null
   index (next_attempt_at) where status = 'pending'
 
@@ -324,7 +325,7 @@ delivery_attempts
   number               integer not null       -- from 1; primary key with delivery_id
   attempted_at         timestamptz not null
   response_status      integer null           -- the core's status code, if it answered
-  error                text null              -- timeout | connection_failed, if it did not (CHECK)
+  error                text null              -- timeout | connection_failed | not_sent, if it did not (CHECK)
   outcome              text not null          -- delivered | retried | refused | failed (CHECK)
 ```
 
