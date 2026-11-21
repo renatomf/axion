@@ -31,6 +31,7 @@ import org.springframework.stereotype.Component;
 class Dispatcher {
 
     static final String ATTEMPTS = "rails_sim.delivery.attempts";
+    static final String FAULTS = "rails_sim.faults.applied";
 
     private static final Logger LOG = LoggerFactory.getLogger(Dispatcher.class);
 
@@ -83,6 +84,9 @@ class Dispatcher {
         deliveries.recordAttempt(
                 delivery, attemptedAt, response, outcome, nextAttemptAt.orElse(null), faults.applied());
         meters.counter(ATTEMPTS, "outcome", outcome.tag()).increment();
+        faults.applied()
+                .forEach(applied ->
+                        meters.counter(FAULTS, "fault", applied.fault().tag()).increment());
         LOG.atInfo()
                 .addKeyValue("end_to_end_id", delivery.endToEndId())
                 .addKeyValue("message_id", delivery.messageId())

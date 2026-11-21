@@ -14,6 +14,7 @@ import dev.finaxis.simulator.spi.Debtor;
 import dev.finaxis.simulator.spi.Payment;
 import dev.finaxis.simulator.spi.PaymentOrder;
 import dev.finaxis.simulator.spi.Spi;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.AfterAll;
@@ -40,13 +41,15 @@ class ChaosDeliveryTest {
     private final Deliveries deliveries;
     private final ChaosRules chaos;
     private final JdbcClient jdbc;
+    private final MeterRegistry meters;
 
     @Autowired
-    ChaosDeliveryTest(Spi spi, Deliveries deliveries, ChaosRules chaos, JdbcClient jdbc) {
+    ChaosDeliveryTest(Spi spi, Deliveries deliveries, ChaosRules chaos, JdbcClient jdbc, MeterRegistry meters) {
         this.spi = spi;
         this.deliveries = deliveries;
         this.chaos = chaos;
         this.jdbc = jdbc;
+        this.meters = meters;
     }
 
     @DynamicPropertySource
@@ -112,6 +115,20 @@ class ChaosDeliveryTest {
         assertThat(Duration.between(
                         delivery.createdAt(), delivery.attempts().getFirst().attemptedAt()))
                 .isGreaterThanOrEqualTo(latency);
+    }
+
+    @Test
+    void countsEachFaultApplied() {
+        double before = faultsCounted("lost_response");
+        chaos.add(Fault.LOST_RESPONSE, null, null, new Match(null, "chaosCount1"), 2);
+        Payment payment = pay("chaosCount1");
+
+        await().atMost(WAIT).until(() -> delivery(payment).status() == DeliveryStatus.DELIVERED);
+        assertThat(faultsCounted("lost_response")).isEqualTo(before + 2);
+    }
+
+    private double faultsCounted(String fault) {
+        return meters.counter(Dispatcher.FAULTS, "fault", fault).count();
     }
 
     private Payment pay(String transactionId) {
