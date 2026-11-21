@@ -325,3 +325,24 @@ The payer's personal data lives only inside `message`, the bytes the core receiv
 ### 8.4 Observability
 
 Metrics: `rails_sim_payments_total`, `rails_sim_delivery_attempts_total{outcome}` (`delivered`, `retried`, `refused`, `failed`), `rails_sim_deliveries_pending`, and `rails_sim_faults_applied_total{fault}`. Logs carry the `EndToEndId` and the `messageId`, never a name, a tax ID or a Pix key; each delivery sends the `messageId` as its `X-Correlation-Id`, so a notification is traced across both processes.
+
+## 9. Deviations from the official specifications
+
+The references are the Central Bank's *Regulamento Pix* (BCB Resolution No. 1 of 2020), the *Manual de Padrões para Iniciação do Pix* (BR Code), the *Catálogo de Mensagens e de Serviços do SPI* and the ISO 20022 `pacs` messages.
+
+| Aspect | Official | Simulator | Why it is acceptable |
+|---|---|---|---|
+| Network | The RSFN, the financial system's private network, with mutual TLS and ICP-Brasil certificates | HTTP on the local network, without TLS | Authenticity rests on the message signature (section 6.3); mTLS is an extension (section 11) |
+| Message signature | XML digital signature with the participant's ICP-Brasil certificate | RFC 9421 with Ed25519 | Same property, a signature only the sender can make, at a fraction of the cost |
+| Format | ISO 20022 XML, validated against the SPI's schemas | JSON with ISO 20022 names, only the fields the core uses (section 5.1) | The anti-corruption layer translates either; the core's domain never sees the format |
+| Delivery to the receiver | The receiver retrieves its messages from the SPI's messaging interface by polling | The simulator pushes them to the core | The overview's shape, and it exercises the signed inbound endpoint the core needs in any case |
+| Acceptance by the receiver | The SPI asks the receiver to accept or reject the credit (`pacs.002`) before it settles, within time limits | The payment settles in the simulator; the core is notified once it has, and cannot reject | Billing's rule already credits every payment that arrives, late ones included (overview, section 7.6) |
+| Dynamic BR Code | Tag `26` carries a location URL; the payer's institution fetches the charge as a signed JWS | The amount (`54`) and the transaction ID (`62-05`) are read from the code (section 4.2) | The core issues the codes it is tested with; serving the location is an extension |
+| Expiry | The payer's institution reads the charge's status and expiry from the location | Not checked: an expired code can be paid | It is how late payments are produced on purpose |
+| DICT | The payer's institution resolves a Pix key to an account | Not simulated: every payment is credited to Finaxis | Phase 1 has no outgoing payments; payouts add the lookups |
+| Settlement accounts | Each participant's balance at the Central Bank, and its statement | Not kept | Reconciliation (phase 4) adds the statements |
+| Time limits | The Pix time limits for each step | None; the `latency` and `delay` faults produce slowness on demand | Tests need slowness on demand, not a schedule |
+| Participants | Registered institutions and their ISPBs | Four fictitious ISPBs (section 3.2) | No real institution is named or implied |
+| Other products | Pix Automático, MED, Pix Saque and Troco, boleto | Not simulated | Each comes with its feature |
+
+A later design that adds a message lists its own deviations in the same form.
