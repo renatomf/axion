@@ -80,3 +80,54 @@ What a key stores:
 - **Not stored:** every response of a request that left no effect, because it was rejected before the operation ran (authentication, rate limit, scope, the checks above) or because its transaction rolled back (an invalid body, a `5xx`, a crash). A retry runs again, which is safe because nothing happened, and a transient failure never becomes the answer for 24 hours.
 
 A replay carries the stored status, `Content-Type`, `Location` and body. The headers that describe the request being answered are its own: its correlation ID, its `RateLimit` headers and the security headers. `Idempotent-Replayed` follows Stripe's convention; the IETF draft defines no such header.
+
+## 4. Claiming a key
+
+### 4.1 One transaction
+
+The design rests on one property of the platform: every `/v1` write is a local database transaction. Effects outside the core, such as webhooks, rails orders and the steps of a payout saga, leave through the outbox after commit (overview, section 8), never during the request. So a key's row can be written in the same transaction as the operation's effect, and the two commit or roll back together.
+
+A request with a key runs in one transaction, at `READ COMMITTED`:
+
+1. **Lock the key.** `pg_try_advisory_xact_lock(hashtext('idempotency.keys'), hashtext(<tenant>:<key>))`. If another transaction holds the lock, a request with the same key is running: answer `409 request_in_progress` at once, without waiting.
+2. **Look the key up.** If the tenant has a row for the key, the request repeats one that committed. Matching fingerprints replay the stored response; different ones answer `422 idempotency_key_reused`. Either way the operation does not run.
+3. **Run the operation.** The controller runs inside the transaction: the module's application service joins it, with `@Transactional`'s default propagation, and the response it writes is captured.
+4. **Store the response.** Insert the key's row, with the fingerprint and the captured response.
+5. **Commit.** The effect and the key's row become visible together. If anything fails in steps 3 to 5, both roll back and the key is free again.
+
+This is the overview's insert-first in another form: the key is claimed, by its lock, before the operation runs. Its row is written last and complete, so there is no `IN_PROGRESS` state for a crash to leave behind.
+
+### 4.2 Why it holds
+
+- **One effect.** The primary key `(tenant_id, key)` admits one committed row per key, and an effect commits only with its key's row, so a second effect cannot commit. The advisory lock does not provide this guarantee; it turns a wait into a fast `409`. Two transactions with the same key that both reached step 4 would not both commit: the second's insert would wait for the first and then fail on the primary key, rolling its effect back.
+- **No stuck keys.** A transaction's advisory lock ends with it: at commit, at rollback, or when PostgreSQL closes the session of a process that died. There is nothing to expire or recover.
+- **A repeat after the commit replays.** At `READ COMMITTED` each statement sees every transaction committed before it starts, so the lookup of step 2 sees the first request's row.
+- **Repeats hold no connections.** A repeat that finds the lock taken returns at once instead of waiting on the first request, so 50 parallel repeats cannot exhaust the connection pool for every tenant.
+- **Collisions are harmless.** The lock's second half is a 32-bit hash, so two different keys may share a lock. Then one of them answers `409` while the other runs, and its client retries. A collision never replays one key's response for another: the lookup is by the key itself. The first half names the table, as the per-tenant lock of the API key limit does (`hashtext('access.api_keys')`), so the two kinds of lock never collide.
+
+### 4.3 Where it runs
+
+The step wraps the controller method at the point where the tenant is bound (tenancy design, section 5.3):
+
+- **after** authentication, rate limiting and the permission check, so a stored response is given only to a caller who could make the request now: a revoked key gets `401` and a key without the scope `403`, never a replay;
+- **inside** the tenant binding, so the transaction it opens is bound to the tenant and Row-Level Security applies to the key's row;
+- **around** argument resolution and response writing, so the body is validated inside the transaction, and a rejected one rolls back unstored, and the stored bytes are the ones written.
+
+A servlet filter runs before the permission check, and an aspect around the controller method runs after the body was validated and before the response is serialized; neither fits. The handler adapter that binds the tenant is the place. PR 1.26b makes it run the idempotency step without `access` and `idempotency` depending on each other.
+
+### 4.4 The transaction boundary
+
+The engineering standards declare transactions in the application layer (overview, section 19.2). This one is declared by the idempotency module's application service, in `IdempotencyApi.execute` (section 7), and the web step calls it, so the transaction spans the controller, as it must for the response to commit with the effect. Two consequences are deliberate:
+
+- A `/v1` write cannot make a remote call during the request, since it would run inside the transaction. The standards already forbid remote calls inside a transaction; idempotency makes it structural.
+- An operation that marks its transaction rollback-only, or returns a `5xx` as a value, rolls back the whole request, key included.
+
+### 4.5 Refinements of the overview
+
+| Overview | This design | Reason |
+|---|---|---|
+| A `state` column; the key is inserted before processing (section 7.7) | The key's lock is taken before processing; its row is written with the response, in the effect's transaction, and has no state | A key is complete or absent; nothing is left to recover after a crash |
+| Repeats return stored errors (section 7.7) | Refusals that committed are stored; requests that rolled back, `5xx` included, are not | A request that rolled back had no effect, so its retry is safe |
+| The idempotency check comes before validation (section 7.1, step 2) | It comes after authentication, rate limiting and the permission check, and the body is validated inside it | A replay must not bypass a scope |
+| Error table (section 7.6) | Adds `400 idempotency_key_required`, `400 invalid_idempotency_key` and `413 content_too_large` | Every rejection has a stable code |
+| No idempotency module (section 5.1) | An `idempotency` module, with its own schema and roles | One schema and one role per module (section 5.2) |
