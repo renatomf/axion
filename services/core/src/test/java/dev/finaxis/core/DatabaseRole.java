@@ -10,7 +10,9 @@ public enum DatabaseRole {
     ACCESS,
     TENANCY,
     LEDGER,
-    LEDGER_JOBS;
+    LEDGER_JOBS,
+    IDEMPOTENCY,
+    IDEMPOTENCY_JOBS;
 
     /** Acts as this role until the current transaction ends. */
     public void actAs(JdbcClient jdbc) {
