@@ -388,3 +388,14 @@ The simulator is a test system, but the core treats it as the rails: a message i
 | **Information disclosure** | Payers' names and tax IDs cross the network or reach logs | All data is synthetic; on a local network without TLS (section 9). Neither process logs personal data; the simulator stores it only inside the message |
 | **Denial of service** | The chaos API or the payer API is used to stop payments or flood the core | Both require the operator token and are bound to localhost or reached server-side by the BFF; the core's endpoint caps bodies and rate-limits the simulator |
 | **Elevation of privilege** | The simulator's database role reads or changes the core's data | Separate databases and roles: neither side can connect to the other's |
+
+## 13. Delivery
+
+| PR | Delivers | Sections |
+|---|---|---|
+| 1.29 | `services/rails-simulator`: Gradle project, Spring Boot skeleton with the core's quality gates, health endpoint, Compose service, CI build and container image | 8.1, 8.2 |
+| 1.30a | The payer API and BR Code reader, `EndToEndId`, the payments table and the simulator's database; `simulator.yaml` | 3.2, 4, 8.3 |
+| 1.30b | Credit notifications: the deliveries table, the dispatcher, retries, RFC 9421 signatures, key generation; `rails.yaml` | 5, 6, 8.4 |
+| 1.31 | The chaos API: fault rules and the outage switch | 7 |
+
+The core's side, the signed endpoint and the translation into billing commands, is PR 1.38a and 1.38b; the fault-injection suite is PR 1.42.

@@ -12,3 +12,4 @@ One design doc per significant feature, written and approved before implementati
 | [Ledger](2026-11-18-ledger.md) | Approved |
 | [Tenancy and access](2026-11-19-tenancy-and-access.md) | Approved |
 | [Idempotency](2026-11-21-idempotency.md) | Approved |
+| [Rails simulator](2026-11-21-rails-simulator.md) | Draft |
