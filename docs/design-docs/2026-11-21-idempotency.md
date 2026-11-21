@@ -131,3 +131,75 @@ The engineering standards declare transactions in the application layer (overvie
 | The idempotency check comes before validation (section 7.1, step 2) | It comes after authentication, rate limiting and the permission check, and the body is validated inside it | A replay must not bypass a scope |
 | Error table (section 7.6) | Adds `400 idempotency_key_required`, `400 invalid_idempotency_key` and `413 content_too_large` | Every rejection has a stable code |
 | No idempotency module (section 5.1) | An `idempotency` module, with its own schema and roles | One schema and one role per module (section 5.2) |
+
+## 5. Schema
+
+The `idempotency` schema follows the conventions of the other modules: `timestamptz`, `CHECK` constraints for every rule the database can express.
+
+```
+idempotency.keys
+  tenant_id        uuid not null
+  key              text not null          -- 1–255 visible ASCII characters (CHECK)
+  fingerprint      bytea not null         -- SHA-256, 32 bytes (CHECK)
+  response_status  smallint not null      -- 200–499 (CHECK): a 5xx is never stored
+  content_type     text not null
+  location         text null
+  response_body    bytea not null         -- at most 64 KiB (CHECK)
+  correlation_id   text not null          -- of the request that ran
+  created_at       timestamptz not null
+  expires_at       timestamptz not null   -- created_at + 24 hours (CHECK)
+  primary key (tenant_id, key)
+  index (expires_at)
+```
+
+- The primary key is the natural one: a row is only ever looked up by tenant and key, and a surrogate ID would be another index with no reader.
+- Rows are never changed: the module role, `finaxis_idempotency`, may only `SELECT` and `INSERT`.
+- The table has the tenant policy of the tenancy design (section 5.4), forced.
+- The status check makes a bug that would store a server error fail its request instead of making the error permanent.
+- The body is `bytea`, not `jsonb`: it is replayed as written, and `jsonb` would reorder its keys.
+
+## 6. Retention
+
+### 6.1 Expiry
+
+A key is honored for at least 24 hours after its request ran, until `expires_at`. While its row exists a repeat replays; once the row is removed, the key is unknown and a request with it runs as new. The contract promises at least 24 hours, as Stripe does, rather than exactly 24: removal runs in batches, and the lookup does not depend on the clock.
+
+### 6.2 Removal
+
+A scheduled job deletes expired rows every hour, in batches of 1,000 until none is left, each batch in its own transaction so that it never holds locks for long. It spans tenants, so it runs as its own role, `finaxis_idempotency_jobs`, like the ledger's jobs (tenancy design, section 5.4), with policies that let it see and delete only expired rows:
+
+```sql
+CREATE POLICY expired_keys_visible ON idempotency.keys
+    FOR SELECT TO finaxis_idempotency_jobs
+    USING (expires_at <= now());
+
+CREATE POLICY expired_keys_removable ON idempotency.keys
+    FOR DELETE TO finaxis_idempotency_jobs
+    USING (expires_at <= now());
+```
+
+The `SELECT` policy is needed because a `DELETE` with a condition reads the rows it deletes. Even with a bug in its query, the job can neither read a response still honored nor remove its key.
+
+The rate limits bound how fast a tenant creates keys (tenancy design, section 6), and a stored response is one resource, typically under 2 KiB. If the table outgrows batch deletes, the path is daily partitions by `expires_at`, each dropped whole (section 9).
+
+## 7. API
+
+```java
+public interface IdempotencyApi {
+    IdempotentResult execute(IdempotentRequest request, Supplier<CapturedResponse> operation);
+}
+
+public record IdempotentRequest(TenantId tenant, IdempotencyKey key, Fingerprint fingerprint, String correlationId) {}
+
+public sealed interface IdempotentResult permits Executed, Replayed, InProgress, KeyReused {}
+public record Executed(CapturedResponse response) implements IdempotentResult {}   // the operation ran
+public record Replayed(StoredResponse response) implements IdempotentResult {}     // a repeat of one that committed
+public record InProgress() implements IdempotentResult {}                          // 409 request_in_progress
+public record KeyReused() implements IdempotentResult {}                           // 422 idempotency_key_reused
+```
+
+- `execute` opens the request's transaction and refuses to join one already open: the key must commit with the operation's effect and nothing else. `Executed` means the operation ran; its response is stored if its status is below 500, and otherwise the transaction rolls back.
+- A request in progress and a reused key are expected outcomes, so they are values, not exceptions (overview, section 19.1). An exception from the operation rolls the transaction back and propagates to the usual error handling.
+- `IdempotencyKey` and `Fingerprint` exist only valid: a key of 1 to 255 visible ASCII characters, a fingerprint of 32 bytes.
+- The module, `idempotency`, depends on `shared` only. Its persistence uses `JdbcClient`, as the other modules do: the lock, the lookup and the insert are three exact statements.
+- The metric `finaxis_idempotency_requests_total{outcome}` counts `executed`, `replayed`, `in_progress` and `key_reused`. Logs carry the SHA-256 of the key, never the key: it is text the client chose and may hold anything.
