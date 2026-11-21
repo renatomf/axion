@@ -233,3 +233,46 @@ The core's verification is PR 1.38a's: the digest first, then the signature, the
 ### 6.4 Keys
 
 The simulator's private key is configuration, never in the repository: locally, a `just` recipe generates the pair and writes both halves to `infra/compose/.env`; in tests, each run generates its own. The core is configured with public keys only, by `keyid`, so reading its configuration, its logs or its database gives nothing that can sign. A rotation adds the new public key to the core, moves the simulator to the new private key, and removes the old public key once no delivery signed with it can still be retried.
+
+## 7. Chaos controls
+
+### 7.1 Rules
+
+The chaos API changes how the simulator delivers, not what it settles: a payment always happened, and every fault only changes how the core hears of it. A fault is a rule:
+
+```json
+{ "fault": "duplicate", "copies": 2, "match": { "transactionId": "fx7Kq2mP9wR4tY6uA8sD3fG5h" }, "times": 1 }
+```
+
+- `match` selects deliveries by `endToEndId`, by `transactionId`, or all of them when empty.
+- `times` applies the rule to the next *n* matching deliveries, then retires it. Alternatively, `probability` (0 to 1) with a `seed` applies it to each match by chance, until it is removed, for game days and load tests. Tests use `times`, so their outcome is exact.
+- Rules are held in memory and listed, removed one by one or all at once. A restart clears them: no fault outlives the session that set it.
+- Each delivery records the faults applied to it, so a test asserts what happened from the simulator's side as well as the core's.
+
+### 7.2 Faults
+
+| Fault | Parameters | Effect | What it tests in the core |
+|---|---|---|---|
+| `latency` | `min`, `max` | Each matching attempt waits a random time in the range before it is sent | Slow rails; timeouts on the callback path |
+| `delay` | `duration` | The first attempt is postponed by the duration | A late notification: with a code paid after its expiry, the late payment (PR 1.40) |
+| `fail` | — | The attempt is not sent and counts as failed, then retried | Recovery through retries |
+| `lost_response` | — | The attempt is sent, its answer discarded, and it counts as failed | A message the core received and committed, sent again: deduplication under the lost-acknowledgment case |
+| `duplicate` | `copies` | The delivery is sent `copies` more times, each its own delivery, with identical bytes | Duplicate notifications post once |
+| `reorder` | `count` | The next `count` matching deliveries are held, then released together in the reverse of their creation order | Two payments of one charge, notified in the opposite order |
+
+`delay`, `duplicate` and `reorder` apply when a delivery is created; `latency`, `fail` and `lost_response`, at each attempt.
+
+### 7.3 Outage
+
+`PUT /chaos/outage`, with a duration or until removed, takes the rails down: the payer API answers `503`, as a payer's bank does when the SPI is unavailable, and no delivery is attempted. Deliveries already due wait, and when the outage ends they drain with the dispatcher's usual concurrency, which produces the burst of the game day (overview, section 18.2).
+
+### 7.4 Operator API
+
+| Operation | Purpose |
+|---|---|
+| `POST /pix/payments`, `GET /pix/payments/{endToEndId}` | Pay a BR Code; follow a payment and its deliveries (section 4) |
+| `POST /deliveries/{id}/redeliver` | Send a refused or failed delivery again, with its stored bytes, as a new attempt |
+| `GET`, `POST`, `DELETE /chaos/rules`, `DELETE /chaos/rules/{id}` | List, add and remove fault rules |
+| `PUT`, `DELETE /chaos/outage` | Start and end an outage |
+
+The operator API is contract-first, in `services/rails-simulator/openapi/simulator.yaml`, beside the message contract.
