@@ -12,6 +12,7 @@ import dev.finaxis.simulator.spi.Debtor;
 import dev.finaxis.simulator.spi.Payment;
 import dev.finaxis.simulator.spi.PaymentOrder;
 import dev.finaxis.simulator.spi.Spi;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.time.Clock;
@@ -42,11 +43,13 @@ class DispatcherTest {
 
     private final Spi spi;
     private final JdbcClient jdbc;
+    private final MeterRegistry meters;
 
     @Autowired
-    DispatcherTest(Spi spi, JdbcClient jdbc) {
+    DispatcherTest(Spi spi, JdbcClient jdbc, MeterRegistry meters) {
         this.spi = spi;
         this.jdbc = jdbc;
+        this.meters = meters;
     }
 
     @DynamicPropertySource
@@ -111,11 +114,13 @@ class DispatcherTest {
     @Test
     void stopsAtARefusal() {
         CORE.reply("dispatch3", Reply.status(401));
+        double refusedBefore = attemptsCounted("refused");
         Payment payment = pay("dispatch3");
 
         await().atMost(WAIT).until(() -> status(payment).equals("refused"));
         assertThat(attempts(payment)).containsExactly("1 refused 401");
         assertThat(nextAttempt(payment)).isNull();
+        assertThat(attemptsCounted("refused")).isEqualTo(refusedBefore + 1);
     }
 
     @Test
@@ -200,6 +205,10 @@ class DispatcherTest {
         await().atMost(WAIT).until(() -> CORE.receivedFor("dispatch6").size() == 2);
         List<Received> requests = CORE.receivedFor("dispatch6");
         assertThat(requests.get(1).body()).isEqualTo(requests.get(0).body());
+    }
+
+    private double attemptsCounted(String outcome) {
+        return meters.counter(Dispatcher.ATTEMPTS, "outcome", outcome).count();
     }
 
     private Payment pay(String transactionId) {

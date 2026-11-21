@@ -1,6 +1,7 @@
 package dev.finaxis.simulator.delivery;
 
 import dev.finaxis.simulator.delivery.DeliveryRepository.Due;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -26,6 +27,8 @@ import org.springframework.stereotype.Component;
 @ConditionalOnBooleanProperty(name = "simulator.dispatcher.enabled", matchIfMissing = true)
 class Dispatcher {
 
+    static final String ATTEMPTS = "rails_sim.delivery.attempts";
+
     private static final Logger LOG = LoggerFactory.getLogger(Dispatcher.class);
 
     private static final int BATCH = 16;
@@ -34,12 +37,14 @@ class Dispatcher {
     private final DeliveryRepository deliveries;
     private final CoreClient core;
     private final Clock clock;
+    private final MeterRegistry meters;
     private final RetryPolicy retries = new RetryPolicy(RandomGenerator.getDefault());
 
-    Dispatcher(DeliveryRepository deliveries, CoreClient core, Clock clock) {
+    Dispatcher(DeliveryRepository deliveries, CoreClient core, Clock clock, MeterRegistry meters) {
         this.deliveries = deliveries;
         this.core = core;
         this.clock = clock;
+        this.meters = meters;
     }
 
     @Scheduled(fixedDelay = 250, timeUnit = TimeUnit.MILLISECONDS)
@@ -65,6 +70,7 @@ class Dispatcher {
             }
         }
         deliveries.recordAttempt(delivery, attemptedAt, response, outcome, nextAttemptAt.orElse(null));
+        meters.counter(ATTEMPTS, "outcome", outcome.tag()).increment();
         LOG.atInfo()
                 .addKeyValue("end_to_end_id", delivery.endToEndId())
                 .addKeyValue("message_id", delivery.messageId())

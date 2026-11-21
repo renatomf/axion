@@ -137,6 +137,12 @@ class DeliveryRepository {
                 .update();
     }
 
+    long countPending() {
+        return jdbc.sql("SELECT count(*) FROM deliveries WHERE status = 'pending'")
+                .query((row, number) -> row.getLong(1))
+                .single();
+    }
+
     List<Delivery> findByEndToEndId(String endToEndId) {
         Map<UUID, List<Delivery.Attempt>> attempts = jdbc
                 .sql("""

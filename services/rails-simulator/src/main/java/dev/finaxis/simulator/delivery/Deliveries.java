@@ -1,5 +1,7 @@
 package dev.finaxis.simulator.delivery;
 
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -16,12 +18,18 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class Deliveries {
 
+    public static final String PENDING = "rails_sim.deliveries.pending";
+
     private final DeliveryRepository deliveries;
     private final Clock clock;
 
-    Deliveries(DeliveryRepository deliveries, Clock clock) {
+    Deliveries(DeliveryRepository deliveries, Clock clock, MeterRegistry meters) {
         this.deliveries = deliveries;
         this.clock = clock;
+        // Read from the database when the gauge is read: the one count every dispatcher agrees on.
+        Gauge.builder(PENDING, deliveries, DeliveryRepository::countPending)
+                .description("Deliveries owed to the core, due now or later")
+                .register(meters);
     }
 
     /**

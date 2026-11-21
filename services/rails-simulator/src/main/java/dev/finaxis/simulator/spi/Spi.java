@@ -5,6 +5,8 @@ import dev.finaxis.simulator.spi.CreditNotification.Account;
 import dev.finaxis.simulator.spi.CreditNotification.Agent;
 import dev.finaxis.simulator.spi.CreditNotification.Proxy;
 import dev.finaxis.simulator.spi.Iso20022.Amount;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -13,6 +15,8 @@ import java.util.random.RandomGenerator;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -23,6 +27,8 @@ import tools.jackson.databind.json.JsonMapper;
 @Service
 @EnableConfigurationProperties(ParticipantsProperties.class)
 public class Spi {
+
+    public static final String PAYMENTS = "rails_sim.payments";
 
     /** A collision of the 11 random characters within one minute and institution is rare; three in a row is a bug. */
     private static final int MAX_DRAWS = 3;
@@ -36,6 +42,7 @@ public class Spi {
     private final Ispb receiver;
     private final List<Ispb> payerInstitutions;
     private final Clock clock;
+    private final Counter settled;
     private final RandomGenerator random = RandomGenerator.getDefault();
 
     Spi(
@@ -43,13 +50,17 @@ public class Spi {
             Deliveries deliveries,
             JsonMapper json,
             ParticipantsProperties participants,
-            Clock clock) {
+            Clock clock,
+            MeterRegistry meters) {
         this.payments = payments;
         this.deliveries = deliveries;
         this.json = json;
         this.receiver = participants.receiver();
         this.payerInstitutions = participants.payers();
         this.clock = clock;
+        this.settled = Counter.builder(PAYMENTS)
+                .description("Pix payments the simulated SPI settled")
+                .register(meters);
     }
 
     /**
@@ -63,6 +74,13 @@ public class Spi {
         var notification = notification(payment, order);
         deliveries.schedule(
                 payment.endToEndId().value(), notification.messageId(), json.writeValueAsBytes(notification));
+        // Counted once committed: a payment rolled back never happened.
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                settled.increment();
+            }
+        });
         return payment;
     }
 

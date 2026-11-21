@@ -3,6 +3,8 @@ package dev.finaxis.simulator.spi;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.finaxis.simulator.PostgresTestConfiguration;
+import dev.finaxis.simulator.delivery.Deliveries;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
@@ -35,14 +37,22 @@ class SpiTest {
     private final JdbcClient jdbc;
     private final JsonMapper json;
     private final TransactionTemplate transaction;
+    private final MeterRegistry meters;
 
     @Autowired
-    SpiTest(Spi spi, PaymentRepository payments, JdbcClient jdbc, JsonMapper json, TransactionTemplate transaction) {
+    SpiTest(
+            Spi spi,
+            PaymentRepository payments,
+            JdbcClient jdbc,
+            JsonMapper json,
+            TransactionTemplate transaction,
+            MeterRegistry meters) {
         this.spi = spi;
         this.payments = payments;
         this.jdbc = jdbc;
         this.json = json;
         this.transaction = transaction;
+        this.meters = meters;
     }
 
     @Test
@@ -151,6 +161,29 @@ class SpiTest {
 
         assertThat(spi.find(payment.endToEndId())).isEmpty();
         assertThat(deliveriesOf(payment)).isZero();
+    }
+
+    @Test
+    void countsACommittedPaymentOnly() {
+        double before = meters.counter(Spi.PAYMENTS).count();
+
+        spi.settle(order(100, "tx11"));
+        transaction.executeWithoutResult(status -> {
+            status.setRollbackOnly();
+            spi.settle(order(100, "tx12"));
+        });
+
+        assertThat(meters.counter(Spi.PAYMENTS).count()).isEqualTo(before + 1);
+    }
+
+    @Test
+    void countsThePendingDeliveries() {
+        spi.settle(order(100, "tx13"));
+
+        long pending = jdbc.sql("SELECT count(*) FROM deliveries WHERE status = 'pending'")
+                .query(Long.class)
+                .single();
+        assertThat(meters.get(Deliveries.PENDING).gauge().value()).isEqualTo((double) pending);
     }
 
     private static PaymentOrder order(long amountMinor, String transactionId) {
