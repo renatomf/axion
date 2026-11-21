@@ -12,6 +12,7 @@ import io.github.bucket4j.TimeMeter;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -25,8 +26,40 @@ import java.util.Optional;
  */
 final class RateLimits {
 
-    /** Refilled at {@code perSecond} tokens a second, holding at most {@code burst}. */
-    record Limit(long perSecond, long burst) {}
+    /**
+     * Refilled at {@code perSecond} tokens a second, holding at most {@code burst}: a quota of
+     * {@code burst} requests over a window of {@code burst / perSecond} whole seconds.
+     */
+    record Limit(long perSecond, long burst) {
+
+        Limit {
+            if (perSecond <= 0 || burst % perSecond != 0) {
+                throw new IllegalArgumentException("A burst must be a whole number of seconds of refill");
+            }
+        }
+
+        long windowSeconds() {
+            return burst / perSecond;
+        }
+    }
+
+    /** A bucket's state once a request has been counted, under the name of its policy. */
+    record Quota(String policy, Limit limit, long remaining) {
+
+        /** Whole seconds until the bucket is full again, rounded up. */
+        long resetSeconds() {
+            long missing = limit.burst() - remaining;
+            return (missing + limit.perSecond() - 1) / limit.perSecond();
+        }
+    }
+
+    /** The request's quotas, and how long until a retry can succeed if it was refused. */
+    record Decision(List<Quota> quotas, Optional<Duration> retryAfter) {
+
+        Decision {
+            quotas = List.copyOf(quotas);
+        }
+    }
 
     static Limit perTenant(Environment environment) {
         return switch (environment) {
@@ -56,31 +89,36 @@ final class RateLimits {
         this.time = new ClockTimeMeter(clock);
     }
 
-    /** Takes the request's tokens; empty if it may proceed, otherwise how long until a retry can. */
-    Optional<Duration> tryAcquire(ApiKeyCaller caller) {
-        Bucket key = keys.get(caller.key(), _ -> bucket(perKey(caller.environment())));
-        ConsumptionProbe byKey = key.tryConsumeAndReturnRemaining(1);
-        if (!byKey.isConsumed()) {
-            return Optional.of(Duration.ofNanos(byKey.getNanosToWaitForRefill()));
+    /** Takes the request's tokens from its key's and its tenant's buckets, or from neither. */
+    Decision tryAcquire(ApiKeyCaller caller) {
+        Limit keyLimit = perKey(caller.environment());
+        Limit tenantLimit = perTenant(caller.environment());
+        Bucket key = keys.get(caller.key(), _ -> bucket(keyLimit));
+        Bucket tenant = tenants.get(caller.tenant(), _ -> bucket(tenantLimit));
+        Optional<Duration> retryAfter = refusal(key.tryConsumeAndReturnRemaining(1));
+        if (retryAfter.isEmpty()) {
+            retryAfter = refusal(tenant.tryConsumeAndReturnRemaining(1));
+            if (retryAfter.isPresent()) {
+                // The request is refused, so it must not spend its key's token either.
+                key.addTokens(1);
+            }
         }
-        Bucket tenant = tenants.get(caller.tenant(), _ -> bucket(perTenant(caller.environment())));
-        ConsumptionProbe byTenant = tenant.tryConsumeAndReturnRemaining(1);
-        if (!byTenant.isConsumed()) {
-            // The request is refused, so it must not spend its key's token either.
-            key.addTokens(1);
-            return Optional.of(Duration.ofNanos(byTenant.getNanosToWaitForRefill()));
-        }
-        return Optional.empty();
+        return new Decision(List.of(quota("key", keyLimit, key), quota("tenant", tenantLimit, tenant)), retryAfter);
     }
 
     /** As {@link #tryAcquire(ApiKeyCaller)}, for the member whose access token has this subject. */
-    Optional<Duration> tryAcquire(String memberSubject) {
+    Decision tryAcquire(String memberSubject) {
         Bucket member = members.get(memberSubject, _ -> bucket(PER_MEMBER));
-        ConsumptionProbe probe = member.tryConsumeAndReturnRemaining(1);
-        if (!probe.isConsumed()) {
-            return Optional.of(Duration.ofNanos(probe.getNanosToWaitForRefill()));
-        }
-        return Optional.empty();
+        Optional<Duration> retryAfter = refusal(member.tryConsumeAndReturnRemaining(1));
+        return new Decision(List.of(quota("member", PER_MEMBER, member)), retryAfter);
+    }
+
+    private static Optional<Duration> refusal(ConsumptionProbe probe) {
+        return probe.isConsumed() ? Optional.empty() : Optional.of(Duration.ofNanos(probe.getNanosToWaitForRefill()));
+    }
+
+    private static Quota quota(String policy, Limit limit, Bucket bucket) {
+        return new Quota(policy, limit, bucket.getAvailableTokens());
     }
 
     private Bucket bucket(Limit limit) {

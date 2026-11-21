@@ -35,7 +35,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Rate limits (tenancy design, section 6). On {@code /v1}, the test environment's buckets: 50
+ * Rate limits and their headers (tenancy design, section 6). On {@code /v1}, the test environment's buckets: 50
  * requests at once, then 25 a second, for the tenant and for each key. On {@code /internal}, 40
  * requests at once, then 20 a second, for each member. The clock stands still, so a bucket refills
  * only when a test moves it.
@@ -108,6 +108,24 @@ class RateLimitingTest {
     }
 
     @Test
+    void tellsAKeyWhatIsLeftOfItsBudget() {
+        IssuedApiKey key = issued(newOrganization());
+
+        assertThat(get(key))
+                .hasStatusOk()
+                .hasHeader("RateLimit-Policy", "\"key\";q=50;w=2, \"tenant\";q=50;w=2")
+                .hasHeader("RateLimit", "\"key\";r=49;t=1, \"tenant\";r=49;t=1");
+    }
+
+    @Test
+    void tellsARefusedKeyItsBudgetIsSpent() {
+        IssuedApiKey key = issued(newOrganization());
+        spendBurst(key);
+
+        assertThat(get(key)).hasHeader("RateLimit", "\"key\";r=0;t=2, \"tenant\";r=0;t=2");
+    }
+
+    @Test
     void letsAKeyBackInOnceItsBucketRefills() {
         IssuedApiKey key = issued(newOrganization());
         spendBurst(key);
@@ -147,7 +165,15 @@ class RateLimitingTest {
                 .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .bodyJson()
                 .isLenientlyEqualTo(RATE_LIMITED);
-        assertThat(refused).hasHeader(HttpHeaders.RETRY_AFTER, "1");
+        assertThat(refused).hasHeader(HttpHeaders.RETRY_AFTER, "1").hasHeader("RateLimit", "\"member\";r=0;t=2");
+    }
+
+    @Test
+    void tellsAMemberWhatIsLeftOfTheirBudget() {
+        assertThat(get(UUID.randomUUID().toString()))
+                .hasStatusOk()
+                .hasHeader("RateLimit-Policy", "\"member\";q=40;w=2")
+                .hasHeader("RateLimit", "\"member\";r=39;t=1");
     }
 
     @Test

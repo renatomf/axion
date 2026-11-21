@@ -1,10 +1,13 @@
 package dev.finaxis.core.access.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.tuple;
 
 import dev.finaxis.core.MutableClock;
 import dev.finaxis.core.access.ApiKeyCaller;
 import dev.finaxis.core.access.ApiKeyId;
+import dev.finaxis.core.access.security.RateLimits.Quota;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.Permission;
@@ -25,7 +28,7 @@ class RateLimitsTest {
 
         assertThat(acquired(key, 100)).isEqualTo(100);
         // 50 a second: the next token comes in 20 milliseconds.
-        assertThat(limits.tryAcquire(key)).contains(Duration.ofMillis(20));
+        assertThat(limits.tryAcquire(key).retryAfter()).contains(Duration.ofMillis(20));
     }
 
     @Test
@@ -43,7 +46,7 @@ class RateLimitsTest {
         ApiKeyCaller key = caller(Environment.TEST, new TenantId(UUID.randomUUID()));
 
         assertThat(acquired(key, 100)).isEqualTo(50);
-        assertThat(limits.tryAcquire(key)).contains(Duration.ofMillis(40));
+        assertThat(limits.tryAcquire(key).retryAfter()).contains(Duration.ofMillis(40));
     }
 
     @Test
@@ -56,7 +59,7 @@ class RateLimitsTest {
         assertThat(acquired(first, 100)).isEqualTo(100);
         assertThat(acquired(second, 100)).isEqualTo(100);
         // 100 a second for the tenant: the next token comes in 10 milliseconds.
-        assertThat(limits.tryAcquire(third)).contains(Duration.ofMillis(10));
+        assertThat(limits.tryAcquire(third).retryAfter()).contains(Duration.ofMillis(10));
     }
 
     @Test
@@ -81,7 +84,8 @@ class RateLimitsTest {
         ApiKeyCaller busy = caller(Environment.TEST, new TenantId(UUID.randomUUID()));
         acquired(busy, 50);
 
-        assertThat(limits.tryAcquire(caller(Environment.TEST, new TenantId(UUID.randomUUID()))))
+        assertThat(limits.tryAcquire(caller(Environment.TEST, new TenantId(UUID.randomUUID())))
+                        .retryAfter())
                 .isEmpty();
     }
 
@@ -91,20 +95,64 @@ class RateLimitsTest {
 
         assertThat(acquired(member, 50)).isEqualTo(40);
         // 20 a second: the next token comes in 50 milliseconds.
-        assertThat(limits.tryAcquire(member)).contains(Duration.ofMillis(50));
+        assertThat(limits.tryAcquire(member).retryAfter()).contains(Duration.ofMillis(50));
     }
 
     @Test
     void keepsMembersApart() {
         acquired(UUID.randomUUID().toString(), 40);
 
-        assertThat(limits.tryAcquire(UUID.randomUUID().toString())).isEmpty();
+        assertThat(limits.tryAcquire(UUID.randomUUID().toString()).retryAfter()).isEmpty();
+    }
+
+    @Test
+    void reportsWhatIsLeftOfTheKeyAndTheTenant() {
+        TenantId tenant = new TenantId(UUID.randomUUID());
+        acquired(caller(Environment.LIVE, tenant), 30);
+
+        RateLimits.Decision decision = limits.tryAcquire(caller(Environment.LIVE, tenant));
+
+        assertThat(decision.retryAfter()).isEmpty();
+        assertThat(decision.quotas())
+                .extracting(Quota::policy, Quota::remaining, Quota::resetSeconds)
+                .containsExactly(tuple("key", 99L, 1L), tuple("tenant", 169L, 1L));
+    }
+
+    @Test
+    void reportsAnEmptyBucketWhenItRefuses() {
+        String member = UUID.randomUUID().toString();
+        acquired(member, 40);
+
+        RateLimits.Decision decision = limits.tryAcquire(member);
+
+        assertThat(decision.quotas())
+                .extracting(Quota::policy, Quota::remaining, Quota::resetSeconds)
+                .containsExactly(tuple("member", 0L, 2L));
+    }
+
+    @Test
+    void reportsTheKeyTokenGivenBackWhenTheTenantRefuses() {
+        TenantId tenant = new TenantId(UUID.randomUUID());
+        acquired(caller(Environment.LIVE, tenant), 100);
+        acquired(caller(Environment.LIVE, tenant), 100);
+
+        RateLimits.Decision decision = limits.tryAcquire(caller(Environment.LIVE, tenant));
+
+        assertThat(decision.retryAfter()).isPresent();
+        assertThat(decision.quotas())
+                .extracting(Quota::policy, Quota::remaining)
+                .containsExactly(tuple("key", 100L), tuple("tenant", 0L));
+    }
+
+    @Test
+    void rejectsABurstThatIsNotWholeSecondsOfRefill() {
+        assertThatIllegalArgumentException().isThrownBy(() -> new RateLimits.Limit(20, 30));
     }
 
     private int acquired(String member, int attempts) {
         int acquired = 0;
         for (int i = 0; i < attempts; i++) {
-            if (limits.tryAcquire(member).isEmpty()) {
+            if (limits.tryAcquire(member).retryAfter().isEmpty()) {
                 acquired++;
             }
         }
@@ -114,7 +162,7 @@ class RateLimitsTest {
     private int acquired(ApiKeyCaller caller, int attempts) {
         int acquired = 0;
         for (int i = 0; i < attempts; i++) {
-            if (limits.tryAcquire(caller).isEmpty()) {
+            if (limits.tryAcquire(caller).retryAfter().isEmpty()) {
                 acquired++;
             }
         }
