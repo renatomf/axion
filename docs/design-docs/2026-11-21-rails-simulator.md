@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Approved |
 | **Date** | 2026-11-21 |
 | **Scope** | `services/rails-simulator`: what it simulates, the simulated Pix payment, the messages it sends to the core, their delivery and signatures, the chaos controls, its storage, and how it differs from the official specifications. Roadmap PRs 1.29–1.31. |
 | **Parent** | [Platform overview](2026-11-17-platform-overview.md), sections 3.1, 3.2, 7.2, 7.6, 12 and 16 |
