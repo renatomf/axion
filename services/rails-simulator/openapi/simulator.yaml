@@ -41,7 +41,9 @@ paths:
         SPI settles it. The amount and the transaction ID are read from the
         code (tags 54 and 62-05). An expired code is paid like any other, which
         is how a late payment is produced. Not idempotent: paying one code
-        twice makes two payments.
+        twice makes two payments. The payer and the message reach the core
+        only inside the credit notification; the simulator does not keep them
+        anywhere else.
       requestBody:
         required: true
         content:
@@ -115,7 +117,9 @@ components:
       description: The operator token, configured as RAILS_SIMULATOR_OPERATOR_TOKEN.
   responses:
     BadRequest:
-      description: The body is not JSON, or lacks a required field.
+      description: >-
+        The body is not JSON, lacks a required field, or has a field out of
+        its limits; `detail` names the field.
       content:
         application/problem+json:
           schema:
@@ -147,6 +151,26 @@ components:
             The BR Code text, as a payer's app reads it from the QR code: an
             EMV Merchant-Presented Mode payload ending with its CRC16 (tag 63).
           type: string
+        payer:
+          description: >-
+            Who pays. Personal data, synthetic. When omitted, one of a fixed
+            list of synthetic people pays.
+          type: object
+          required: [name, taxId]
+          properties:
+            name:
+              type: string
+              minLength: 1
+              maxLength: 140
+            taxId:
+              description: The payer's CPF, 11 digits with valid check digits.
+              type: string
+              pattern: "^[0-9]{11}$"
+        message:
+          description: The payer's message to the receiver, as in the official remittance field.
+          type: string
+          minLength: 1
+          maxLength: 140
     PaymentCreated:
       type: object
       required: [endToEndId, settledAt]
