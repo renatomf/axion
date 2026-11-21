@@ -399,3 +399,10 @@ The simulator is a test system, but the core treats it as the rails: a message i
 | 1.31 | The chaos API: fault rules and the outage switch | 7 |
 
 The core's side, the signed endpoint and the translation into billing commands, is PR 1.38a and 1.38b; the fault-injection suite is PR 1.42.
+
+## 14. Decisions from review
+
+1. **The simulator reads the amount and the transaction ID from the BR Code.** It needs no state about charges, and the core stays the only authority over them; serving the location as a signed JWS is the first extension if fidelity is pursued (sections 4.2 and 9).
+2. **Callbacks are signed with Ed25519 under RFC 9421.** An asymmetric key means the core holds nothing that can sign, and the signature binds the method and path as well as the body (section 6.3).
+3. **Messages are JSON with ISO 20022 names.** The anti-corruption layer has the shape it would have against the real rails, without XML schemas and signatures that no part of the core's design depends on (section 5.1).
+4. **The simulator has its own database.** A restart never loses a payment the payer was debited for, and the outage game day recovers from the simulator's own records (section 8.3).
