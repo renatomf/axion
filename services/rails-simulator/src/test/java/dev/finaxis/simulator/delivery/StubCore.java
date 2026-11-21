@@ -32,6 +32,15 @@ final class StubCore implements AutoCloseable {
     /** A request as the stub received it; header names in lower case. */
     record Received(String method, String path, Map<String, String> headers, String body) {
 
+        /** The header's value; a request without it fails the test. */
+        String header(String name) {
+            String value = headers.get(name);
+            if (value == null) {
+                throw new AssertionError("The request has no " + name + " header");
+            }
+            return value;
+        }
+
         String transactionId() {
             Matcher matcher = TRANSACTION_ID.matcher(body);
             return matcher.find() ? matcher.group(1) : "";

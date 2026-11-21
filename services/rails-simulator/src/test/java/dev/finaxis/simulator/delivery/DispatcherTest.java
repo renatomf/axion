@@ -1,9 +1,11 @@
 package dev.finaxis.simulator.delivery;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.awaitility.Awaitility.await;
 
 import dev.finaxis.simulator.PostgresTestConfiguration;
+import dev.finaxis.simulator.TestSigningKey;
 import dev.finaxis.simulator.delivery.StubCore.Received;
 import dev.finaxis.simulator.delivery.StubCore.Reply;
 import dev.finaxis.simulator.spi.Debtor;
@@ -11,9 +13,12 @@ import dev.finaxis.simulator.spi.Payment;
 import dev.finaxis.simulator.spi.PaymentOrder;
 import dev.finaxis.simulator.spi.Spi;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -66,6 +71,31 @@ class DispatcherTest {
         assertThat(request.headers()).containsEntry("x-correlation-id", messageId(payment));
         assertThat(request.body()).isEqualTo(message(payment));
         assertThat(attempts(payment)).containsExactly("1 delivered 200");
+    }
+
+    @Test
+    void signsEachRequestWithTheSimulatorsKey() throws GeneralSecurityException {
+        Payment payment = pay("dispatch10");
+
+        await().atMost(WAIT).until(() -> status(payment).equals("delivered"));
+        Received request = CORE.receivedFor("dispatch10").getFirst();
+        String digest = MessageSigner.contentDigest(request.body().getBytes(StandardCharsets.UTF_8));
+        assertThat(request.headers()).containsEntry("content-digest", digest);
+        String input = request.header("signature-input");
+        assertThat(input).contains(";keyid=\"" + TestSigningKey.KEY_ID + "\";alg=\"ed25519\"");
+        long created = Long.parseLong(input.replaceAll(".*;created=([0-9]+);.*", "$1"));
+        assertThat(created).isCloseTo(Clock.systemUTC().instant().getEpochSecond(), within(60L));
+        String base = MessageSigner.signatureBase(
+                List.of(
+                        Map.entry("@method", request.method()),
+                        Map.entry("@path", request.path()),
+                        Map.entry("content-type", request.header("content-type")),
+                        Map.entry("content-digest", digest)),
+                input.substring("rails=".length()));
+        String signature = request.header("signature");
+        byte[] bytes = Base64.getDecoder().decode(signature.substring("rails=:".length(), signature.length() - 1));
+        assertThat(MessageSignerTest.verify(TestSigningKey.publicKey(), base, bytes))
+                .isTrue();
     }
 
     @Test

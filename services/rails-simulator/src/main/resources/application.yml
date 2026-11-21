@@ -32,6 +32,13 @@ simulator:
     # sets RAILS_SIMULATOR_OPERATOR_TOKEN, and the simulator does not start
     # without it.
     token: ${RAILS_SIMULATOR_OPERATOR_TOKEN}
+  signing:
+    # The Ed25519 key that signs every message to the core (rails simulator
+    # design, sections 6.3 and 6.4). No defaults: each environment sets
+    # RAILS_SIMULATOR_SIGNING_KEY_ID and RAILS_SIMULATOR_SIGNING_PRIVATE_KEY
+    # (PKCS #8 DER in base64), and the simulator does not start without them.
+    key-id: ${RAILS_SIMULATOR_SIGNING_KEY_ID}
+    private-key: ${RAILS_SIMULATOR_SIGNING_PRIVATE_KEY}
   participants:
     # Finaxis, the receiving participant, and the payers' institutions:
     # fictitious ISPBs that no institution in the Central Bank's lists of Pix
