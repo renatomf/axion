@@ -82,6 +82,23 @@ public class JdbcIdempotencyKeys {
                 .update();
     }
 
+    /**
+     * Deletes up to {@code limit} keys that expired by {@code now}, of every tenant; the removal
+     * job's policies let it see expired keys only. Returns how many it deleted.
+     */
+    public int deleteExpired(Instant now, int limit) {
+        return jdbc.sql("""
+                        DELETE FROM idempotency.keys
+                         WHERE (tenant_id, key) IN (SELECT tenant_id, key
+                                                      FROM idempotency.keys
+                                                     WHERE expires_at <= :now
+                                                     LIMIT :limit)
+                        """)
+                .param("now", now.atOffset(ZoneOffset.UTC))
+                .param("limit", limit)
+                .update();
+    }
+
     /** A key's row: the fingerprint it is bound to and the response it replays. */
     public record StoredKey(Fingerprint fingerprint, StoredResponse response) {}
 }
