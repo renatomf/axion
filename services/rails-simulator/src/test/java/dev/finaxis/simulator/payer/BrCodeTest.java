@@ -41,6 +41,18 @@ class BrCodeTest {
     }
 
     @Test
+    void readsThePixKey() {
+        assertThat(BrCode.read(PAYABLE).pixKey()).isEqualTo("123e4567-e12b-12d1-a456-426655440000");
+    }
+
+    @Test
+    void readsACodeWithoutAPixKey() {
+        var code = codeWith(Map.of("26", tlv("00", "br.gov.bcb.pix") + tlv("25", "pix.example.com/qr/v2/cobv/1")));
+
+        assertThat(BrCode.read(code).pixKey()).isNull();
+    }
+
+    @Test
     void refusesTheManualExampleForItsMissingAmount() {
         assertRefused(MANUAL_EXAMPLE, "amount (tag 54) is missing");
     }

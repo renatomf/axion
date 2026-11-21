@@ -20,8 +20,13 @@ import org.jspecify.annotations.Nullable;
  * @param text the code as the payer read it
  * @param amountMinor the amount in centavos
  * @param transactionId the transaction ID, by which the core finds the charge
+ * @param pixKey the Pix key of tag 26, subfield 01, if the code carries one
  */
-public record BrCode(String text, long amountMinor, String transactionId) {
+public record BrCode(
+        String text,
+        long amountMinor,
+        String transactionId,
+        @Nullable String pixKey) {
 
     /** The EMV limit for a QR code payload. */
     private static final int MAX_LENGTH = 512;
@@ -34,6 +39,7 @@ public record BrCode(String text, long amountMinor, String transactionId) {
     private static final String CRC = "63";
 
     private static final String GUI = "00";
+    private static final String PIX_KEY = "01";
     private static final String TRANSACTION_ID = "05";
 
     private static final String PIX_GUI = "br.gov.bcb.pix";
@@ -61,16 +67,21 @@ public record BrCode(String text, long amountMinor, String transactionId) {
         }
         Map<String, String> tags = byTag(fields);
 
-        String merchantAccount = tags.get(MERCHANT_ACCOUNT);
-        String gui =
-                merchantAccount == null ? null : byTag(parse(merchantAccount)).get(GUI);
+        String merchantAccountText = tags.get(MERCHANT_ACCOUNT);
+        Map<String, String> merchantAccount =
+                merchantAccountText == null ? Map.of() : byTag(parse(merchantAccountText));
+        String gui = merchantAccount.get(GUI);
         if (gui == null || !gui.equalsIgnoreCase(PIX_GUI)) {
             throw new InvalidBrCodeException("The merchant account information (tag 26) lacks the Pix GUI " + PIX_GUI);
         }
         if (!REAL.equals(tags.get(CURRENCY))) {
             throw new InvalidBrCodeException("The currency (tag 53) is not " + REAL + ", the real");
         }
-        return new BrCode(text, amountMinor(tags.get(AMOUNT)), transactionId(tags.get(ADDITIONAL_DATA)));
+        return new BrCode(
+                text,
+                amountMinor(tags.get(AMOUNT)),
+                transactionId(tags.get(ADDITIONAL_DATA)),
+                merchantAccount.get(PIX_KEY));
     }
 
     private static long amountMinor(@Nullable String amount) {
