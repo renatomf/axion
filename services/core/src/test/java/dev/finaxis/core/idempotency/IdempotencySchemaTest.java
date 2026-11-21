@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.finaxis.core.DatabaseOwner;
+import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
+import dev.finaxis.core.shared.TenantId;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -22,7 +24,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
  * The idempotency keys table and the rules the database enforces on it (idempotency design, section
- * 5), checked against a real PostgreSQL. The owner writes the rows; nothing is committed.
+ * 5), checked against a real PostgreSQL. The owner arranges the rows, then the module's role reads
+ * and writes them; nothing is committed.
  */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
@@ -120,6 +123,45 @@ class IdempotencySchemaTest {
     @Test
     void rejectsAnExpiryOtherThan24HoursAfterCreation() {
         assertRejected(row().expiresAt(CREATED_AT.plus(Duration.ofHours(23))), "keys_retention_check");
+    }
+
+    @Test
+    void letsTheModuleRoleInsertAndReadAKey() {
+        DatabaseRole.IDEMPOTENCY.actAs(jdbc, new TenantId(tenant));
+
+        insert(row().key("order-1"));
+
+        assertThat(statusOf("order-1")).isEqualTo(201);
+    }
+
+    // A denied statement aborts the transaction, so each test tries one.
+    @Test
+    void deniesTheModuleRoleChangingAStoredResponse() {
+        insert(row().key("order-1"));
+        DatabaseRole.IDEMPOTENCY.actAs(jdbc, new TenantId(tenant));
+
+        assertThatThrownBy(() -> jdbc.sql("UPDATE idempotency.keys SET response_status = 200 WHERE key = 'order-1'")
+                        .update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void deniesTheModuleRoleDeletingAKey() {
+        insert(row().key("order-1"));
+        DatabaseRole.IDEMPOTENCY.actAs(jdbc, new TenantId(tenant));
+
+        assertThatThrownBy(() -> jdbc.sql("DELETE FROM idempotency.keys WHERE key = 'order-1'")
+                        .update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    private int statusOf(String key) {
+        return jdbc.sql("SELECT response_status FROM idempotency.keys WHERE tenant_id = ? AND key = ?")
+                .params(tenant, key)
+                .query(Integer.class)
+                .single();
     }
 
     private void assertRejected(Row row, String constraint) {
