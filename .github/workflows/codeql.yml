@@ -2,8 +2,8 @@
 # Findings are published to the repository's Security > Code scanning tab.
 #
 # Languages are added as code arrives: GitHub Actions workflows and the Java
-# code of the core service. With build-mode `none`, CodeQL reads Java sources
-# directly; it does not need to compile them.
+# code of the core service and the rails simulator. With build-mode `none`,
+# CodeQL reads Java sources directly; it does not need to compile them.
 name: CodeQL
 
 on:
