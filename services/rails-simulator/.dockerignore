@@ -1,0 +1,4 @@
+# Files Docker never sends to the build: local build output and caches would
+# make the image depend on the developer's machine.
+.gradle/
+build/

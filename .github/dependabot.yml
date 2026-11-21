@@ -59,3 +59,14 @@ updates:
     groups:
       core-images:
         patterns: ["*"]
+
+  # Base images of the rails simulator's Dockerfile, bumped like the core's.
+  - package-ecosystem: docker
+    directory: /services/rails-simulator
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    groups:
+      rails-simulator-images:
+        patterns: ["*"]

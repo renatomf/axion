@@ -40,6 +40,6 @@ lint-api:
     pnpm run test:api-rules
     pnpm run lint:api
 
-# Build the container image of the core service
-image:
-    docker build --tag finaxis-core:dev services/core
+# Build the container image of a service (core or rails-simulator)
+image service="core":
+    docker build --tag finaxis-{{ service }}:dev services/{{ service }}

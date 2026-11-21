@@ -129,6 +129,7 @@ just up auth          # the auth profile: PostgreSQL and Keycloak 26 on http://l
 just down             # stop every profile; data stays in the postgres-data volume
 just keycloak-reset   # re-import the realm file, dropping Keycloak's database and its users
 just image            # build the container image finaxis-core:dev
+just image rails-simulator  # build the container image finaxis-rails-simulator:dev
 ```
 
 - Settings come from the git-ignored `infra/compose/.env`. `just up` creates it from [`.env.example`](infra/compose/.env.example) and adds settings the example gained later, never changing existing values. Change `FINAXIS_DB_PORT` or `KEYCLOAK_PORT` there if a port is taken.
