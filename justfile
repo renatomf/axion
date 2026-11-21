@@ -35,8 +35,9 @@ _env:
         grep -q "^$key=" "$env" || { grep "^$key=" "$example" >> "$env"; echo "Added $key to $env"; }
     done
 
-# Lint the OpenAPI contracts of the core
+# Lint the OpenAPI contracts of the core, after testing the project's lint rules
 lint-api:
+    pnpm run test:api-rules
     pnpm run lint:api
 
 # Build the container image of the core service

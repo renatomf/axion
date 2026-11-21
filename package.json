@@ -9,7 +9,8 @@
   },
   "scripts": {
     "prepare": "lefthook install",
-    "lint:api": "spectral lint --fail-severity warn services/core/openapi/v1.yaml services/core/openapi/internal.yaml"
+    "lint:api": "spectral lint --fail-severity warn services/core/openapi/v1.yaml services/core/openapi/internal.yaml",
+    "test:api-rules": "scripts/test-api-rules.sh"
   },
   "devDependencies": {
     "@commitlint/cli": "21.2.4",

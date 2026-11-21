@@ -107,7 +107,8 @@ The APIs are contract-first: the OpenAPI 3.1 documents in [`services/core/openap
 - Request bodies are records with Bean Validation constraints, taken as `@Valid @RequestBody`: an unreadable body is `400 bad_request`, a broken constraint `422 validation_failed` with the offending fields. Rejected values are never echoed.
 - Endpoint tests check every response against its contract with [`OpenApiContract`](services/core/src/test/java/dev/finaxis/core/OpenApiContract.java), strictly: a property the contract does not list fails the test.
 - A new operation needs a cross-tenant attempt in [`TenantIsolationTest`](services/core/src/test/java/dev/finaxis/core/TenantIsolationTest.java), which reads the operations from the contracts and fails for one it cannot attempt.
-- `just lint-api` runs [Spectral](https://docs.stoplight.io/docs/spectral) ([`.spectral.yaml`](.spectral.yaml)); warnings fail.
+- `just lint-api` runs [Spectral](https://docs.stoplight.io/docs/spectral) ([`.spectral.yaml`](.spectral.yaml)); warnings fail. A project rule has a fixture in [`rule-fixtures`](services/core/openapi/rule-fixtures), named after it, that breaks it, and the operations it must report in [`test-api-rules.sh`](scripts/test-api-rules.sh).
+- Every `/v1` `POST` references `components.yaml#/parameters/IdempotencyKey`; the lint fails one that does not.
 
 ### Security rules
 

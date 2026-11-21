@@ -45,3 +45,30 @@ rules:
           additionalProperties: false
           properties:
             application/problem+json: {}
+
+  finaxis-v1-writes-idempotent:
+    description: >-
+      Every /v1 POST takes the Idempotency-Key header (idempotency design,
+      section 3.1), by referencing components.yaml#/parameters/IdempotencyKey.
+    message: "{{path}} must take the required Idempotency-Key header."
+    severity: error
+    given: $.paths[?(@property.startsWith('/v1'))].post
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: [parameters]
+          properties:
+            parameters:
+              type: array
+              contains:
+                type: object
+                required: [name, in, required]
+                properties:
+                  name:
+                    const: Idempotency-Key
+                  in:
+                    const: header
+                  required:
+                    const: true
