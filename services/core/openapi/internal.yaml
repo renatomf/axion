@@ -50,6 +50,8 @@ paths:
                 $ref: "#/components/schemas/CurrentMember"
         "401":
           $ref: "components.yaml#/responses/Unauthorized"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
   /internal/tenants/{tenant_id}/api_keys:
@@ -76,6 +78,8 @@ paths:
           $ref: "components.yaml#/responses/Forbidden"
         "404":
           $ref: "components.yaml#/responses/NotFound"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
     post:
@@ -126,6 +130,8 @@ paths:
             application/problem+json:
               schema:
                 $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
   /internal/tenants/{tenant_id}/api_keys/{key_id}/revoke:
@@ -163,6 +169,8 @@ paths:
                 $ref: "components.yaml#/schemas/Problem"
         "404":
           $ref: "components.yaml#/responses/NotFound"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
   /internal/tenants/{tenant_id}/api_keys/{key_id}/roll:
@@ -229,6 +237,8 @@ paths:
             application/problem+json:
               schema:
                 $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
 components:
@@ -258,6 +268,9 @@ components:
       description: >-
         An OAuth 2.0 access token of a member, issued by the Keycloak realm
         `finaxis` for the audience `finaxis-core`, sent as a bearer token.
+        Each member has a request budget, whatever the tenant: every response
+        reports it in the `RateLimit-Policy` and `RateLimit` headers, and a
+        request beyond it gets `429` with code `rate_limited`.
       type: http
       scheme: bearer
       bearerFormat: JWT

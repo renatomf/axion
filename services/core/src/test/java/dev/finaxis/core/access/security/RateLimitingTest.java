@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 
 import dev.finaxis.core.MutableClock;
+import dev.finaxis.core.OpenApiContract;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.access.AccessApi;
 import dev.finaxis.core.access.AccessFixtures;
@@ -200,11 +201,14 @@ class RateLimitingTest {
         }
     }
 
+    /** Every response, accepted or refused, must also be one the contract documents. */
     private MvcTestResult get(String member) {
-        return mvc.get()
+        MvcTestResult result = mvc.get()
                 .uri("/internal/me")
                 .with(jwt().jwt(token -> token.subject(member)))
                 .exchange();
+        OpenApiContract.internal().assertConforms(result);
+        return result;
     }
 
     private void spendBurst(IssuedApiKey key) {

@@ -101,9 +101,46 @@ responses:
       application/problem+json:
         schema:
           $ref: "#/schemas/Problem"
+  TooManyRequests:
+    description: >-
+      The caller spent its request budget, with the code `rate_limited`.
+      `Retry-After` says when a retry can succeed.
+    headers:
+      Retry-After:
+        $ref: "#/headers/Retry-After"
+      RateLimit-Policy:
+        $ref: "#/headers/RateLimit-Policy"
+      RateLimit:
+        $ref: "#/headers/RateLimit"
+    content:
+      application/problem+json:
+        schema:
+          $ref: "#/schemas/Problem"
   InternalServerError:
     description: An unexpected error; the detail is always generic.
     content:
       application/problem+json:
         schema:
           $ref: "#/schemas/Problem"
+headers:
+  Retry-After:
+    description: Whole seconds until a retry can succeed.
+    schema:
+      type: integer
+      minimum: 1
+  RateLimit-Policy:
+    description: >-
+      The caller's request budgets, as in the IETF draft "RateLimit header
+      fields for HTTP": one member per budget, with `q` requests at once,
+      refilled over `w` seconds. Sent on every authenticated response.
+    schema:
+      type: string
+    example: '"key";q=100;w=2, "tenant";q=200;w=2'
+  RateLimit:
+    description: >-
+      What is left of each budget named in `RateLimit-Policy`: `r` requests,
+      and `t` seconds until the budget is full again. Sent on every
+      authenticated response.
+    schema:
+      type: string
+    example: '"key";r=99;t=1, "tenant";r=199;t=1'
