@@ -61,6 +61,8 @@ dependencies {
     testImplementation(libs.archunit.junit5)
     testImplementation(libs.jqwik)
     testImplementation(libs.awaitility)
+    testImplementation(libs.json.schema.validator)
+    testImplementation(libs.jackson.dataformat.yaml)
     testRuntimeOnly(libs.junit.platform.launcher)
 
     // Error Prone itself: on its own configuration, used only by the compiler.
