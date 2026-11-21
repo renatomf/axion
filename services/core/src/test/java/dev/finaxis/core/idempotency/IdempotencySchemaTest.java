@@ -32,6 +32,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 class IdempotencySchemaTest {
 
     private static final Instant CREATED_AT = Instant.parse("2026-11-21T12:00:00Z");
+    private static final String RLS_VIOLATION = "violates row-level security policy";
     private static final byte[] BODY = "{\"id\":\"ch_1\"}".getBytes(StandardCharsets.UTF_8);
 
     private final DatabaseOwner.Session session;
@@ -155,6 +156,56 @@ class IdempotencySchemaTest {
                         .update())
                 .rootCause()
                 .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void showsTheModuleRoleNoKeyWithNoTenantBound() {
+        insert(row().key("order-1"));
+        DatabaseRole.IDEMPOTENCY.actAs(jdbc);
+
+        assertThat(visibleKeys("order-1")).isZero();
+    }
+
+    @Test
+    void hidesAnotherTenantsKeyFromTheModuleRole() {
+        var other = UUID.randomUUID();
+        insert(row().tenant(other).key("order-1"));
+        DatabaseRole.IDEMPOTENCY.actAs(jdbc, new TenantId(tenant));
+
+        assertThat(visibleKeys("order-1")).isZero();
+    }
+
+    @Test
+    void letsATenantUseAKeyAnotherTenantHolds() {
+        insert(row().tenant(UUID.randomUUID()).key("order-1"));
+        DatabaseRole.IDEMPOTENCY.actAs(jdbc, new TenantId(tenant));
+
+        insert(row().key("order-1"));
+
+        assertThat(visibleKeys("order-1")).isOne();
+    }
+
+    @Test
+    void deniesTheModuleRoleInsertingAKeyForAnotherTenant() {
+        DatabaseRole.IDEMPOTENCY.actAs(jdbc, new TenantId(tenant));
+
+        assertThatThrownBy(() -> insert(row().tenant(UUID.randomUUID())))
+                .rootCause()
+                .hasMessageContaining(RLS_VIOLATION);
+    }
+
+    @Test
+    void deniesTheModuleRoleInsertingAKeyWithNoTenantBound() {
+        DatabaseRole.IDEMPOTENCY.actAs(jdbc);
+
+        assertThatThrownBy(() -> insert(row())).rootCause().hasMessageContaining(RLS_VIOLATION);
+    }
+
+    private long visibleKeys(String key) {
+        return jdbc.sql("SELECT count(*) FROM idempotency.keys WHERE key = ?")
+                .param(key)
+                .query(Long.class)
+                .single();
     }
 
     private int statusOf(String key) {
