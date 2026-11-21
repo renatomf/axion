@@ -40,12 +40,21 @@ dependencies {
     implementation(libs.spring.boot.starter.webmvc)
     // Operational endpoints under /actuator, starting with health.
     implementation(libs.spring.boot.starter.actuator)
+    // Database access over JDBC, with a connection pool.
+    implementation(libs.spring.boot.starter.jdbc)
+    // The PostgreSQL driver is needed only when the service runs, never to compile.
+    runtimeOnly(libs.postgresql)
+    // Schema migrations from src/main/resources/db/migration, run at startup.
+    implementation(libs.spring.boot.starter.flyway)
+    implementation(libs.flyway.database.postgresql)
     // Annotations that state, in the code, which references may be null.
     implementation(libs.jspecify)
 
     // Test-only libraries: on the test classpath, never in the packaged JAR.
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.spring.boot.starter.webmvc.test)
+    testImplementation(libs.spring.boot.testcontainers)
+    testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.archunit.junit5)
     testRuntimeOnly(libs.junit.platform.launcher)
 

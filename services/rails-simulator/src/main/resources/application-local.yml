@@ -2,6 +2,19 @@
 # service runs with `./gradlew bootRun`, or with
 # SPRING_PROFILES_ACTIVE=local. Never active in shared environments.
 
+spring:
+  config:
+    # Read the local infrastructure settings (RAILS_SIMULATOR_DB_PASSWORD,
+    # FINAXIS_DB_PORT) from the git-ignored file Docker Compose uses, so they
+    # are defined once. The path is relative to the working directory,
+    # services/rails-simulator under `./gradlew bootRun`.
+    import: optional:file:../../infra/compose/.env[.properties]
+  datasource:
+    # The PostgreSQL started by `just up rails` (infra/compose/compose.yaml).
+    url: jdbc:postgresql://localhost:${FINAXIS_DB_PORT:5432}/rails_simulator
+    username: rails_simulator
+    password: ${RAILS_SIMULATOR_DB_PASSWORD}
+
 management:
   endpoint:
     health:

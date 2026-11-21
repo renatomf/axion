@@ -7,6 +7,13 @@ spring:
   application:
     # Identifies the service in logs and, later, in metrics.
     name: finaxis-rails-simulator
+  # The simulator's own database (rails simulator design, section 8.3). No
+  # defaults: each environment sets SPRING_DATASOURCE_URL, _USERNAME and
+  # _PASSWORD, and the simulator does not start without them.
+  flyway:
+    # Fail on a file in db/migration whose name Flyway cannot parse, instead
+    # of silently skipping it.
+    validate-migration-naming: true
 
 server:
   # The core listens on 8080; the simulator on 8090 (rails simulator

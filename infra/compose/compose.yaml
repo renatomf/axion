@@ -145,6 +145,10 @@ services:
   rails-simulator:
     profiles: [rails]
     build: ../../services/rails-simulator
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/rails_simulator
+      SPRING_DATASOURCE_USERNAME: rails_simulator
+      SPRING_DATASOURCE_PASSWORD: ${RAILS_SIMULATOR_DB_PASSWORD:?set RAILS_SIMULATOR_DB_PASSWORD in infra/compose/.env}
     ports:
       # Bound to localhost only: the simulator is never exposed to the network.
       # RAILS_SIMULATOR_PORT changes the host port if 8090 is already taken.
