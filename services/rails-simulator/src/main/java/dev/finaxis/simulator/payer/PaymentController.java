@@ -1,6 +1,7 @@
 package dev.finaxis.simulator.payer;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import dev.finaxis.simulator.chaos.AppliedFault;
 import dev.finaxis.simulator.delivery.Deliveries;
 import dev.finaxis.simulator.delivery.Delivery;
 import dev.finaxis.simulator.spi.Debtor;
@@ -11,6 +12,7 @@ import dev.finaxis.simulator.spi.Payment;
 import dev.finaxis.simulator.spi.PaymentOrder;
 import dev.finaxis.simulator.spi.Spi;
 import java.net.URI;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
@@ -168,7 +170,8 @@ class PaymentController {
             String status,
             String createdAt,
             @Nullable String nextAttemptAt,
-            List<AttemptView> attempts) {
+            List<AttemptView> attempts,
+            List<FaultView> faults) {
 
         static DeliveryView of(Delivery delivery) {
             return new DeliveryView(
@@ -177,7 +180,25 @@ class PaymentController {
                     lowerCase(delivery.status()),
                     Iso20022.dateTime(delivery.createdAt()),
                     dateTime(delivery.nextAttemptAt()),
-                    delivery.attempts().stream().map(AttemptView::of).toList());
+                    delivery.attempts().stream().map(AttemptView::of).toList(),
+                    delivery.faults().stream().map(FaultView::of).toList());
+        }
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record FaultView(
+            String rule,
+            String fault,
+            int attempt,
+            @Nullable String waited) {
+
+        static FaultView of(AppliedFault applied) {
+            Duration waited = applied.waited();
+            return new FaultView(
+                    applied.rule().toString(),
+                    applied.fault().tag(),
+                    applied.attempt(),
+                    waited == null ? null : waited.toString());
         }
     }
 

@@ -75,6 +75,46 @@ class PaymentApiTest {
                 .extractingPath("$.deliveries[0].attempts")
                 .asArray()
                 .isEmpty();
+        assertThat(payment)
+                .bodyJson()
+                .extractingPath("$.deliveries[0].faults")
+                .asArray()
+                .isEmpty();
+    }
+
+    @Test
+    void showsTheFaultsAppliedToEachDelivery() {
+        String location = location(pay("{\"brCode\": \"" + BrCodeTest.PAYABLE + "\"}"));
+        jdbc.sql("""
+                        UPDATE deliveries SET faults = '[
+                            {"rule": "6f1c2a7e-0d4b-4c39-9a51-3e8b7f2d5c10", "fault": "latency", "attempt": 1, "waited": "PT1.25S"},
+                            {"rule": "0b9e4d3c-5a2f-4e18-8c76-1d2f3a4b5c6d", "fault": "fail", "attempt": 1}
+                        ]' WHERE end_to_end_id = ?
+                        """).param(location.substring(location.lastIndexOf('/') + 1)).update();
+
+        MvcTestResult payment = get(location);
+
+        assertThat(payment)
+                .bodyJson()
+                .extractingPath("$.deliveries[0].faults[0].rule")
+                .isEqualTo("6f1c2a7e-0d4b-4c39-9a51-3e8b7f2d5c10");
+        assertThat(payment)
+                .bodyJson()
+                .extractingPath("$.deliveries[0].faults[0].fault")
+                .isEqualTo("latency");
+        assertThat(payment)
+                .bodyJson()
+                .extractingPath("$.deliveries[0].faults[0].attempt")
+                .isEqualTo(1);
+        assertThat(payment)
+                .bodyJson()
+                .extractingPath("$.deliveries[0].faults[0].waited")
+                .isEqualTo("PT1.25S");
+        assertThat(payment)
+                .bodyJson()
+                .extractingPath("$.deliveries[0].faults[1].fault")
+                .isEqualTo("fail");
+        assertThat(payment).bodyJson().doesNotHavePath("$.deliveries[0].faults[1].waited");
     }
 
     @Test

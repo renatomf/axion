@@ -311,7 +311,7 @@ components:
     Delivery:
       description: One delivery of a message to the core, sent at least once.
       type: object
-      required: [id, kind, status, createdAt, attempts]
+      required: [id, kind, status, createdAt, attempts, faults]
       properties:
         id:
           type: string
@@ -335,6 +335,30 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Attempt"
+        faults:
+          description: The chaos faults applied to it, in the order applied.
+          type: array
+          items:
+            $ref: "#/components/schemas/AppliedFault"
+    AppliedFault:
+      description: A fault a chaos rule applied to one attempt.
+      type: object
+      required: [rule, fault, attempt]
+      properties:
+        rule:
+          description: The id of the rule that applied it.
+          type: string
+          format: uuid
+        fault:
+          $ref: "#/components/schemas/Fault"
+        attempt:
+          description: The number of the attempt it applied to.
+          type: integer
+          minimum: 1
+        waited:
+          description: For `latency`, how long the attempt waited before it was sent.
+          allOf:
+            - $ref: "#/components/schemas/Duration"
     Attempt:
       type: object
       required: [number, attemptedAt, outcome]

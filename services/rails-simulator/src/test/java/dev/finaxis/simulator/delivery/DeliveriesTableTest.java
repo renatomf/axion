@@ -108,13 +108,35 @@ class DeliveriesTableTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
-    private void insert(
+    @Test
+    void startsWithNoFaults() {
+        UUID id = insert(END_TO_END_ID, MESSAGE_ID, "original", "pending", NOW);
+
+        assertThat(jdbc.sql("SELECT faults::text FROM deliveries WHERE id = ?")
+                        .param(id)
+                        .query(String.class)
+                        .single())
+                .isEqualTo("[]");
+    }
+
+    @Test
+    void refusesFaultsThatAreNotAList() {
+        UUID id = insert(END_TO_END_ID, MESSAGE_ID, "original", "pending", NOW);
+
+        assertThatThrownBy(() -> jdbc.sql("UPDATE deliveries SET faults = '{}' WHERE id = ?")
+                        .param(id)
+                        .update())
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    private UUID insert(
             String endToEndId, String messageId, String kind, String status, @Nullable OffsetDateTime nextAttemptAt) {
+        var id = UUID.randomUUID();
         jdbc.sql("""
                         INSERT INTO deliveries (id, end_to_end_id, message_id, kind, message, status, next_attempt_at, created_at)
                         VALUES (:id, :endToEndId, :messageId, :kind, '\\x7b7d', :status, :nextAttemptAt, :createdAt)
                         """)
-                .param("id", UUID.randomUUID())
+                .param("id", id)
                 .param("endToEndId", endToEndId)
                 .param("messageId", messageId)
                 .param("kind", kind)
@@ -122,5 +144,6 @@ class DeliveriesTableTest {
                 .param("nextAttemptAt", nextAttemptAt)
                 .param("createdAt", NOW)
                 .update();
+        return id;
     }
 }

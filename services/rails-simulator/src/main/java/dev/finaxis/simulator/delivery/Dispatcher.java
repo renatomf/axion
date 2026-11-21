@@ -69,7 +69,7 @@ class Dispatcher {
                 outcome = DeliveryOutcome.FAILED;
             }
         }
-        deliveries.recordAttempt(delivery, attemptedAt, response, outcome, nextAttemptAt.orElse(null));
+        deliveries.recordAttempt(delivery, attemptedAt, response, outcome, nextAttemptAt.orElse(null), List.of());
         meters.counter(ATTEMPTS, "outcome", outcome.tag()).increment();
         LOG.atInfo()
                 .addKeyValue("end_to_end_id", delivery.endToEndId())

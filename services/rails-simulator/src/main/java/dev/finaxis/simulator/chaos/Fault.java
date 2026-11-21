@@ -23,7 +23,7 @@ public enum Fault {
         return tag;
     }
 
-    static Optional<Fault> ofTag(String tag) {
+    public static Optional<Fault> ofTag(String tag) {
         return Arrays.stream(values()).filter(fault -> fault.tag.equals(tag)).findFirst();
     }
 }
