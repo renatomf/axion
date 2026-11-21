@@ -132,6 +132,21 @@ class DispatcherTest {
         assertThat(attempts(payment)).containsExactly("1 retried 503", "2 retried 500", "3 delivered 200");
         List<Received> requests = CORE.receivedFor("dispatch7");
         assertThat(requests).extracting(Received::body).containsOnly(message(payment));
+        requests.forEach(RailsContract::assertConforms);
+    }
+
+    @Test
+    void sendsWhatTheContractDescribesWithEveryOptionalField() {
+        Payment payment = spi.settle(new PaymentOrder(
+                12_345,
+                "dispatch11",
+                "123e4567-e12b-12d1-a456-426655440000",
+                "000201",
+                new Debtor("Bruno Lima", "11144477735"),
+                "Mensalidade de novembro"));
+
+        await().atMost(WAIT).until(() -> status(payment).equals("delivered"));
+        RailsContract.assertConforms(CORE.receivedFor("dispatch11").getFirst());
     }
 
     @Test
