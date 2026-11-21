@@ -146,7 +146,7 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | ↳ 1.22h | Ledger policies | `shared.current_platform_tenant()`; the read and write policies of the ledger tables, and read-only ones for `finaxis_ledger_jobs` and `finaxis_ledger_checks`; a source posted by another tenant, whose entry the policies hide, is still reported as such ([#163](https://github.com/renatomf/finaxis/pull/163)) |
 | 1.23 | Tenant isolation harness | A test that walks every OpenAPI operation attempting cross-tenant access |
 | ↳ 1.23a | Cross-tenant isolation | Operations read from the OpenAPI contracts, each with a fixture or the suite fails; tenant A's credential on tenant B's resources gets `404`, and lists never include them ([#169](https://github.com/renatomf/finaxis/pull/169)) |
-| ↳ 1.23b | Environment isolation | A test key never reaches live data |
+| ↳ 1.23b | Environment isolation | A test key never reaches live data ([#171](https://github.com/renatomf/finaxis/pull/171)) |
 | 1.24 | Rate limiting | Per-tenant and per-key limits, `429` with `Retry-After` |
 | ↳ 1.24a | API key rate limits | Bucket4j buckets per tenant and per key, in a bounded cache, applied after authentication; `429 rate_limited` with `Retry-After` |
 | ↳ 1.24b | Member limits and headers | Per-member buckets on `/internal`; `RateLimit-Policy` and `RateLimit` headers |
