@@ -1,5 +1,8 @@
 package dev.finaxis.simulator.payer;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import dev.finaxis.simulator.delivery.Deliveries;
+import dev.finaxis.simulator.delivery.Delivery;
 import dev.finaxis.simulator.spi.Debtor;
 import dev.finaxis.simulator.spi.EndToEndId;
 import dev.finaxis.simulator.spi.Iso20022;
@@ -8,6 +11,9 @@ import dev.finaxis.simulator.spi.Payment;
 import dev.finaxis.simulator.spi.PaymentOrder;
 import dev.finaxis.simulator.spi.Spi;
 import java.net.URI;
+import java.time.Instant;
+import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -33,9 +39,11 @@ class PaymentController {
     private static final int MAX_TEXT = 140;
 
     private final Spi spi;
+    private final Deliveries deliveries;
 
-    PaymentController(Spi spi) {
+    PaymentController(Spi spi, Deliveries deliveries) {
         this.spi = spi;
+        this.deliveries = deliveries;
     }
 
     @PostMapping("/pix/payments")
@@ -56,15 +64,19 @@ class PaymentController {
         LOG.info("Settled Pix payment {}", payment.endToEndId());
 
         URI location = URI.create("/pix/payments/" + payment.endToEndId());
+        String delivery =
+                lowerCase(deliveries.of(payment.endToEndId().value()).getFirst().status());
         return ResponseEntity.created(location)
-                .body(new PaymentCreated(payment.endToEndId().value(), Iso20022.dateTime(payment.settledAt())));
+                .body(new PaymentCreated(
+                        payment.endToEndId().value(), Iso20022.dateTime(payment.settledAt()), delivery));
     }
 
     @GetMapping("/pix/payments/{endToEndId}")
     PaymentView payment(@PathVariable String endToEndId) {
         return parse(endToEndId)
                 .flatMap(spi::find)
-                .map(PaymentView::of)
+                .map(payment -> PaymentView.of(
+                        payment, deliveries.of(payment.endToEndId().value())))
                 .orElseThrow(() -> new ErrorResponseException(
                         HttpStatus.NOT_FOUND,
                         ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "No payment has this EndToEndId."),
@@ -89,6 +101,14 @@ class PaymentController {
             throw badRequest("payer.taxId must be a valid CPF of 11 digits.");
         }
         return new Debtor(name, taxId);
+    }
+
+    private static String lowerCase(Enum<?> value) {
+        return value.name().toLowerCase(Locale.ROOT);
+    }
+
+    private static @Nullable String dateTime(@Nullable Instant instant) {
+        return instant == null ? null : Iso20022.dateTime(instant);
     }
 
     private static ErrorResponseException badRequest(String detail) {
@@ -120,22 +140,62 @@ class PaymentController {
         }
     }
 
-    record PaymentCreated(String endToEndId, String settledAt) {}
+    record PaymentCreated(String endToEndId, String settledAt, String delivery) {}
 
     record PaymentView(
             String endToEndId,
             String transactionId,
             Amount interbankSettlementAmount,
             Agent debtorAgent,
-            String settledAt) {
+            String settledAt,
+            List<DeliveryView> deliveries) {
 
-        static PaymentView of(Payment payment) {
+        static PaymentView of(Payment payment, List<Delivery> deliveries) {
             return new PaymentView(
                     payment.endToEndId().value(),
                     payment.transactionId(),
                     Amount.ofMinor(payment.amountMinor()),
                     new Agent(payment.debtorInstitution().digits()),
-                    Iso20022.dateTime(payment.settledAt()));
+                    Iso20022.dateTime(payment.settledAt()),
+                    deliveries.stream().map(DeliveryView::of).toList());
+        }
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record DeliveryView(
+            String id,
+            String kind,
+            String status,
+            String createdAt,
+            @Nullable String nextAttemptAt,
+            List<AttemptView> attempts) {
+
+        static DeliveryView of(Delivery delivery) {
+            return new DeliveryView(
+                    delivery.id().toString(),
+                    delivery.kind(),
+                    lowerCase(delivery.status()),
+                    Iso20022.dateTime(delivery.createdAt()),
+                    dateTime(delivery.nextAttemptAt()),
+                    delivery.attempts().stream().map(AttemptView::of).toList());
+        }
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record AttemptView(
+            int number,
+            String attemptedAt,
+            @Nullable Integer responseStatus,
+            @Nullable String error,
+            String outcome) {
+
+        static AttemptView of(Delivery.Attempt attempt) {
+            return new AttemptView(
+                    attempt.number(),
+                    Iso20022.dateTime(attempt.attemptedAt()),
+                    attempt.responseStatus(),
+                    attempt.error(),
+                    attempt.outcome());
         }
     }
 

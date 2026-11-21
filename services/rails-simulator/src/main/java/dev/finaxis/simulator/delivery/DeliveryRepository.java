@@ -7,7 +7,9 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -133,6 +135,50 @@ class DeliveryRepository {
                 .param("status", outcome.status().name().toLowerCase(Locale.ROOT))
                 .param("nextAttemptAt", nextAttemptAt == null ? null : utc(nextAttemptAt))
                 .update();
+    }
+
+    List<Delivery> findByEndToEndId(String endToEndId) {
+        Map<UUID, List<Delivery.Attempt>> attempts = jdbc
+                .sql("""
+                        SELECT a.delivery_id, a.number, a.attempted_at, a.response_status, a.error, a.outcome
+                        FROM delivery_attempts a JOIN deliveries d ON d.id = a.delivery_id
+                        WHERE d.end_to_end_id = ?
+                        ORDER BY a.number
+                        """)
+                .param(endToEndId)
+                .query((row, number) -> Map.entry(row.getObject("delivery_id", UUID.class), attempt(row)))
+                .list()
+                .stream()
+                .collect(Collectors.groupingBy(
+                        Map.Entry::getKey, Collectors.mapping(Map.Entry::getValue, Collectors.toList())));
+        return jdbc.sql("""
+                        SELECT id, kind, status, created_at, next_attempt_at
+                        FROM deliveries
+                        WHERE end_to_end_id = ?
+                        ORDER BY created_at, id
+                        """)
+                .param(endToEndId)
+                .query((row, number) -> {
+                    UUID id = row.getObject("id", UUID.class);
+                    OffsetDateTime next = row.getObject("next_attempt_at", OffsetDateTime.class);
+                    return new Delivery(
+                            id,
+                            row.getString("kind"),
+                            DeliveryStatus.valueOf(row.getString("status").toUpperCase(Locale.ROOT)),
+                            row.getObject("created_at", OffsetDateTime.class).toInstant(),
+                            next == null ? null : next.toInstant(),
+                            attempts.getOrDefault(id, List.of()));
+                })
+                .list();
+    }
+
+    private static Delivery.Attempt attempt(ResultSet row) throws SQLException {
+        return new Delivery.Attempt(
+                row.getInt("number"),
+                row.getObject("attempted_at", OffsetDateTime.class).toInstant(),
+                row.getObject("response_status", Integer.class),
+                row.getString("error"),
+                row.getString("outcome"));
     }
 
     private static Due due(ResultSet row, int rowNumber) throws SQLException {

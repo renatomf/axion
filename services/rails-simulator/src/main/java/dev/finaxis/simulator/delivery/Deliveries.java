@@ -2,6 +2,7 @@ package dev.finaxis.simulator.delivery;
 
 import java.time.Clock;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -36,5 +37,11 @@ public class Deliveries {
         var id = UUID.randomUUID();
         deliveries.insert(id, endToEndId, messageId, message, clock.instant().truncatedTo(ChronoUnit.MICROS));
         return id;
+    }
+
+    /** The deliveries of a payment, oldest first, each with its attempts in order. */
+    @Transactional(readOnly = true)
+    public List<Delivery> of(String endToEndId) {
+        return deliveries.findByEndToEndId(endToEndId);
     }
 }

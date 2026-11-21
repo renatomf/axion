@@ -48,6 +48,80 @@ class PaymentApiTest {
         assertThat(result).hasStatus(HttpStatus.CREATED).hasContentType(MediaType.APPLICATION_JSON);
         assertThat(result).bodyJson().extractingPath("$.endToEndId").asString().matches(END_TO_END_ID);
         assertThat(result).bodyJson().extractingPath("$.settledAt").asString().matches(MILLISECONDS);
+        assertThat(result).bodyJson().extractingPath("$.delivery").isEqualTo("pending");
+    }
+
+    @Test
+    void showsThePaymentsDeliveryToTheCore() {
+        String location = location(pay("{\"brCode\": \"" + BrCodeTest.PAYABLE + "\"}"));
+
+        MvcTestResult payment = get(location);
+
+        assertThat(payment).bodyJson().extractingPath("$.deliveries.length()").isEqualTo(1);
+        assertThat(payment).bodyJson().extractingPath("$.deliveries[0].kind").isEqualTo("original");
+        assertThat(payment).bodyJson().extractingPath("$.deliveries[0].status").isEqualTo("pending");
+        assertThat(payment)
+                .bodyJson()
+                .extractingPath("$.deliveries[0].createdAt")
+                .asString()
+                .matches(MILLISECONDS);
+        assertThat(payment)
+                .bodyJson()
+                .extractingPath("$.deliveries[0].nextAttemptAt")
+                .asString()
+                .matches(MILLISECONDS);
+        assertThat(payment)
+                .bodyJson()
+                .extractingPath("$.deliveries[0].attempts")
+                .asArray()
+                .isEmpty();
+    }
+
+    @Test
+    void showsEveryAttemptInOrder() {
+        String location = location(pay("{\"brCode\": \"" + BrCodeTest.PAYABLE + "\"}"));
+        String endToEndId = location.substring(location.lastIndexOf('/') + 1);
+        jdbc.sql("""
+                        INSERT INTO delivery_attempts (delivery_id, number, attempted_at, response_status, error, outcome)
+                        SELECT id, 1, now(), NULL, 'timeout', 'retried' FROM deliveries WHERE end_to_end_id = :id
+                        UNION ALL
+                        SELECT id, 2, now(), 200, NULL, 'delivered' FROM deliveries WHERE end_to_end_id = :id
+                        """).param("id", endToEndId).update();
+        jdbc.sql(
+                        "UPDATE deliveries SET status = 'delivered', attempts = 2, next_attempt_at = NULL WHERE end_to_end_id = ?")
+                .param(endToEndId)
+                .update();
+
+        MvcTestResult payment = get(location);
+
+        assertThat(payment).bodyJson().extractingPath("$.deliveries[0].status").isEqualTo("delivered");
+        assertThat(payment).bodyJson().doesNotHavePath("$.deliveries[0].nextAttemptAt");
+        assertThat(payment)
+                .bodyJson()
+                .extractingPath("$.deliveries[0].attempts[0].number")
+                .isEqualTo(1);
+        assertThat(payment)
+                .bodyJson()
+                .extractingPath("$.deliveries[0].attempts[0].error")
+                .isEqualTo("timeout");
+        assertThat(payment).bodyJson().doesNotHavePath("$.deliveries[0].attempts[0].responseStatus");
+        assertThat(payment)
+                .bodyJson()
+                .extractingPath("$.deliveries[0].attempts[0].outcome")
+                .isEqualTo("retried");
+        assertThat(payment)
+                .bodyJson()
+                .extractingPath("$.deliveries[0].attempts[1].responseStatus")
+                .isEqualTo(200);
+        assertThat(payment)
+                .bodyJson()
+                .extractingPath("$.deliveries[0].attempts[1].outcome")
+                .isEqualTo("delivered");
+        assertThat(payment)
+                .bodyJson()
+                .extractingPath("$.deliveries[0].attempts[1].attemptedAt")
+                .asString()
+                .matches(MILLISECONDS);
     }
 
     @Test
@@ -205,6 +279,10 @@ class PaymentApiTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body)
                 .exchange();
+    }
+
+    private static String location(MvcTestResult created) {
+        return String.valueOf(created.getResponse().getHeader(HttpHeaders.LOCATION));
     }
 
     private JsonNode notification(MvcTestResult created) {

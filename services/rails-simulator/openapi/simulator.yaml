@@ -52,7 +52,9 @@ paths:
               $ref: "#/components/schemas/PaymentRequest"
       responses:
         "201":
-          description: The payment is settled.
+          description: >-
+            The payment is settled, and its credit notification is owed to the
+            core; `delivery` says whether the core has accepted it yet.
           headers:
             Location:
               description: The payment's URL.
@@ -83,8 +85,9 @@ paths:
       tags: [Payments]
       summary: Get a payment
       description: >-
-        A payment the simulator settled, as recorded when it settled. Payments
-        are kept for as long as the simulator's database.
+        A payment the simulator settled, as recorded when it settled, with
+        every delivery of its notification to the core and every attempt.
+        Payments are kept for as long as the simulator's database.
       parameters:
         - name: endToEndId
           in: path
@@ -173,15 +176,17 @@ components:
           maxLength: 140
     PaymentCreated:
       type: object
-      required: [endToEndId, settledAt]
+      required: [endToEndId, settledAt, delivery]
       properties:
         endToEndId:
           $ref: "#/components/schemas/EndToEndId"
         settledAt:
           $ref: "#/components/schemas/Timestamp"
+        delivery:
+          $ref: "#/components/schemas/DeliveryStatus"
     Payment:
       type: object
-      required: [endToEndId, transactionId, interbankSettlementAmount, debtorAgent, settledAt]
+      required: [endToEndId, transactionId, interbankSettlementAmount, debtorAgent, settledAt, deliveries]
       properties:
         endToEndId:
           $ref: "#/components/schemas/EndToEndId"
@@ -202,6 +207,69 @@ components:
               pattern: "^[0-9]{8}$"
         settledAt:
           $ref: "#/components/schemas/Timestamp"
+        deliveries:
+          description: The deliveries of the payment's credit notification, oldest first.
+          type: array
+          items:
+            $ref: "#/components/schemas/Delivery"
+    Delivery:
+      description: One delivery of a message to the core, sent at least once.
+      type: object
+      required: [id, kind, status, createdAt, attempts]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          description: >-
+            `original`, the notification of the payment; `duplicate`, a copy a
+            chaos rule asked for; `redelivery`, one an operator asked for.
+          type: string
+          enum: [original, duplicate, redelivery]
+        status:
+          $ref: "#/components/schemas/DeliveryStatus"
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        nextAttemptAt:
+          description: When it is sent next; present only while it is pending.
+          allOf:
+            - $ref: "#/components/schemas/Timestamp"
+        attempts:
+          description: Every attempt, in order.
+          type: array
+          items:
+            $ref: "#/components/schemas/Attempt"
+    Attempt:
+      type: object
+      required: [number, attemptedAt, outcome]
+      properties:
+        number:
+          type: integer
+          minimum: 1
+        attemptedAt:
+          $ref: "#/components/schemas/Timestamp"
+        responseStatus:
+          description: The core's status code; absent when no answer came.
+          type: integer
+          minimum: 100
+          maximum: 599
+        error:
+          description: Why no answer came; absent when one did.
+          type: string
+          enum: [timeout, connection_failed]
+        outcome:
+          description: >-
+            `delivered`, the core accepted it; `retried`, it is tried again;
+            `refused`, the core refused it for good; `failed`, the 24 hours of
+            retries ran out.
+          type: string
+          enum: [delivered, retried, refused, failed]
+    DeliveryStatus:
+      description: >-
+        `pending`, owed to the core; `delivered`, accepted; `refused` or
+        `failed`, kept for an operator to redeliver.
+      type: string
+      enum: [pending, delivered, refused, failed]
     EndToEndId:
       description: >-
         The payment's identity on both sides: E, the payer institution's ISPB,
