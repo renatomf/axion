@@ -1,5 +1,6 @@
 package dev.finaxis.core.idempotency.web;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.ErrorResponseException;
@@ -31,6 +32,22 @@ final class IdempotencyProblems {
                 HttpStatus.CONTENT_TOO_LARGE,
                 "content_too_large",
                 "A request body is at most " + limit / 1024 + " KiB.");
+    }
+
+    static ErrorResponseException requestInProgress() {
+        ErrorResponseException problem = problem(
+                HttpStatus.CONFLICT,
+                "request_in_progress",
+                "A request with this Idempotency-Key is still running; retry later.");
+        problem.getHeaders().set(HttpHeaders.RETRY_AFTER, "1");
+        return problem;
+    }
+
+    static ErrorResponseException keyReused() {
+        return problem(
+                HttpStatus.UNPROCESSABLE_CONTENT,
+                "idempotency_key_reused",
+                "This Idempotency-Key was used for a request with another path or body.");
     }
 
     private static ErrorResponseException problem(HttpStatus status, String code, String detail) {
