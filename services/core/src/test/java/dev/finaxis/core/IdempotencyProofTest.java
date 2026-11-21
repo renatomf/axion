@@ -20,6 +20,7 @@ import dev.finaxis.core.ledger.PostResult;
 import dev.finaxis.core.ledger.PostingRequest;
 import dev.finaxis.core.ledger.application.BalanceVerifier;
 import dev.finaxis.core.ledger.application.LedgerVerification;
+import dev.finaxis.core.observability.CorrelationIdFilter;
 import dev.finaxis.core.shared.BusinessCalendar;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.Money;
@@ -195,6 +196,35 @@ class IdempotencyProofTest {
         assertThat(storedBalance(available)).isEqualTo(2_000);
     }
 
+    /**
+     * The latest failure a request can meet: its entry is posted and its response captured, and the
+     * commit fails. The client is told nothing of the payment, and its retry pays once.
+     */
+    @Test
+    void leavesNothingOfAPaymentWhoseCommitFailsAndPaysOnTheRetry() throws Exception {
+        String body = payment(1_000);
+
+        HttpResponse<String> failed;
+        try (var _ = failAtCommit()) {
+            failed = pay("order-1", body);
+        }
+
+        assertThat(failed.statusCode()).isEqualTo(500);
+        assertThat(code(failed)).isEqualTo("internal_server_error");
+        assertThat(failed.headers().firstValue("Location")).isEmpty();
+        assertThat(failed.headers().firstValue(CorrelationIdFilter.HEADER)).isPresent();
+        assertThat(failed.headers().firstValue("RateLimit")).isPresent();
+        assertThat(entries()).isZero();
+        assertThat(storedKeys()).isZero();
+
+        var retry = pay("order-1", body);
+
+        assertThat(retry.statusCode()).isEqualTo(201);
+        assertThat(retry.headers().firstValue("Idempotent-Replayed")).isEmpty();
+        assertThat(entries()).isOne();
+        assertThat(storedBalance(available)).isEqualTo(1_000);
+    }
+
     private String payment(long amount) {
         return """
                 {"debit": "%s", "credit": "%s", "amount": %d}""".formatted(settlement.value(), available.value(), amount);
@@ -244,6 +274,35 @@ class IdempotencyProofTest {
                 Environment.TEST,
                 () -> ledger.openAccount(
                         new AccountRequest(organization.test().value(), code, type, BRL, allowNegative, false)));
+    }
+
+    /**
+     * Fails the commit of every transaction that stores a key of this test's tenant, until closed.
+     * The trigger is deferred, so it fires at commit, after the entry and the key were written.
+     */
+    private AutoCloseable failAtCommit() {
+        owner.sql("""
+                CREATE FUNCTION idempotency.fail_at_commit() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    RAISE EXCEPTION 'injected failure at commit';
+                END
+                $$""").update();
+        owner.sql("""
+                CREATE CONSTRAINT TRIGGER fail_at_commit AFTER INSERT ON idempotency.keys
+                    DEFERRABLE INITIALLY DEFERRED
+                    FOR EACH ROW WHEN (NEW.tenant_id = '%s')
+                    EXECUTE FUNCTION idempotency.fail_at_commit()""".formatted(organization.test().value())).update();
+        return () -> {
+            owner.sql("DROP TRIGGER fail_at_commit ON idempotency.keys").update();
+            owner.sql("DROP FUNCTION idempotency.fail_at_commit()").update();
+        };
+    }
+
+    private long storedKeys() {
+        return Objects.requireNonNull(owner.sql("SELECT count(*) FROM idempotency.keys WHERE tenant_id = ?")
+                .param(organization.test().value())
+                .query(Long.class)
+                .single());
     }
 
     /** Read as the owner, so Row-Level Security cannot hide an entry that was posted. */
