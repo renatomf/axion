@@ -22,6 +22,11 @@ spring:
     validate-migration-naming: true
 
 simulator:
+  core:
+    # Where the core receives the rails' messages (rails simulator design,
+    # section 8.2). No default: each environment sets RAILS_SIMULATOR_CORE_URL,
+    # and the simulator does not start without it.
+    url: ${RAILS_SIMULATOR_CORE_URL}
   operator:
     # The bearer token of the operator API. No default: each environment
     # sets RAILS_SIMULATOR_OPERATOR_TOKEN, and the simulator does not start
