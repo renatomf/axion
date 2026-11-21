@@ -13,6 +13,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
@@ -29,11 +30,17 @@ class SecurityConfiguration {
     static final String CONTENT_SECURITY_POLICY = "default-src 'none'; frame-ancestors 'none'";
 
     @Bean
+    RateLimits rateLimits(Clock clock) {
+        return new RateLimits(clock);
+    }
+
+    @Bean
     @Order(1)
     SecurityFilterChain internalFilterChain(
             HttpSecurity http,
             @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver,
-            JwtDecoder jwtDecoder) {
+            JwtDecoder jwtDecoder,
+            RateLimits limits) {
         http.securityMatcher("/internal/**");
         http.authorizeHttpRequests(requests -> requests.anyRequest().authenticated());
 
@@ -41,6 +48,7 @@ class SecurityConfiguration {
         http.oauth2ResourceServer(server -> server.jwt(jwt -> jwt.decoder(jwtDecoder))
                 .authenticationEntryPoint(rejections)
                 .accessDeniedHandler(rejections));
+        http.addFilterAfter(new MemberRateLimitFilter(limits, rejections), BearerTokenAuthenticationFilter.class);
 
         return build(http, rejections);
     }
@@ -52,14 +60,14 @@ class SecurityConfiguration {
             @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver,
             AccessApi access,
             MeterRegistry meters,
-            Clock clock) {
+            RateLimits limits) {
         http.securityMatcher("/v1/**");
         http.authorizeHttpRequests(requests -> requests.anyRequest().authenticated());
 
         ProblemDetailsSecurityHandler rejections = new ProblemDetailsSecurityHandler(resolver);
         var failures = new AuthenticationFailures(meters);
         http.addFilterBefore(
-                new ApiKeyAuthenticationFilter(access, rejections, failures, new ApiKeyRateLimits(clock)),
+                new ApiKeyAuthenticationFilter(access, rejections, failures, limits),
                 AnonymousAuthenticationFilter.class);
 
         return build(http, rejections);
