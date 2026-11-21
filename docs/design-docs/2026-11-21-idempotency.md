@@ -246,3 +246,19 @@ The store answers on behalf of the operations, from a copy of their responses. T
 | **Information disclosure** | Logs carry whatever a client put in its keys | Logs carry the key's hash, never the key |
 | **Denial of service** | A flood of repeats or of new keys | A repeat answers `409` at once and holds no connection; new keys are bounded by the rate limits; bodies and stored responses are capped at 64 KiB; expired rows are removed every hour |
 | **Elevation of privilege** | A replay gives a caller a response it could not obtain itself | The step runs after authentication, rate limiting and the permission check; the jobs role sees expired rows only; the module role can neither change nor delete a row |
+
+## 11. Delivery
+
+| PR | Delivers | Sections |
+|---|---|---|
+| 1.26a | The `idempotency` module: the keys table, its roles and policies; `IdempotencyApi.execute` with the lock, the lookup and the insert; the removal job | 4.1, 4.2, 4.4, 5, 6, 7 |
+| 1.26b | The web step: header and body checks, the fingerprint, its place in the handler adapter, response capture and replay; the header in `v1.yaml` with its Spectral rule; the idempotency guide in `docs/api` | 3, 4.3 |
+| 1.27 | The `financial-integrity` proof | 8 |
+
+`POST /v1/charges` (PR 1.35b) is the first real `/v1` write, and it is idempotent with nothing of its own.
+
+## 12. Open questions
+
+1. **A required header.** Every `/v1` `POST` requires `Idempotency-Key` (section 3.1), where Stripe makes it optional. Is the stricter rule worth the small cost to integrators?
+2. **Server errors.** A `5xx` is never stored and its retry runs again (section 3.4), where Stripe stores it. Is anything lost by not storing it?
+3. **The fingerprint.** The raw body bytes, not a canonical form of the JSON (section 3.3). Is that strict enough to be safe without surprising clients that re-serialize?
