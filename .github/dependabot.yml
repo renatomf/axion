@@ -37,6 +37,17 @@ updates:
       core-dependencies:
         patterns: ["*"]
 
+  # Rails simulator build, its own Gradle project; bumped apart from the core's.
+  - package-ecosystem: gradle
+    directory: /services/rails-simulator
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    groups:
+      rails-simulator-dependencies:
+        patterns: ["*"]
+
   # Local infrastructure images in infra/compose. Tag and digest are bumped
   # together. Major versions follow the design doc and are upgraded by hand.
   - package-ecosystem: docker-compose
