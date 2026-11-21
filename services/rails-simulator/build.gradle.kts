@@ -46,6 +46,7 @@ dependencies {
     // Test-only libraries: on the test classpath, never in the packaged JAR.
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.spring.boot.starter.webmvc.test)
+    testImplementation(libs.archunit.junit5)
     testRuntimeOnly(libs.junit.platform.launcher)
 
     // Error Prone itself: on its own configuration, used only by the compiler.

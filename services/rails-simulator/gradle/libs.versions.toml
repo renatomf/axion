@@ -28,6 +28,8 @@ jspecify = { module = "org.jspecify:jspecify" }
 spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
 # MockMvc support for testing Spring MVC endpoints without a real server.
 spring-boot-starter-webmvc-test = { module = "org.springframework.boot:spring-boot-starter-webmvc-test" }
+# Architecture rules written as unit tests.
+archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
 # Lets Gradle launch JUnit tests; Gradle 9 requires it on the test runtime classpath.
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 # Static analysis that runs inside javac and reports common Java bug patterns.
