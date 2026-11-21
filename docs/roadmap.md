@@ -149,7 +149,7 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | ↳ 1.23b | Environment isolation | A test key never reaches live data ([#171](https://github.com/renatomf/finaxis/pull/171)) |
 | 1.24 | Rate limiting | Per-tenant and per-key limits, `429` with `Retry-After` |
 | ↳ 1.24a | API key rate limits | Bucket4j buckets per tenant and per key, in a bounded cache, applied after authentication; `429 rate_limited` with `Retry-After` ([#173](https://github.com/renatomf/finaxis/pull/173)) |
-| ↳ 1.24b | Member limits and headers | Per-member buckets on `/internal`; `RateLimit-Policy` and `RateLimit` headers |
+| ↳ 1.24b | Member limits and headers | Per-member buckets on `/internal`; `RateLimit-Policy` and `RateLimit` headers ([#175](https://github.com/renatomf/finaxis/pull/175)) |
 
 **Cleanup before 1.22.** The existing code was brought to the [comment standard](architecture/engineering-standards.md#comments-and-documentation) ([#133](https://github.com/renatomf/finaxis/pull/133)), one module per PR: `access` ([#135](https://github.com/renatomf/finaxis/pull/135), [#137](https://github.com/renatomf/finaxis/pull/137)), `tenancy` ([#139](https://github.com/renatomf/finaxis/pull/139)), `ledger` ([#141](https://github.com/renatomf/finaxis/pull/141)), then `shared`, `web` and `observability` ([#143](https://github.com/renatomf/finaxis/pull/143)). Duplicated test helpers and production code were removed ([#145](https://github.com/renatomf/finaxis/pull/145)), and `CONTRIBUTING.md` was trimmed to commands and rules ([#147](https://github.com/renatomf/finaxis/pull/147)). These PRs changed no behavior and take no roadmap number.
 
@@ -157,10 +157,10 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 
 | PR | Title | Delivers |
 |---|---|---|
-| 1.25 | Idempotency design doc | Insert-first mechanics, conflict semantics, retention |
+| 1.25 | Idempotency design doc | Claim mechanics, conflict semantics, retention |
 | 1.26 | Idempotency keys | Table, interceptor, stored responses, `409` and `422` semantics |
-| ↳ 1.26a | Idempotency store | The keys table, its constraints and database role; insert-first claim of a key and the stored response; scheduled removal of expired keys |
-| ↳ 1.26b | Idempotency interceptor | `Idempotency-Key` on `/v1` writes; a repeat replays the stored response; `409` for a request still in progress, `422` for a key reused with another body |
+| ↳ 1.26a | Idempotency store | The `idempotency` module: the keys table, its constraints and database roles; a key claimed under a transaction-scoped lock and stored with its response in the operation's transaction; scheduled removal of expired keys |
+| ↳ 1.26b | Idempotency interceptor | `Idempotency-Key` required on `/v1` writes; a repeat replays the stored response; `409` for a request still in progress, `422` for a key reused with another body |
 | 1.27 | Idempotency proof | 50 parallel repeats yield one effect |
 
 ### 4.5 Block E — Rails simulator
