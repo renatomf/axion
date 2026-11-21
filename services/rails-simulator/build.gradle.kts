@@ -40,6 +40,8 @@ dependencies {
     implementation(libs.spring.boot.starter.webmvc)
     // Operational endpoints under /actuator, starting with health.
     implementation(libs.spring.boot.starter.actuator)
+    // Authentication and authorization for every HTTP request, as servlet filters.
+    implementation(libs.spring.boot.starter.security)
     // Database access over JDBC, with a connection pool.
     implementation(libs.spring.boot.starter.jdbc)
     // The PostgreSQL driver is needed only when the service runs, never to compile.
@@ -53,6 +55,7 @@ dependencies {
     // Test-only libraries: on the test classpath, never in the packaged JAR.
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.spring.boot.starter.webmvc.test)
+    testImplementation(libs.spring.boot.starter.security.test)
     testImplementation(libs.spring.boot.testcontainers)
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.archunit.junit5)

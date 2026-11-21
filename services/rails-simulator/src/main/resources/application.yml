@@ -7,6 +7,12 @@ spring:
   application:
     # Identifies the service in logs and, later, in metrics.
     name: finaxis-rails-simulator
+  autoconfigure:
+    exclude:
+      # Without a user store of its own, Spring Boot creates an in-memory
+      # user with a generated password and logs it. Operators authenticate
+      # with a token, so that user is only a credential to leak.
+      - org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
   # The simulator's own database (rails simulator design, section 8.3). No
   # defaults: each environment sets SPRING_DATASOURCE_URL, _USERNAME and
   # _PASSWORD, and the simulator does not start without them.

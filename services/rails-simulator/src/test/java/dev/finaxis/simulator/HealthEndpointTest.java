@@ -8,6 +8,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 
 /** The health endpoint and its probes, the only endpoints the skeleton exposes. */
@@ -44,7 +45,8 @@ class HealthEndpointTest {
     }
 
     @Test
-    void doesNotExposeOtherEndpoints() {
+    @WithMockUser
+    void doesNotExposeOtherEndpointsEvenToAnOperator() {
         assertThat(mvc.get().uri("/actuator/env")).hasStatus(HttpStatus.NOT_FOUND);
     }
 }
