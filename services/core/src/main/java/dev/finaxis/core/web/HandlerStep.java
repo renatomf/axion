@@ -18,6 +18,9 @@ public interface HandlerStep extends Ordered {
     /** The order of the step that binds the caller's tenant: steps after it run with the tenant bound. */
     int TENANT_BINDING = 100;
 
+    /** The order of the step that runs a public API write once per idempotency key, inside the tenant binding. */
+    int IDEMPOTENCY = 200;
+
     /**
      * Runs the step, which calls {@code next} to go on, possibly with a wrapped request or response,
      * or answers the request itself.
