@@ -37,10 +37,12 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
+import org.springframework.web.ErrorResponseException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -57,6 +59,9 @@ import org.springframework.web.bind.annotation.RestController;
 class IdempotencyStepTest {
 
     static final String PATH = "/v1/idempotent_writes";
+
+    /** Over it, the write is refused, as an operation refuses what a limit does not allow. */
+    static final int LIMIT = 1_000;
 
     /** The amount whose write fails after its effect, as a bug would. */
     static final int FAILING = 500;
@@ -75,6 +80,12 @@ class IdempotencyStepTest {
         @RequiresPermission(CHARGES_WRITE)
         @PostMapping(PATH)
         ResponseEntity<Map<String, Object>> write(@Valid @RequestBody WriteRequest request) {
+            if (request.amount() > LIMIT) {
+                ProblemDetail problem =
+                        ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, "Over the limit.");
+                problem.setProperty("code", "limit_exceeded");
+                throw new ErrorResponseException(HttpStatus.UNPROCESSABLE_CONTENT, problem, null);
+            }
             TenantId tenant = TenantContext.current().orElseThrow().tenant();
             String code = "test:" + UUID.randomUUID();
             ledger.openAccount(new AccountRequest(
@@ -279,6 +290,17 @@ class IdempotencyStepTest {
 
         assertThat(write(key, "order-1", BODY)).hasStatus(HttpStatus.CREATED);
         assertThat(effects()).isOne();
+    }
+
+    @Test
+    void storesAThrownRefusalAndReplaysIt() {
+        String overLimit = "{\"amount\": " + (LIMIT + 1) + "}";
+        assertProblem(assertThat(write(key, "order-1", overLimit)), HttpStatus.UNPROCESSABLE_CONTENT, "limit_exceeded")
+                .doesNotContainHeader(IdempotencyStep.REPLAYED_HEADER);
+
+        assertProblem(assertThat(write(key, "order-1", overLimit)), HttpStatus.UNPROCESSABLE_CONTENT, "limit_exceeded")
+                .hasHeader(IdempotencyStep.REPLAYED_HEADER, "true");
+        assertThat(storedKeys()).isOne();
     }
 
     @Test

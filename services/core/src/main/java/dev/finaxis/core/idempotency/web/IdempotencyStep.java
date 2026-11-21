@@ -20,10 +20,13 @@ import java.util.Objects;
 import java.util.function.Supplier;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
+import org.springframework.web.ErrorResponseException;
 import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.servlet.HandlerExceptionResolver;
 import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
@@ -49,9 +52,13 @@ final class IdempotencyStep implements HandlerStep {
     private static final String PUBLIC_API = "/v1/";
 
     private final IdempotencyApi idempotency;
+    private final HandlerExceptionResolver exceptionResolver;
 
-    IdempotencyStep(IdempotencyApi idempotency) {
+    IdempotencyStep(
+            IdempotencyApi idempotency,
+            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver exceptionResolver) {
         this.idempotency = idempotency;
+        this.exceptionResolver = exceptionResolver;
     }
 
     @Override
@@ -71,7 +78,7 @@ final class IdempotencyStep implements HandlerStep {
         IdempotentRequest idempotent =
                 new IdempotentRequest(tenant(), key, Fingerprint.of(path(request), cached.body()), correlationId());
         ContentCachingResponseWrapper capturing = new ContentCachingResponseWrapper(response);
-        Operation operation = new Operation(cached, capturing, next);
+        Operation operation = new Operation(cached, capturing, handler, next);
 
         IdempotentResult result;
         try {
@@ -141,17 +148,23 @@ final class IdempotencyStep implements HandlerStep {
         response.getOutputStream().write(body);
     }
 
-    /** The controller, run inside the key's transaction. Anything it throws rolls back. */
-    private static final class Operation implements Supplier<CapturedResponse> {
+    /**
+     * The controller, run inside the key's transaction. A problem the controller throws with a 4xx
+     * status is its answer, as a returned refusal is: it is written here, through the usual
+     * exception handling, so that it is stored and replayed. Anything else it throws rolls back.
+     */
+    private final class Operation implements Supplier<CapturedResponse> {
 
         private final CachedBodyRequest request;
         private final ContentCachingResponseWrapper response;
+        private final HandlerMethod handler;
         private final Next next;
         private @Nullable ModelAndView modelAndView;
 
-        Operation(CachedBodyRequest request, ContentCachingResponseWrapper response, Next next) {
+        Operation(CachedBodyRequest request, ContentCachingResponseWrapper response, HandlerMethod handler, Next next) {
             this.request = request;
             this.response = response;
+            this.handler = handler;
             this.next = next;
         }
 
@@ -159,6 +172,14 @@ final class IdempotencyStep implements HandlerStep {
         public CapturedResponse get() {
             try {
                 modelAndView = next.invoke(request, response);
+            } catch (ErrorResponseException refusal) {
+                if (!refusal.getStatusCode().is4xxClientError()) {
+                    throw refusal;
+                }
+                if (exceptionResolver.resolveException(request, response, handler, refusal) == null) {
+                    throw refusal;
+                }
+                modelAndView = null;
             } catch (RuntimeException failure) {
                 throw failure;
             } catch (Exception failure) {
