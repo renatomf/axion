@@ -3,6 +3,7 @@ package dev.finaxis.core.access.security;
 import dev.finaxis.core.access.web.AccessProblems;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import java.time.Duration;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.security.access.AccessDeniedException;
@@ -40,6 +41,10 @@ class ProblemDetailsSecurityHandler implements AuthenticationEntryPoint, AccessD
     // The caller proved it holds a working key, so it may learn why it is refused.
     void tenantInactive(HttpServletRequest request, HttpServletResponse response) {
         resolver.resolveException(request, response, null, AccessProblems.tenantInactive());
+    }
+
+    void rateLimited(HttpServletRequest request, HttpServletResponse response, Duration retryAfter) {
+        resolver.resolveException(request, response, null, AccessProblems.rateLimited(retryAfter));
     }
 
     private void reject(HttpServletRequest request, HttpServletResponse response, HttpStatus status, String detail) {

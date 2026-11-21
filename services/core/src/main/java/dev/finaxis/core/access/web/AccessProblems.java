@@ -1,5 +1,6 @@
 package dev.finaxis.core.access.web;
 
+import java.time.Duration;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -20,6 +21,15 @@ public final class AccessProblems {
 
     public static ErrorResponseException tenantInactive() {
         return problem(HttpStatus.FORBIDDEN, "tenant_inactive", "The tenant is not active.");
+    }
+
+    /** Retry-After is in whole seconds, rounded up so that a retry at that time finds a token. */
+    public static ErrorResponseException rateLimited(Duration retryAfter) {
+        ErrorResponseException problem =
+                problem(HttpStatus.TOO_MANY_REQUESTS, "rate_limited", "Too many requests; retry later.");
+        long seconds = Math.max(1, retryAfter.plusSeconds(1).minusNanos(1).toSeconds());
+        problem.getHeaders().set(HttpHeaders.RETRY_AFTER, Long.toString(seconds));
+        return problem;
     }
 
     static ErrorResponseException insufficientPermission() {

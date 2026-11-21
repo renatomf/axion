@@ -10,6 +10,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -26,7 +27,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * Authenticates a {@code /v1} request with the API key in its {@code Authorization} header
  * (tenancy design, sections 4.3 and 4.4). Every refused credential gets the same {@code 401}, so a
  * caller cannot learn whether a key exists, expired or was revoked; a working key of an inactive
- * tenant gets {@code 403 tenant_inactive}.
+ * tenant gets {@code 403 tenant_inactive}. An authenticated request beyond its key's or tenant's
+ * budget gets {@code 429 rate_limited} (section 6).
  */
 // Not a bean: Spring Boot would also register it with the servlet container, for every path.
 final class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
@@ -34,14 +36,19 @@ final class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
     private final AccessApi access;
     private final ProblemDetailsSecurityHandler rejections;
     private final AuthenticationFailures failures;
+    private final ApiKeyRateLimits limits;
     private final BearerTokenResolver bearer = new DefaultBearerTokenResolver();
     private final SecurityContextHolderStrategy contexts = SecurityContextHolder.getContextHolderStrategy();
 
     ApiKeyAuthenticationFilter(
-            AccessApi access, ProblemDetailsSecurityHandler rejections, AuthenticationFailures failures) {
+            AccessApi access,
+            ProblemDetailsSecurityHandler rejections,
+            AuthenticationFailures failures,
+            ApiKeyRateLimits limits) {
         this.access = access;
         this.rejections = rejections;
         this.failures = failures;
+        this.limits = limits;
     }
 
     @Override
@@ -63,6 +70,11 @@ final class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
         }
         switch (access.authenticate(credential)) {
             case Authenticated(var caller) -> {
+                Optional<Duration> retryAfter = limits.tryAcquire(caller);
+                if (retryAfter.isPresent()) {
+                    rejections.rateLimited(request, response, retryAfter.get());
+                    return;
+                }
                 SecurityContext context = contexts.createEmptyContext();
                 context.setAuthentication(new ApiKeyAuthentication(caller));
                 contexts.setContext(context);
