@@ -1,0 +1,231 @@
+# Contract of the rails simulator's operator API, the source of truth for its
+# endpoints (rails simulator design, section 7.4). Lint it with `just lint-api`.
+openapi: 3.1.1
+info:
+  title: Finaxis Rails Simulator Operator API
+  version: 0.1.0
+  summary: Drives the simulated Pix rails, the core's counterpart for payments.
+  description: |
+    Used by tests, the core's fault-injection suite, the console's demo mode
+    through its BFF, and developers. Never exposed publicly: the simulator is
+    bound to localhost, and every operation requires the operator token.
+
+    Conventions follow the simulated messages (design, section 5.1): camelCase
+    JSON with ISO 20022 names, amounts as decimal strings with two fraction
+    digits, times in UTC with milliseconds, and RFC 9457 Problem Details
+    errors. Clients ignore fields they do not know.
+  license:
+    name: Apache 2.0
+    identifier: Apache-2.0
+  contact:
+    url: https://github.com/renatomf/finaxis
+servers:
+  - url: http://localhost:8090
+    description: Local development
+security:
+  - operatorToken: []
+tags:
+  - name: Payments
+    description: >-
+      Pix payments of BR Codes, made by simulated payers and settled by the
+      simulated SPI.
+paths:
+  /pix/payments:
+    post:
+      operationId: payBrCode
+      tags: [Payments]
+      summary: Pay a BR Code
+      description: >-
+        A simulated payer pays the BR Code: one of the payers' institutions
+        debits the payer, identifies the payment with a new EndToEndId, and the
+        SPI settles it. The amount and the transaction ID are read from the
+        code (tags 54 and 62-05). An expired code is paid like any other, which
+        is how a late payment is produced. Not idempotent: paying one code
+        twice makes two payments.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentRequest"
+      responses:
+        "201":
+          description: The payment is settled.
+          headers:
+            Location:
+              description: The payment's URL.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentCreated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: >-
+            The BR Code cannot be paid; `detail` names the rule it breaks: the
+            structure, the CRC, the payload format, the Pix GUI, the currency,
+            the amount or the transaction ID.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /pix/payments/{endToEndId}:
+    get:
+      operationId: getPayment
+      tags: [Payments]
+      summary: Get a payment
+      description: >-
+        A payment the simulator settled, as recorded when it settled. Payments
+        are kept for as long as the simulator's database.
+      parameters:
+        - name: endToEndId
+          in: path
+          required: true
+          description: The payment's EndToEndId.
+          schema:
+            $ref: "#/components/schemas/EndToEndId"
+      responses:
+        "200":
+          description: The payment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Payment"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No payment has this EndToEndId.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+components:
+  securitySchemes:
+    operatorToken:
+      type: http
+      scheme: bearer
+      description: The operator token, configured as RAILS_SIMULATOR_OPERATOR_TOKEN.
+  responses:
+    BadRequest:
+      description: The body is not JSON, or lacks a required field.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unauthorized:
+      description: The operator token is missing or wrong.
+      headers:
+        WWW-Authenticate:
+          description: Always `Bearer`.
+          schema:
+            type: string
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    InternalServerError:
+      description: An unexpected error; the detail is generic.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+  schemas:
+    PaymentRequest:
+      type: object
+      required: [brCode]
+      properties:
+        brCode:
+          description: >-
+            The BR Code text, as a payer's app reads it from the QR code: an
+            EMV Merchant-Presented Mode payload ending with its CRC16 (tag 63).
+          type: string
+          minLength: 1
+          maxLength: 512
+    PaymentCreated:
+      type: object
+      required: [endToEndId, settledAt]
+      properties:
+        endToEndId:
+          $ref: "#/components/schemas/EndToEndId"
+        settledAt:
+          $ref: "#/components/schemas/Timestamp"
+    Payment:
+      type: object
+      required: [endToEndId, transactionId, interbankSettlementAmount, debtorAgent, settledAt]
+      properties:
+        endToEndId:
+          $ref: "#/components/schemas/EndToEndId"
+        transactionId:
+          description: The BR Code's transaction ID, by which the core finds the charge.
+          type: string
+          pattern: "^[A-Za-z0-9]{1,25}$"
+        interbankSettlementAmount:
+          $ref: "#/components/schemas/Amount"
+        debtorAgent:
+          description: The payer's institution.
+          type: object
+          required: [ispb]
+          properties:
+            ispb:
+              description: Its eight-digit ISPB, fictitious.
+              type: string
+              pattern: "^[0-9]{8}$"
+        settledAt:
+          $ref: "#/components/schemas/Timestamp"
+    EndToEndId:
+      description: >-
+        The payment's identity on both sides: E, the payer institution's ISPB,
+        the UTC minute of creation (yyyyMMddHHmm) and 11 letters or digits.
+      type: string
+      pattern: "^E[0-9]{8}[0-9]{12}[A-Za-z0-9]{11}$"
+      examples: [E99990011202611211430aB3dE5gH7jK]
+    Amount:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          description: A decimal string with two fraction digits, never a JSON number.
+          type: string
+          pattern: "^[0-9]+\\.[0-9]{2}$"
+          examples: ["100.00"]
+        currency:
+          type: string
+          const: BRL
+    Timestamp:
+      description: A time in UTC with milliseconds.
+      type: string
+      format: date-time
+      pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+      examples: ["2026-11-21T14:30:12.345Z"]
+    Problem:
+      description: >-
+        An RFC 9457 Problem Details document, with the media type
+        `application/problem+json`. Every error response uses it.
+      type: object
+      required: [title, status]
+      properties:
+        type:
+          description: A URI naming the problem type; `about:blank` when omitted.
+          type: string
+        title:
+          description: Short summary of the problem type, for humans.
+          type: string
+        status:
+          description: The HTTP status code.
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          description: Explanation of this occurrence, for humans.
+          type: string
+        instance:
+          description: The request path.
+          type: string

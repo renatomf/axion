@@ -35,7 +35,7 @@ _env:
         grep -q "^$key=" "$env" || { grep "^$key=" "$example" >> "$env"; echo "Added $key to $env"; }
     done
 
-# Lint the OpenAPI contracts of the core, after testing the project's lint rules
+# Lint the OpenAPI contracts of the core and the rails simulator, after testing the project's lint rules
 lint-api:
     pnpm run test:api-rules
     pnpm run lint:api
