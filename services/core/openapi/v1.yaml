@@ -16,6 +16,8 @@ info:
     - Every error is an RFC 9457 Problem Details document
       (`application/problem+json`) with a stable `code`.
     - Every operation requires authentication; nothing is public.
+    - Every `POST` requires an `Idempotency-Key` header, so that a retry
+      never has a second effect. Request bodies are at most 64 KiB.
   license:
     name: Apache 2.0
     identifier: Apache-2.0
