@@ -5,8 +5,8 @@
 spring:
   config:
     # Read the local infrastructure settings (RAILS_SIMULATOR_DB_PASSWORD,
-    # FINAXIS_DB_PORT) from the git-ignored file Docker Compose uses, so they
-    # are defined once. The path is relative to the working directory,
+    # RAILS_SIMULATOR_OPERATOR_TOKEN, FINAXIS_DB_PORT) from the git-ignored
+    # file Docker Compose uses, so they are defined once. The path is relative to the working directory,
     # services/rails-simulator under `./gradlew bootRun`.
     import: optional:file:../../infra/compose/.env[.properties]
   datasource:

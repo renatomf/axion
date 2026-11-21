@@ -2,6 +2,7 @@ package dev.finaxis.simulator.operator;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.security.access.AccessDeniedException;
@@ -27,17 +28,19 @@ class ProblemDetailsSecurityHandler implements AuthenticationEntryPoint, AccessD
     @Override
     public void commence(
             HttpServletRequest request, HttpServletResponse response, AuthenticationException authException) {
-        reject(request, response, HttpStatus.UNAUTHORIZED, "Authentication is required.");
+        var rejection = rejection(HttpStatus.UNAUTHORIZED, "Authentication is required.");
+        rejection.getHeaders().set(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        resolver.resolveException(request, response, null, rejection);
     }
 
     @Override
     public void handle(
             HttpServletRequest request, HttpServletResponse response, AccessDeniedException accessDeniedException) {
-        reject(request, response, HttpStatus.FORBIDDEN, "Access is denied.");
+        resolver.resolveException(request, response, null, rejection(HttpStatus.FORBIDDEN, "Access is denied."));
     }
 
-    private void reject(HttpServletRequest request, HttpServletResponse response, HttpStatus status, String detail) {
+    private static ErrorResponseException rejection(HttpStatus status, String detail) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
-        resolver.resolveException(request, response, null, new ErrorResponseException(status, problem, null));
+        return new ErrorResponseException(status, problem, null);
     }
 }

@@ -22,6 +22,11 @@ spring:
     validate-migration-naming: true
 
 simulator:
+  operator:
+    # The bearer token of the operator API. No default: each environment
+    # sets RAILS_SIMULATOR_OPERATOR_TOKEN, and the simulator does not start
+    # without it.
+    token: ${RAILS_SIMULATOR_OPERATOR_TOKEN}
   participants:
     # The payers' institutions, fictitious ISPBs that no institution in the
     # Central Bank's lists of Pix and STR participants uses (rails simulator
