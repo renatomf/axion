@@ -137,6 +137,37 @@ class ChaosDeliveryTest {
     }
 
     @Test
+    void sendsTheCopiesOfADuplicatedDeliveryWithIdenticalBytes() {
+        FaultRule rule = chaos.add(Fault.DUPLICATE, FaultParameters.duplicate(2), new Match(null, "chaosDup1"), 1);
+        Payment payment = pay("chaosDup1");
+        Payment untouched = pay("chaosDup1");
+
+        await().atMost(WAIT)
+                .until(() -> deliveries.of(payment.endToEndId().value()).stream()
+                        .allMatch(delivery -> delivery.status() == DeliveryStatus.DELIVERED));
+        List<Delivery> all = deliveries.of(payment.endToEndId().value());
+        assertThat(all).extracting(Delivery::kind).containsExactly("original", "duplicate", "duplicate");
+        assertThat(all)
+                .allSatisfy(delivery -> assertThat(delivery.faults())
+                        .containsExactly(new AppliedFault(rule.id(), Fault.DUPLICATE, null, null)));
+        assertThat(all)
+                .extracting(Delivery::createdAt)
+                .containsOnly(all.getFirst().createdAt());
+        await().atMost(WAIT).until(() -> delivery(untouched).status() == DeliveryStatus.DELIVERED);
+        assertThat(deliveries.of(untouched.endToEndId().value())).hasSize(1);
+        List<Received> requests = CORE.receivedFor("chaosDup1").stream()
+                .filter(request -> request.body().contains(payment.endToEndId().value()))
+                .toList();
+        assertThat(requests).hasSize(3);
+        assertThat(requests)
+                .extracting(Received::body)
+                .containsOnly(requests.getFirst().body());
+        assertThat(requests)
+                .extracting(request -> request.header("x-correlation-id"))
+                .containsOnly(requests.getFirst().header("x-correlation-id"));
+    }
+
+    @Test
     void countsAFaultAppliedAtCreationOnceCommitted() {
         double before = faultsCounted("delay");
         chaos.add(Fault.DELAY, FaultParameters.delay(Duration.ofMillis(1)), new Match(null, "chaosCount2"), 1);

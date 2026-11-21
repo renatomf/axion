@@ -15,7 +15,9 @@ public enum Fault {
     /** The attempt is sent, the core's answer discarded, and the delivery is retried. */
     LOST_RESPONSE("lost_response", false),
     /** The first attempt is postponed by the rule's duration. */
-    DELAY("delay", true);
+    DELAY("delay", true),
+    /** The message is also sent as the rule's number of copies, each its own delivery. */
+    DUPLICATE("duplicate", true);
 
     private final String tag;
     private final boolean atCreation;

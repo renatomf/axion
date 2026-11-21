@@ -20,6 +20,9 @@ public record FaultRule(
     /** The longest {@code delay}: enough for a notification to arrive after its charge expired. */
     public static final Duration MAX_DELAY = Duration.ofHours(1);
 
+    /** The most copies of one delivery: enough for any race on deduplication, too few to flood the core. */
+    public static final int MAX_COPIES = 10;
+
     public static final int MAX_TIMES = 1000;
 
     public FaultRule {
@@ -43,6 +46,13 @@ public record FaultRule(
         }
         if (duration != null && (!duration.isPositive() || duration.compareTo(MAX_DELAY) > 0)) {
             throw new IllegalArgumentException("A delay is more than zero and at most " + MAX_DELAY);
+        }
+        Integer copies = parameters.copies();
+        if ((fault == Fault.DUPLICATE) != (copies != null)) {
+            throw new IllegalArgumentException("Only duplicate, and always duplicate, has copies");
+        }
+        if (copies != null && (copies < 1 || copies > MAX_COPIES)) {
+            throw new IllegalArgumentException("A duplicate has 1 to " + MAX_COPIES + " copies");
         }
     }
 

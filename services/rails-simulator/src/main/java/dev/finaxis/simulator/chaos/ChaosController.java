@@ -93,9 +93,13 @@ class ChaosController {
         if (fault != Fault.DELAY && request.duration() != null) {
             throw badRequest("duration applies only to delay.");
         }
+        if (fault != Fault.DUPLICATE && request.copies() != null) {
+            throw badRequest("copies applies only to duplicate.");
+        }
         return switch (fault) {
             case LATENCY -> latency(request.min(), request.max());
             case DELAY -> FaultParameters.delay(delay(request.duration()));
+            case DUPLICATE -> FaultParameters.duplicate(copies(request.copies()));
             case FAIL, LOST_RESPONSE -> FaultParameters.NONE;
         };
     }
@@ -125,6 +129,13 @@ class ChaosController {
                     "duration must be more than zero and at most " + Durations.inSeconds(FaultRule.MAX_DELAY) + ".");
         }
         return duration;
+    }
+
+    private static int copies(@Nullable Integer copies) {
+        if (copies == null || copies < 1 || copies > FaultRule.MAX_COPIES) {
+            throw badRequest("copies must be an integer from 1 to " + FaultRule.MAX_COPIES + ".");
+        }
+        return copies;
     }
 
     private static Duration duration(String field, String value) {
@@ -178,6 +189,7 @@ class ChaosController {
             @Nullable String min,
             @Nullable String max,
             @Nullable String duration,
+            @Nullable Integer copies,
             @Nullable MatchRequest match,
             @Nullable Integer times) {}
 
@@ -193,6 +205,7 @@ class ChaosController {
             @Nullable String min,
             @Nullable String max,
             @Nullable String duration,
+            @Nullable Integer copies,
             MatchView match,
             int times,
             int remaining,
@@ -206,6 +219,7 @@ class ChaosController {
                     inSeconds(parameters.min()),
                     inSeconds(parameters.max()),
                     inSeconds(parameters.duration()),
+                    parameters.copies(),
                     new MatchView(rule.match().endToEndId(), rule.match().transactionId()),
                     rule.times(),
                     rule.remaining(),

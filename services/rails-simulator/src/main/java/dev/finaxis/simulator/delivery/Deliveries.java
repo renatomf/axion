@@ -47,13 +47,14 @@ public class Deliveries {
     }
 
     /**
-     * Records a message to deliver now, or later under a {@code delay} rule, in the caller's transaction.
+     * Records a message to deliver now, or later under a {@code delay} rule, in the caller's transaction;
+     * under a {@code duplicate} rule, its copies too, due at the same time.
      *
      * @param endToEndId the payment the message notifies
      * @param transactionId the transaction ID of the payment's BR Code, which rules may match
      * @param messageId the message's {@code messageId}
      * @param message the exact bytes to send on every attempt
-     * @return the delivery's id
+     * @return the id of the delivery, not of its copies
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public UUID schedule(String endToEndId, String transactionId, String messageId, byte[] message) {
@@ -61,7 +62,11 @@ public class Deliveries {
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         CreationFaults faults = chaos.atCreation(endToEndId, transactionId);
         Instant due = faults.delay().map(now::plus).orElse(now);
-        deliveries.insert(id, endToEndId, messageId, message, now, due, faults.applied());
+        deliveries.insert(id, endToEndId, messageId, Kind.ORIGINAL, message, now, due, faults.applied());
+        for (int copy = 0; copy < faults.copies(); copy++) {
+            deliveries.insert(
+                    UUID.randomUUID(), endToEndId, messageId, Kind.DUPLICATE, message, now, due, faults.applied());
+        }
         if (!faults.applied().isEmpty()) {
             countOnCommit(faults.applied());
             LOG.atInfo()

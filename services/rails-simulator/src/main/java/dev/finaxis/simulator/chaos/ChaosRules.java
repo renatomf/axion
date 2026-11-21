@@ -63,7 +63,17 @@ public class ChaosRules {
 
     /** The faults to apply to a notification as its delivery is created, spent as {@link #atAttempt} spends them. */
     public synchronized CreationFaults atCreation(String endToEndId, String transactionId) {
-        return new CreationFaults(apply(endToEndId, transactionId, null));
+        List<AppliedFault> applied = new ArrayList<>();
+        int copies = 0;
+        for (FaultRule rule : spend(endToEndId, transactionId, true)) {
+            applied.add(new AppliedFault(
+                    rule.id(), rule.fault(), null, rule.parameters().duration()));
+            Integer ruleCopies = rule.parameters().copies();
+            if (ruleCopies != null) {
+                copies = ruleCopies;
+            }
+        }
+        return new CreationFaults(applied, copies);
     }
 
     /**
@@ -74,24 +84,26 @@ public class ChaosRules {
      * @param attempt the number of the attempt about to be made, from 1
      */
     public synchronized AttemptFaults atAttempt(String endToEndId, String transactionId, int attempt) {
-        return new AttemptFaults(apply(endToEndId, transactionId, attempt));
+        return new AttemptFaults(spend(endToEndId, transactionId, false).stream()
+                .map(rule -> new AppliedFault(rule.id(), rule.fault(), attempt, latency(rule)))
+                .toList());
     }
 
-    /** Applies the rules of the faults at creation when {@code attempt} is null, and of those at each attempt otherwise. */
-    private List<AppliedFault> apply(String endToEndId, String transactionId, @Nullable Integer attempt) {
-        List<AppliedFault> applied = new ArrayList<>();
+    /** Spends one application of each rule that applies, of the faults at creation or of those at each attempt. */
+    private List<FaultRule> spend(String endToEndId, String transactionId, boolean atCreation) {
+        List<FaultRule> applied = new ArrayList<>();
         Set<Fault> taken = EnumSet.noneOf(Fault.class);
         for (FaultRule rule : List.copyOf(rules.values())) {
             Fault fault = rule.fault();
             boolean excluded = EXCLUSIVE.contains(fault) && taken.stream().anyMatch(EXCLUSIVE::contains);
-            if (fault.atCreation() != (attempt == null)
+            if (fault.atCreation() != atCreation
                     || taken.contains(fault)
                     || excluded
                     || !rule.match().matches(endToEndId, transactionId)) {
                 continue;
             }
             taken.add(fault);
-            applied.add(new AppliedFault(rule.id(), fault, attempt, waited(rule)));
+            applied.add(rule);
             if (rule.remaining() == 1) {
                 rules.remove(rule.id());
             } else {
@@ -101,16 +113,12 @@ public class ChaosRules {
         return applied;
     }
 
-    /**
-     * For {@code latency}, a wait drawn uniformly within the rule's range, both ends included, to the
-     * millisecond; for {@code delay}, its duration; none for the other faults.
-     */
-    private @Nullable Duration waited(FaultRule rule) {
+    /** For {@code latency}, a wait drawn uniformly within the rule's range, both ends included, to the millisecond. */
+    private @Nullable Duration latency(FaultRule rule) {
         Duration min = rule.parameters().min();
         Duration max = rule.parameters().max();
-        if (min != null && max != null) {
-            return min.plusMillis(random.nextLong(max.minus(min).toMillis() + 1));
-        }
-        return rule.parameters().duration();
+        return min == null || max == null
+                ? null
+                : min.plusMillis(random.nextLong(max.minus(min).toMillis() + 1));
     }
 }

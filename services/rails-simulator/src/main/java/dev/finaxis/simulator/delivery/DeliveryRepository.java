@@ -123,18 +123,20 @@ class DeliveryRepository {
             UUID id,
             String endToEndId,
             String messageId,
+            Kind kind,
             byte[] message,
             Instant createdAt,
             Instant nextAttemptAt,
             List<AppliedFault> faults) {
         jdbc.sql("""
                         INSERT INTO deliveries (id, end_to_end_id, message_id, kind, message, status, next_attempt_at, faults, created_at)
-                        VALUES (:id, :endToEndId, :messageId, 'original', :message, 'pending', :nextAttemptAt,
+                        VALUES (:id, :endToEndId, :messageId, :kind, :message, 'pending', :nextAttemptAt,
                                 CAST(:faults AS jsonb), :createdAt)
                         """)
                 .param("id", id)
                 .param("endToEndId", endToEndId)
                 .param("messageId", messageId)
+                .param("kind", kind.tag())
                 .param("message", message)
                 .param("nextAttemptAt", utc(nextAttemptAt))
                 .param("faults", json(faults))
@@ -225,7 +227,7 @@ class DeliveryRepository {
                         SELECT id, kind, status, created_at, next_attempt_at, faults
                         FROM deliveries
                         WHERE end_to_end_id = ?
-                        ORDER BY created_at, id
+                        ORDER BY created_at, kind <> 'original', id
                         """)
                 .param(endToEndId)
                 .query((row, number) -> {

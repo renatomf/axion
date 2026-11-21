@@ -86,6 +86,32 @@ class ChaosRulesTest {
     }
 
     @Test
+    void keepsCopiesForDuplicateOnly() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> rules.add(Fault.DUPLICATE, FaultParameters.NONE, Match.ANY, 1));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> rules.add(Fault.FAIL, FaultParameters.duplicate(1), Match.ANY, 1));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> rules.add(Fault.DUPLICATE, FaultParameters.duplicate(0), Match.ANY, 1));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> rules.add(Fault.DUPLICATE, FaultParameters.duplicate(11), Match.ANY, 1));
+        assertThat(rules.list()).isEmpty();
+    }
+
+    @Test
+    void asksForTheCopiesOfTheOldestDuplicateRule() {
+        FaultRule first = rules.add(Fault.DUPLICATE, FaultParameters.duplicate(2), Match.ANY, 1);
+        rules.add(Fault.DUPLICATE, FaultParameters.duplicate(5), Match.ANY, 1);
+
+        CreationFaults created = rules.atCreation(END_TO_END_ID, "chaos9");
+
+        assertThat(created.copies()).isEqualTo(2);
+        assertThat(created.applied()).containsExactly(new AppliedFault(first.id(), Fault.DUPLICATE, null, null));
+        assertThat(rules.atCreation(END_TO_END_ID, "chaos9").copies()).isEqualTo(5);
+        assertThat(rules.atCreation(END_TO_END_ID, "chaos9").copies()).isZero();
+    }
+
+    @Test
     void appliesTheFaultsAtCreationOnlyWhenADeliveryIsCreated() {
         Duration delay = Duration.ofSeconds(90);
         FaultRule delayed = rules.add(Fault.DELAY, FaultParameters.delay(delay), Match.ANY, 1);

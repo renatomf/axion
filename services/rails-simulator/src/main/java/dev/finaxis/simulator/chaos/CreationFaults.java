@@ -7,10 +7,12 @@ import java.util.Optional;
 /**
  * The faults applied to a notification when its delivery is created, at most one of each (rails simulator
  * design, section 7.2).
+ *
+ * @param copies how many copies are sent besides the delivery, for a {@code duplicate} fault; zero otherwise
  */
-public record CreationFaults(List<AppliedFault> applied) {
+public record CreationFaults(List<AppliedFault> applied, int copies) {
 
-    public static final CreationFaults NONE = new CreationFaults(List.of());
+    public static final CreationFaults NONE = new CreationFaults(List.of(), 0);
 
     public CreationFaults {
         applied = List.copyOf(applied);

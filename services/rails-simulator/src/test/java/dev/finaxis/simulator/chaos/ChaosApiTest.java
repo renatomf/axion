@@ -77,6 +77,15 @@ class ChaosApiTest {
     }
 
     @Test
+    void addsADuplicateRuleWithItsCopies() {
+        MvcTestResult result = add("{\"fault\": \"duplicate\", \"copies\": 2, \"times\": 1}");
+
+        assertThat(result).hasStatus(HttpStatus.CREATED);
+        assertThat(result).bodyJson().extractingPath("$.copies").isEqualTo(2);
+        assertThat(result).bodyJson().doesNotHavePath("$.duration");
+    }
+
+    @Test
     void listsTheRulesInForceOldestFirst() {
         add("{\"fault\": \"fail\", \"times\": 1}");
         add("{\"fault\": \"lost_response\", \"times\": 1}");
@@ -115,7 +124,7 @@ class ChaosApiTest {
     @ParameterizedTest
     @CsvSource(delimiter = '|', textBlock = """
             {"times": 1}                                                       | fault is required.
-            {"fault": "drop", "times": 1}                                      | fault must be one of latency, fail, lost_response, delay.
+            {"fault": "drop", "times": 1}                                      | fault must be one of latency, fail, lost_response, delay, duplicate.
             {"fault": "fail"}                                                  | times must be an integer from 1 to 1000.
             {"fault": "fail", "times": 0}                                      | times must be an integer from 1 to 1000.
             {"fault": "fail", "times": 1001}                                   | times must be an integer from 1 to 1000.
@@ -128,6 +137,9 @@ class ChaosApiTest {
             {"fault": "delay", "duration": "PT0S", "times": 1}                 | duration must be more than zero and at most PT3600S.
             {"fault": "delay", "duration": "PT3600.001S", "times": 1}          | duration must be more than zero and at most PT3600S.
             {"fault": "fail", "duration": "PT1S", "times": 1}                  | duration applies only to delay.
+            {"fault": "duplicate", "times": 1}                                 | copies must be an integer from 1 to 10.
+            {"fault": "duplicate", "copies": 11, "times": 1}                   | copies must be an integer from 1 to 10.
+            {"fault": "fail", "copies": 1, "times": 1}                         | copies applies only to duplicate.
             {"fault": "fail", "match": {"endToEndId": "E1"}, "times": 1}       | match.endToEndId must be an EndToEndId.
             {"fault": "fail", "match": {"transactionId": "a-b"}, "times": 1}   | match.transactionId must have 1 to 25 letters or digits.
             """)
