@@ -134,3 +134,61 @@ The last 11 characters are drawn from `SecureRandom`, and the database's unique 
 ```
 
 `GET /pix/payments/{endToEndId}` returns the payment and every delivery attempt, so a test or the demo can follow the notification to the core.
+
+## 5. Messages
+
+### 5.1 Conventions
+
+The official messages are ISO 20022 XML. The simulator sends JSON whose fields take their names from the ISO 20022 elements, spelled out in camel case (`EndToEndId` → `endToEndId`, `IntrBkSttlmAmt` → `interbankSettlementAmount`), and their codes from the SPI's catalog (`QRDN`, `CACC`). Only the fields the core uses are sent.
+
+- Amounts are decimal strings with two fraction digits, as in ISO 20022 (`"100.00"`), never JSON numbers; the core's anti-corruption layer turns them into `Money`.
+- Times are UTC with milliseconds (`2026-11-21T14:30:12.345Z`).
+- Unknown fields must be ignored by the receiver, so a message can gain a field without breaking it.
+- Each message has a `messageId`, unique per message, and a `messageType` naming its ISO 20022 counterpart.
+- Names and tax IDs are personal data, synthetic but handled as real (overview, section 4.7): the simulator never logs them, and the core encrypts what it keeps.
+
+The contract is an OpenAPI 3.1 document in the simulator's project, `services/rails-simulator/openapi/rails.yaml`, whose `webhooks` section describes each message the simulator sends. It belongs to the simulator, as the SPI's catalog belongs to the Central Bank, and the core's tests read it from there.
+
+### 5.2 Credit notification
+
+The one message of phase 1, the counterpart of an ISO 20022 `pacs.008` credit transfer settled by the SPI:
+
+```json
+{
+  "messageId": "M99990011aB3dE5gH7jK2mN4pQ6rS8tU",
+  "messageType": "pacs.008",
+  "creationDateTime": "2026-11-21T14:30:12.401Z",
+  "endToEndId": "E99990011202611211430aB3dE5gH7jK",
+  "transactionId": "fx7Kq2mP9wR4tY6uA8sD3fG5h",
+  "localInstrument": "QRDN",
+  "interbankSettlementAmount": { "amount": "100.00", "currency": "BRL" },
+  "acceptanceDateTime": "2026-11-21T14:30:12.345Z",
+  "debtor": { "name": "Ana Souza", "taxId": "52601815906" },
+  "debtorAccount": { "branch": "0001", "number": "123456", "type": "CACC" },
+  "debtorAgent": { "ispb": "99990011" },
+  "creditorAgent": { "ispb": "99990001" },
+  "creditorAccount": { "proxy": "…" },
+  "remittanceInformation": "Mensalidade de novembro"
+}
+```
+
+- `transactionId` is the BR Code's transaction ID, by which the core finds the charge. `creditorAccount.proxy` is the Pix key the code carried, if any.
+- `localInstrument` is `QRDN`, a dynamic QR code, for every payment of phase 1.
+- `acceptanceDateTime` is when the SPI settled the payment; `creationDateTime`, when the message was written.
+- `messageId` is `M`, the ISPB of the sender and 23 random letters or digits, in the layout of the `EndToEndId`.
+
+### 5.3 What the core answers
+
+The core's endpoint, `POST /rails/pix/credits` (PR 1.38a), answers before it settles the charge: it verifies the signature, records the message durably, and answers. The simulator acts on the status alone:
+
+| Answer | Meaning to the simulator | Then |
+|---|---|---|
+| `2xx` | Accepted, including a duplicate the core already had | The delivery is done |
+| `408`, `429`, `5xx`, a timeout, a refused connection | Not received, or not now | Retried (section 6.2); `Retry-After` is honored |
+| Any other `4xx` | Refused for good: a bad signature, an unreadable body | Stopped, and kept for manual redelivery |
+
+A refused message is never dropped silently: it stays in the simulator's database, counted in a metric, until an operator redelivers it (section 7.4).
+
+### 5.4 Orders, later
+
+Phase 2 adds the first orders, core to simulator: a payout is a `pacs.008` the core sends, and its result a `pacs.002` the simulator returns. They follow this document's conventions, mirrored: the same JSON naming, the same contract file, signed by the sender's key with the same scheme, delivered at least once, and answered asynchronously by a message, never in the HTTP response. Their design belongs to the payouts design doc.
