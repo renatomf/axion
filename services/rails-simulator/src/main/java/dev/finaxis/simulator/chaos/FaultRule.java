@@ -43,4 +43,9 @@ public record FaultRule(
             throw new IllegalArgumentException("A latency range runs from zero to " + MAX_LATENCY);
         }
     }
+
+    /** The rule after one more application; at zero remaining, it is retired instead. */
+    FaultRule spent() {
+        return new FaultRule(id, fault, min, max, match, times, remaining - 1, createdAt);
+    }
 }
