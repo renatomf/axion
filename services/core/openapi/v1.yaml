@@ -39,5 +39,8 @@ components:
         the reason; a working key of a tenant that is not active gets `403`
         with code `tenant_inactive`. Each operation requires one scope; a
         key without it gets `403` with code `insufficient_permission`.
+        Each tenant and each key has a request budget: a request beyond
+        either gets `429` with code `rate_limited` and a `Retry-After`
+        header, in seconds.
       type: http
       scheme: bearer

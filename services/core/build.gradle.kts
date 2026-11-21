@@ -62,6 +62,10 @@ dependencies {
     implementation(libs.spring.modulith.api)
     // Annotations that state, in the code, which references may be null.
     implementation(libs.jspecify)
+    // Token buckets that limit the requests of each tenant and API key.
+    implementation(libs.bucket4j.core)
+    // A bounded cache, so the buckets of idle tenants and keys are dropped.
+    implementation(libs.caffeine)
 
     // Test-only libraries: on the test classpath, never in the packaged JAR.
     testImplementation(libs.spring.boot.starter.test)

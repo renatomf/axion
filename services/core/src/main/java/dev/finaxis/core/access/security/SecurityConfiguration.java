@@ -3,6 +3,7 @@ package dev.finaxis.core.access.security;
 import dev.finaxis.core.access.AccessApi;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.DispatcherType;
+import java.time.Clock;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
@@ -50,14 +51,16 @@ class SecurityConfiguration {
             HttpSecurity http,
             @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver,
             AccessApi access,
-            MeterRegistry meters) {
+            MeterRegistry meters,
+            Clock clock) {
         http.securityMatcher("/v1/**");
         http.authorizeHttpRequests(requests -> requests.anyRequest().authenticated());
 
         ProblemDetailsSecurityHandler rejections = new ProblemDetailsSecurityHandler(resolver);
         var failures = new AuthenticationFailures(meters);
         http.addFilterBefore(
-                new ApiKeyAuthenticationFilter(access, rejections, failures), AnonymousAuthenticationFilter.class);
+                new ApiKeyAuthenticationFilter(access, rejections, failures, new ApiKeyRateLimits(clock)),
+                AnonymousAuthenticationFilter.class);
 
         return build(http, rejections);
     }
