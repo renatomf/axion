@@ -15,6 +15,12 @@ Thumbs.db
 *.iml
 .vscode/*
 !.vscode/extensions.json
+# Eclipse JDT, behind the VS Code Java extension, compiles each Gradle project into bin/.
+bin/
+.classpath
+.project
+.settings/
+.factorypath
 *.swp
 *~
 

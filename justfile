@@ -8,10 +8,11 @@ compose := "docker compose --file infra/compose/compose.yaml"
 default:
     @just --list
 
-# Start a profile of local infrastructure (core or auth) and wait until it is healthy
+# The rails profile has no PostgreSQL, so it skips the core's login-role job.
+# Start a profile of local infrastructure (core, auth or rails) and wait until it is healthy
 up profile="core": _env
     {{ compose }} --profile {{ profile }} up --detach --wait
-    {{ compose }} --profile {{ profile }} run --rm core-database
+    {{ if profile == "rails" { "" } else { compose + " --profile " + profile + " run --rm core-database" } }}
 
 # Stop every profile of local infrastructure (data is kept in its volumes)
 down:
@@ -40,6 +41,6 @@ lint-api:
     pnpm run test:api-rules
     pnpm run lint:api
 
-# Build the container image of the core service
-image:
-    docker build --tag finaxis-core:dev services/core
+# Build the container image of a service (core or rails-simulator)
+image service="core":
+    docker build --tag finaxis-{{ service }}:dev services/{{ service }}

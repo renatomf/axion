@@ -1,0 +1,37 @@
+# Configuration for the rails simulator, loaded by Spring Boot at startup.
+# Values here are safe defaults for every environment; profile files
+# (application-<profile>.yml) override them. Reference:
+# https://docs.spring.io/spring-boot/reference/features/external-config.html
+
+spring:
+  application:
+    # Identifies the service in logs and, later, in metrics.
+    name: finaxis-rails-simulator
+
+server:
+  # The core listens on 8080; the simulator on 8090 (rails simulator
+  # design, section 8.2), so both run on one machine.
+  port: 8090
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Expose only the health endpoint over HTTP. Other endpoints
+        # (env, beans, metrics...) can leak internals and stay closed.
+        include: health
+  endpoint:
+    health:
+      # Report only UP or DOWN; component details stay hidden.
+      show-details: never
+      probes:
+        # /actuator/health/liveness and /actuator/health/readiness,
+        # for container orchestrators.
+        enabled: true
+
+logging:
+  structured:
+    format:
+      # One JSON object per line in the Elastic Common Schema (ECS), as the
+      # core writes, so both services' logs are searched the same way.
+      console: ecs

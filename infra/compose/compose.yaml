@@ -4,6 +4,7 @@
 # Services join a profile so only what a task needs is started:
 #   core  PostgreSQL for the core service
 #   auth  PostgreSQL and Keycloak, for the console and authentication tests
+#   rails the rails simulator, the core's counterpart for payments
 #   jobs  one-shot setup jobs, run by `just up`
 name: finaxis
 
@@ -117,6 +118,19 @@ services:
     depends_on:
       keycloak-database:
         condition: service_completed_successfully
+
+  # The simulated payment rails (rails simulator design, section 8), built
+  # from services/rails-simulator. No `image:` key: the image is local, so
+  # Dependabot has no registry tag to bump here; it bumps the Dockerfile's.
+  rails-simulator:
+    profiles: [rails]
+    build: ../../services/rails-simulator
+    ports:
+      # Bound to localhost only: the simulator is never exposed to the network.
+      # RAILS_SIMULATOR_PORT changes the host port if 8090 is already taken.
+      - "127.0.0.1:${RAILS_SIMULATOR_PORT:-8090}:8090"
+    # No healthcheck: the distroless image has no shell or HTTP client to call
+    # /actuator/health from inside. Callers ask the endpoint from outside.
 
 volumes:
   postgres-data:
