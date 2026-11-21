@@ -6,12 +6,14 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 
 import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.PostgresTestConfiguration;
+import dev.finaxis.core.idempotency.application.IdempotencyService;
 import dev.finaxis.core.ledger.AccountRequest;
 import dev.finaxis.core.ledger.AccountType;
 import dev.finaxis.core.ledger.LedgerApi;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.shared.TenantId;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.nio.charset.StandardCharsets;
 import java.util.Currency;
 import java.util.Objects;
@@ -41,6 +43,7 @@ class ExecuteIdempotentlyTest {
     private final LedgerApi ledger;
     private final DatabaseOwner owner;
     private final TransactionTemplate transactions;
+    private final MeterRegistry meters;
     private final TenantId tenant = new TenantId(UUID.randomUUID());
     private final IdempotencyKey key = new IdempotencyKey("order-" + UUID.randomUUID());
     private final Fingerprint fingerprint = Fingerprint.of("/v1/charges", BODY);
@@ -48,11 +51,16 @@ class ExecuteIdempotentlyTest {
 
     @Autowired
     ExecuteIdempotentlyTest(
-            IdempotencyApi idempotency, LedgerApi ledger, DatabaseOwner owner, TransactionTemplate transactions) {
+            IdempotencyApi idempotency,
+            LedgerApi ledger,
+            DatabaseOwner owner,
+            TransactionTemplate transactions,
+            MeterRegistry meters) {
         this.idempotency = idempotency;
         this.ledger = ledger;
         this.owner = owner;
         this.transactions = transactions;
+        this.meters = meters;
     }
 
     @Test
@@ -86,14 +94,11 @@ class ExecuteIdempotentlyTest {
 
     @Test
     void answersInProgressWhileAnotherTransactionHoldsTheKey() {
-        try (var holder = owner.session()) {
-            holder.jdbc()
-                    .sql("SELECT pg_advisory_xact_lock(hashtext('idempotency.keys'), hashtext(? || ':' || ?))")
-                    .params(tenant.value().toString(), key.value())
-                    .query()
-                    .singleRow();
-
+        var holder = holdingTheKey();
+        try {
             assertThat(execute(request("second"), answering(CREATED))).isEqualTo(new IdempotentResult.InProgress());
+        } finally {
+            holder.close();
         }
         assertThat(runs).hasValue(0);
         assertThat(storedKeys()).isZero();
@@ -193,8 +198,35 @@ class ExecuteIdempotentlyTest {
         assertThat(runs).hasValue(0);
     }
 
+    @Test
+    void countsEachRequestByOutcome() {
+        var before = outcomes();
+        execute(request("first"), answering(CREATED));
+        execute(request("second"), answering(CREATED));
+        execute(new IdempotentRequest(tenant, key, Fingerprint.of("/v1/refunds", BODY), "third"), answering(CREATED));
+        var holder = holdingTheKey();
+        try {
+            execute(request("fourth"), answering(CREATED));
+        } finally {
+            holder.close();
+        }
+
+        assertThat(outcomes().minus(before)).isEqualTo(new Outcomes(1, 1, 1, 1));
+    }
+
     private IdempotentResult execute(IdempotentRequest request, Supplier<CapturedResponse> operation) {
         return TenantContext.call(tenant, Environment.TEST, () -> idempotency.execute(request, operation));
+    }
+
+    /** Another transaction holding the key's lock until the session closes. */
+    private DatabaseOwner.Session holdingTheKey() {
+        var holder = owner.session();
+        holder.jdbc()
+                .sql("SELECT pg_advisory_xact_lock(hashtext('idempotency.keys'), hashtext(? || ':' || ?))")
+                .params(tenant.value().toString(), key.value())
+                .query()
+                .singleRow();
+        return holder;
     }
 
     private IdempotentRequest request(String correlationId) {
@@ -230,5 +262,27 @@ class ExecuteIdempotentlyTest {
     private long count(String sql) {
         return Objects.requireNonNull(
                 owner.jdbc().sql(sql).param(tenant.value()).query(Long.class).single());
+    }
+
+    private Outcomes outcomes() {
+        return new Outcomes(outcome("executed"), outcome("replayed"), outcome("in_progress"), outcome("key_reused"));
+    }
+
+    private long outcome(String outcome) {
+        return (long) meters.get(IdempotencyService.REQUESTS)
+                .tag("outcome", outcome)
+                .counter()
+                .count();
+    }
+
+    private record Outcomes(long executed, long replayed, long inProgress, long keyReused) {
+
+        Outcomes minus(Outcomes other) {
+            return new Outcomes(
+                    executed - other.executed,
+                    replayed - other.replayed,
+                    inProgress - other.inProgress,
+                    keyReused - other.keyReused);
+        }
     }
 }
