@@ -19,7 +19,7 @@ class BrCodeTest {
             + "5204000053039865802BR5913Fulano de Tal6008BRASILIA62070503***63041D3D";
 
     /** A code the simulator pays, its CRC computed by an independent implementation (Python's binascii.crc_hqx). */
-    private static final String PAYABLE = "00020101021226580014br.gov.bcb.pix0136123e4567-e12b-12d1-a456-426655440000"
+    static final String PAYABLE = "00020101021226580014br.gov.bcb.pix0136123e4567-e12b-12d1-a456-426655440000"
             + "5204000053039865406100.005802BR5913Fulano de Tal6008BRASILIA62290525fx7Kq2mP9wR4tY6uA8sD3fG5h63043251";
 
     private static final String TRANSACTION_ID = "fx7Kq2mP9wR4tY6uA8sD3fG5h";

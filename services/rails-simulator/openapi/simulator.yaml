@@ -66,9 +66,9 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "422":
           description: >-
-            The BR Code cannot be paid; `detail` names the rule it breaks: the
-            structure, the CRC, the payload format, the Pix GUI, the currency,
-            the amount or the transaction ID.
+            The BR Code cannot be paid; `detail` names the rule it breaks: a
+            length over 512 characters, the structure, the CRC, the payload
+            format, the Pix GUI, the currency, the amount or the transaction ID.
           content:
             application/problem+json:
               schema:
@@ -147,8 +147,6 @@ components:
             The BR Code text, as a payer's app reads it from the QR code: an
             EMV Merchant-Presented Mode payload ending with its CRC16 (tag 63).
           type: string
-          minLength: 1
-          maxLength: 512
     PaymentCreated:
       type: object
       required: [endToEndId, settledAt]
