@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -31,7 +32,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 @Import(PostgresTestConfiguration.class)
 class IdempotencySchemaTest {
 
-    private static final Instant CREATED_AT = Instant.parse("2026-11-21T12:00:00Z");
+    private static final Instant LONG_AGO = Instant.parse("2026-01-01T00:00:00Z");
     private static final String RLS_VIOLATION = "violates row-level security policy";
     private static final byte[] BODY = "{\"id\":\"ch_1\"}".getBytes(StandardCharsets.UTF_8);
 
@@ -123,7 +124,9 @@ class IdempotencySchemaTest {
 
     @Test
     void rejectsAnExpiryOtherThan24HoursAfterCreation() {
-        assertRejected(row().expiresAt(CREATED_AT.plus(Duration.ofHours(23))), "keys_retention_check");
+        var row = row();
+
+        assertRejected(row.expiresAt(row.createdAt.plus(Duration.ofHours(23))), "keys_retention_check");
     }
 
     @Test
@@ -201,6 +204,62 @@ class IdempotencySchemaTest {
         assertThatThrownBy(() -> insert(row())).rootCause().hasMessageContaining(RLS_VIOLATION);
     }
 
+    @Test
+    void showsTheJobsRoleExpiredKeysOnly() {
+        var other = UUID.randomUUID();
+        insert(row().key("honored"));
+        insert(row().tenant(other).key("expired").expired());
+        DatabaseRole.IDEMPOTENCY_JOBS.actAs(jdbc);
+
+        assertThat(jdbc.sql("SELECT key FROM idempotency.keys WHERE tenant_id IN (?, ?)")
+                        .params(tenant, other)
+                        .query(String.class)
+                        .list())
+                .containsExactly("expired");
+    }
+
+    @Test
+    void hidesHonoredKeysFromTheJobsRoleEvenWithATenantBound() {
+        insert(row().key("honored"));
+        DatabaseRole.IDEMPOTENCY_JOBS.actAs(jdbc, new TenantId(tenant));
+
+        assertThat(visibleKeys("honored")).isZero();
+        assertThat(deleteTheTenantsKeys()).isZero();
+    }
+
+    @Test
+    void letsTheJobsRoleDeleteExpiredKeysOnly() {
+        insert(row().key("honored"));
+        insert(row().key("expired").expired());
+        DatabaseRole.IDEMPOTENCY_JOBS.actAs(jdbc);
+
+        assertThat(deleteTheTenantsKeys()).isOne();
+    }
+
+    @Test
+    void deniesTheJobsRoleInsertingAKey() {
+        DatabaseRole.IDEMPOTENCY_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> insert(row().expired())).rootCause().hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void deniesTheJobsRoleChangingAKey() {
+        insert(row().key("expired").expired());
+        DatabaseRole.IDEMPOTENCY_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> jdbc.sql("UPDATE idempotency.keys SET expires_at = expires_at + interval '1 day'")
+                        .update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    private int deleteTheTenantsKeys() {
+        return jdbc.sql("DELETE FROM idempotency.keys WHERE tenant_id = ?")
+                .param(tenant)
+                .update();
+    }
+
     private long visibleKeys(String key) {
         return jdbc.sql("SELECT count(*) FROM idempotency.keys WHERE key = ?")
                 .param(key)
@@ -239,7 +298,7 @@ class IdempotencySchemaTest {
                         row.status,
                         row.contentType,
                         row.body,
-                        CREATED_AT.atOffset(ZoneOffset.UTC),
+                        row.createdAt.atOffset(ZoneOffset.UTC),
                         row.expiresAt.atOffset(ZoneOffset.UTC))
                 .update();
     }
@@ -253,7 +312,9 @@ class IdempotencySchemaTest {
         private int status = 201;
         private String contentType = "application/json";
         private byte[] body = BODY;
-        private Instant expiresAt = CREATED_AT.plus(Duration.ofHours(24));
+        // Created now, so the key is still honored.
+        private Instant createdAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        private Instant expiresAt = createdAt.plus(Duration.ofHours(24));
 
         private Row(UUID tenant) {
             this.tenant = tenant;
@@ -286,6 +347,13 @@ class IdempotencySchemaTest {
 
         Row body(byte[] value) {
             body = value;
+            return this;
+        }
+
+        /** Created long ago, so the key has expired. */
+        Row expired() {
+            createdAt = LONG_AGO;
+            expiresAt = LONG_AGO.plus(Duration.ofHours(24));
             return this;
         }
 

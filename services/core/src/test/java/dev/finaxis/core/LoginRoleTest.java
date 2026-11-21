@@ -17,7 +17,12 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 class LoginRoleTest {
 
     private static final List<String> MODULE_ROLES = List.of(
-            "finaxis_tenancy", "finaxis_access", "finaxis_ledger", "finaxis_ledger_jobs", "finaxis_idempotency");
+            "finaxis_tenancy",
+            "finaxis_access",
+            "finaxis_ledger",
+            "finaxis_ledger_jobs",
+            "finaxis_idempotency",
+            "finaxis_idempotency_jobs");
 
     private final JdbcClient jdbc;
 
