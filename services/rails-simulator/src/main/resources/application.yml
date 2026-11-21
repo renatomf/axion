@@ -7,6 +7,31 @@ spring:
   application:
     # Identifies the service in logs and, later, in metrics.
     name: finaxis-rails-simulator
+  autoconfigure:
+    exclude:
+      # Without a user store of its own, Spring Boot creates an in-memory
+      # user with a generated password and logs it. Operators authenticate
+      # with a token, so that user is only a credential to leak.
+      - org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
+  # The simulator's own database (rails simulator design, section 8.3). No
+  # defaults: each environment sets SPRING_DATASOURCE_URL, _USERNAME and
+  # _PASSWORD, and the simulator does not start without them.
+  flyway:
+    # Fail on a file in db/migration whose name Flyway cannot parse, instead
+    # of silently skipping it.
+    validate-migration-naming: true
+
+simulator:
+  operator:
+    # The bearer token of the operator API. No default: each environment
+    # sets RAILS_SIMULATOR_OPERATOR_TOKEN, and the simulator does not start
+    # without it.
+    token: ${RAILS_SIMULATOR_OPERATOR_TOKEN}
+  participants:
+    # The payers' institutions, fictitious ISPBs that no institution in the
+    # Central Bank's lists of Pix and STR participants uses (rails simulator
+    # design, section 3.2). Quoted: an ISPB is a code, not a number.
+    payers: ["99990011", "99990012", "99990013"]
 
 server:
   # The core listens on 8080; the simulator on 8090 (rails simulator

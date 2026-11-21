@@ -1,0 +1,8 @@
+# Test-only additions to src/main/resources/application.yml. Spring Boot
+# reads classpath:/config/application.yml after classpath:/application.yml,
+# so these values are added to the main file instead of replacing it.
+
+simulator:
+  operator:
+    # Tests send this token; it opens nothing outside them.
+    token: operator-token-for-tests-only-0000

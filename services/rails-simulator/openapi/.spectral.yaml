@@ -1,0 +1,7 @@
+# Lint rules for the rails simulator's OpenAPI contracts.
+# https://docs.stoplight.io/docs/spectral
+#
+# Only the standard OpenAPI rules: the core's conventions (snake_case, /v1
+# and /internal paths, a stable error code) do not apply to the simulator,
+# whose JSON takes its names from ISO 20022 (design, section 5.1).
+extends: ["spectral:oas"]

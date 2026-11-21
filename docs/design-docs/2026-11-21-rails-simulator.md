@@ -394,8 +394,8 @@ The simulator is a test system, but the core treats it as the rails: a message i
 | PR | Delivers | Sections |
 |---|---|---|
 | 1.29 | `services/rails-simulator`: Gradle project, Spring Boot skeleton with the core's quality gates, health endpoint, Compose service, CI build and container image | 8.1, 8.2 |
-| 1.30a | The payer API and BR Code reader, `EndToEndId`, the payments table and the simulator's database; `simulator.yaml` | 3.2, 4, 8.3 |
-| 1.30b | Credit notifications: the deliveries table, the dispatcher, retries, RFC 9421 signatures, key generation; `rails.yaml` | 5, 6, 8.4 |
+| 1.30a | The payer API and BR Code reader, `EndToEndId`, the payments table and the simulator's database; the operator token; `simulator.yaml` | 3.2, 4, 8.2, 8.3 |
+| 1.30b | Credit notifications: the deliveries table, the dispatcher, retries, RFC 9421 signatures, key generation; the payer and the message of the payer API, and the payment's delivery state; `rails.yaml` | 4.2, 4.4, 5, 6, 8.4 |
 | 1.31 | The chaos API: fault rules and the outage switch | 7 |
 
 The core's side, the signed endpoint and the translation into billing commands, is PR 1.38a and 1.38b; the fault-injection suite is PR 1.42.

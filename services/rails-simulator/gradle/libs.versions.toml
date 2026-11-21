@@ -13,6 +13,7 @@ palantir-java-format = "2.103.0"
 errorprone-plugin = "5.2.0"
 errorprone = "2.52.0"
 nullaway = "0.14.4"
+jqwik = "1.10.2"
 
 [libraries]
 # Bill of materials: the versions Spring Boot has tested together. Libraries
@@ -22,12 +23,33 @@ spring-boot-dependencies = { module = "org.springframework.boot:spring-boot-depe
 spring-boot-starter-webmvc = { module = "org.springframework.boot:spring-boot-starter-webmvc" }
 # Production-ready endpoints (health, info, metrics) under /actuator.
 spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
+# Spring Security: a chain of servlet filters that authenticates and authorizes every request.
+spring-boot-starter-security = { module = "org.springframework.boot:spring-boot-starter-security" }
+# JDBC access with the HikariCP connection pool; adds a database health check.
+spring-boot-starter-jdbc = { module = "org.springframework.boot:spring-boot-starter-jdbc" }
+# PostgreSQL JDBC driver.
+postgresql = { module = "org.postgresql:postgresql" }
+# Versioned database migrations, applied by Flyway when the service starts.
+spring-boot-starter-flyway = { module = "org.springframework.boot:spring-boot-starter-flyway" }
+# Flyway's PostgreSQL support, a separate module since Flyway 10.
+flyway-database-postgresql = { module = "org.flywaydb:flyway-database-postgresql" }
 # Nullness annotations (@NullMarked, @Nullable), the standard Spring itself uses.
 jspecify = { module = "org.jspecify:jspecify" }
 # Test toolkit: JUnit Jupiter (JUnit 6), AssertJ, Mockito and Spring's test support.
 spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
 # MockMvc support for testing Spring MVC endpoints without a real server.
 spring-boot-starter-webmvc-test = { module = "org.springframework.boot:spring-boot-starter-webmvc-test" }
+# Spring Security test support: MockMvc integration and mock users (@WithMockUser).
+spring-boot-starter-security-test = { module = "org.springframework.boot:spring-boot-starter-security-test" }
+# Runs Testcontainers-managed containers as Spring beans; @ServiceConnection
+# points Spring Boot at them instead of at configured URLs.
+spring-boot-testcontainers = { module = "org.springframework.boot:spring-boot-testcontainers" }
+# Throwaway PostgreSQL containers for tests, started through Docker.
+testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgresql" }
+# Property-based testing: generates hundreds of inputs per test and shrinks a
+# failure to the smallest input that still breaks the property. A JUnit Platform
+# engine, so its tests run next to the JUnit Jupiter ones.
+jqwik = { module = "net.jqwik:jqwik", version.ref = "jqwik" }
 # Architecture rules written as unit tests.
 archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
 # Lets Gradle launch JUnit tests; Gradle 9 requires it on the test runtime classpath.

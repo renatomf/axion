@@ -8,11 +8,10 @@ compose := "docker compose --file infra/compose/compose.yaml"
 default:
     @just --list
 
-# The rails profile has no PostgreSQL, so it skips the core's login-role job.
 # Start a profile of local infrastructure (core, auth or rails) and wait until it is healthy
 up profile="core": _env
     {{ compose }} --profile {{ profile }} up --detach --wait
-    {{ if profile == "rails" { "" } else { compose + " --profile " + profile + " run --rm core-database" } }}
+    {{ compose }} --profile {{ profile }} run --rm core-database
 
 # Stop every profile of local infrastructure (data is kept in its volumes)
 down:
@@ -36,7 +35,7 @@ _env:
         grep -q "^$key=" "$env" || { grep "^$key=" "$example" >> "$env"; echo "Added $key to $env"; }
     done
 
-# Lint the OpenAPI contracts of the core, after testing the project's lint rules
+# Lint the OpenAPI contracts of the core and the rails simulator, after testing the project's lint rules
 lint-api:
     pnpm run test:api-rules
     pnpm run lint:api
