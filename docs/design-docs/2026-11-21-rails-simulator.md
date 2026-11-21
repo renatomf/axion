@@ -69,3 +69,68 @@ PR 1.30a checks the codes against the Central Bank's published list of Pix parti
 | "Signed asynchronous callbacks" (section 3.2) | Signed with Ed25519 under HTTP Message Signatures (RFC 9421), not with the HMAC of the webhooks (section 6.3) | The core holds only a public key, so its configuration cannot forge a payment |
 | The rails simulator has no storage (section 3.1) | Its own database on the same PostgreSQL server, which the core cannot reach (section 8.3) | A restart must not lose a payment the payer was already debited for |
 | "Chaos API" for latency, failures, duplicates, out-of-order and late callbacks (section 12) | Count-based rules for each fault, applied to matching messages, plus an outage switch (section 7) | Tests assert exact outcomes; probabilities are an option, with a seed |
+
+## 4. The simulated Pix payment
+
+### 4.1 Flow
+
+```
+payer API ──► simulator: decode BR Code ─► settle ─► record payment + delivery (one transaction)
+                                                              │
+                                   dispatcher ◄───────────────┘
+                                        │  signed credit notification
+                                        ▼
+                                  core (PR 1.38): verify ─► deduplicate ─► settle the charge
+```
+
+A payment is settled in the simulator when it is recorded: the payer's institution has debited the payer and the SPI has moved the money between the settlement accounts. The credit notification tells the core that money it already holds has arrived. The core cannot refuse it, only record it: this is why a payment after a charge expired is credited and flagged, never sent back by the rails (overview, section 7.6).
+
+### 4.2 Paying a BR Code
+
+`POST /pix/payments` takes the BR Code text, as a payer's app would read it from the QR code, and optionally a payer and a message:
+
+```json
+{
+  "brCode": "00020101021226…6304A1B2",
+  "payer": { "name": "Ana Souza", "taxId": "52601815906" },
+  "message": "Mensalidade de novembro"
+}
+```
+
+The simulator decodes the code as the EMV *Merchant-Presented Mode* format of the Central Bank's BR Code manual: tag, length, value, with the CRC16 (CCITT, polynomial `0x1021`, initial value `0xFFFF`) of tag `63` over everything before it. It refuses the code with `422` and a reason when:
+
+- the CRC does not match, or the structure cannot be read;
+- the payload format (`00`) is not `01`, the merchant account (`26`) lacks the Pix GUI `br.gov.bcb.pix`, or the currency (`53`) is not `986`, the real;
+- the amount (`54`) or the transaction ID (`62`, subfield `05`) is missing, or the transaction ID is `***`.
+
+The last rule is a deviation (section 9). An official dynamic code carries only a URL in tag `26`, subfield `25`; the payer's institution fetches the charge, signed as a JWS, from that location, and finds the amount and the transaction ID there. The simulator reads both from the code instead, so the billing design (PR 1.32) must issue codes that carry them. The transaction ID fits subfield `05`, at most 25 characters. Serving the location is an extension (section 11).
+
+A payer that the request omits is chosen from a fixed list of synthetic people, each with a valid CPF, and given one of the payers' institutions. A message longer than 140 characters is refused, as in the official remittance field.
+
+The simulator does not check whether the charge expired: without the location it cannot know. A payer can therefore pay an expired code, which is how a late payment is produced (section 7.2).
+
+Paying is not idempotent: two requests with one BR Code are two payments, each with its own `EndToEndId`, as when a person pays the same code twice. The core decides what a second payment of a charge means (PR 1.32).
+
+### 4.3 `EndToEndId`
+
+The payer's institution identifies each Pix payment with an `EndToEndId` of 32 characters, as the SPI's message catalog defines it:
+
+```
+E 99990011 202611211430 aB3dE5gH7jK
+│ │        │            └── 11 letters or digits, unique within the minute
+│ │        └── year, month, day, hour and minute of creation, in UTC
+│ └── ISPB of the payer's institution
+└── always E
+```
+
+The last 11 characters are drawn from `SecureRandom`, and the database's unique constraint turns the rare collision into a new draw. The core deduplicates on this value (PR 1.38b), so it is the identity of the payment on both sides.
+
+### 4.4 What the payer API answers
+
+`201 Created`, with the payment's `EndToEndId` and its delivery state, before the core has been told:
+
+```json
+{ "endToEndId": "E99990011202611211430aB3dE5gH7jK", "settledAt": "2026-11-21T14:30:12.345Z", "delivery": "pending" }
+```
+
+`GET /pix/payments/{endToEndId}` returns the payment and every delivery attempt, so a test or the demo can follow the notification to the core.
