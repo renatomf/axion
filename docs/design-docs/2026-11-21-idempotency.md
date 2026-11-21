@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Approved |
 | **Date** | 2026-11-21 |
 | **Scope** | Idempotency of the public API's writes: the `Idempotency-Key` header, how a key is claimed and its response stored, conflicts, retention and the proof. Roadmap PRs 1.26–1.27. |
 | **Parent** | [Platform overview](2026-11-17-platform-overview.md), sections 4.6, 7.1, 7.6 and 7.7 |
