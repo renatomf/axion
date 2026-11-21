@@ -257,8 +257,8 @@ The store answers on behalf of the operations, from a copy of their responses. T
 
 `POST /v1/charges` (PR 1.35b) is the first real `/v1` write, and it is idempotent with nothing of its own.
 
-## 12. Open questions
+## 12. Decisions from review
 
-1. **A required header.** Every `/v1` `POST` requires `Idempotency-Key` (section 3.1), where Stripe makes it optional. Is the stricter rule worth the small cost to integrators?
-2. **Server errors.** A `5xx` is never stored and its retry runs again (section 3.4), where Stripe stores it. Is anything lost by not storing it?
-3. **The fingerprint.** The raw body bytes, not a canonical form of the JSON (section 3.3). Is that strict enough to be safe without surprising clients that re-serialize?
+1. **The header is required on every `/v1` `POST`.** A retry without a key would create a second charge, and one rule for every write cannot be forgotten by a client or by a new endpoint. A missing header gets `400 idempotency_key_required` (section 3.4).
+2. **A `5xx` is never stored.** Its transaction rolled back, so nothing happened and the retry is safe; storing it would turn a transient failure into the answer for the whole retention period (section 3.4).
+3. **The fingerprint hashes the raw body.** Clients retry the same bytes, and a byte comparison needs no canonicalizer; a client that re-serializes differently gets `422 idempotency_key_reused`, which the idempotency guide (PR 1.26b) explains.
