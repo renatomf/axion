@@ -89,14 +89,59 @@ class DispatcherTest {
     }
 
     @Test
-    void keepsANotificationTheCoreDidNotAcceptPending() {
-        CORE.reply("dispatch4", Reply.status(503));
-        Payment payment = pay("dispatch4");
+    void retriesWithBackoffUntilTheCoreAccepts() {
+        CORE.reply("dispatch7", Reply.status(503), Reply.status(500));
+        Payment payment = pay("dispatch7");
+
+        await().atMost(WAIT).until(() -> status(payment).equals("delivered"));
+        assertThat(attempts(payment)).containsExactly("1 retried 503", "2 retried 500", "3 delivered 200");
+        List<Received> requests = CORE.receivedFor("dispatch7");
+        assertThat(requests).extracting(Received::body).containsOnly(message(payment));
+    }
+
+    @Test
+    void waitsAsLongAsTheCoresRetryAfter() {
+        CORE.reply("dispatch8", new Reply(429, Map.of("Retry-After", "120"), Duration.ZERO));
+        Payment payment = pay("dispatch8");
 
         await().atMost(WAIT).until(() -> attempts(payment).size() == 1);
-        assertThat(attempts(payment)).containsExactly("1 retried 503");
-        assertThat(status(payment)).isEqualTo("pending");
-        assertThat(nextAttempt(payment)).isNotNull();
+        assertThat(jdbc.sql("""
+                        SELECT d.next_attempt_at - a.attempted_at >= interval '120 seconds'
+                        FROM deliveries d JOIN delivery_attempts a ON a.delivery_id = d.id
+                        WHERE d.end_to_end_id = ? AND d.kind = 'original'
+                        """)
+                        .param(payment.endToEndId().value())
+                        .query(Boolean.class)
+                        .single())
+                .isTrue();
+    }
+
+    @Test
+    void failsADeliveryNotAcceptedWithin24Hours() {
+        Payment payment = pay("dispatch9");
+        await().atMost(WAIT).until(() -> status(payment).equals("delivered"));
+        CORE.reply("dispatch9", Reply.status(503));
+        var late = UUID.randomUUID();
+        var created = OffsetDateTime.now(ZoneOffset.UTC).minusHours(25);
+        jdbc.sql("""
+                        INSERT INTO deliveries (id, end_to_end_id, message_id, kind, message, status, next_attempt_at, created_at)
+                        SELECT ?, end_to_end_id, message_id, 'redelivery', message, 'pending', ?, ?
+                        FROM deliveries WHERE end_to_end_id = ?
+                        """)
+                .params(late, created, created, payment.endToEndId().value())
+                .update();
+
+        await().atMost(WAIT)
+                .until(() -> jdbc.sql("SELECT status FROM deliveries WHERE id = ?")
+                        .param(late)
+                        .query(String.class)
+                        .single()
+                        .equals("failed"));
+        assertThat(jdbc.sql("SELECT outcome || ' ' || response_status FROM delivery_attempts WHERE delivery_id = ?")
+                        .param(late)
+                        .query(String.class)
+                        .single())
+                .isEqualTo("failed 503");
     }
 
     @Test
@@ -104,8 +149,8 @@ class DispatcherTest {
         CORE.reply("dispatch5", new Reply(200, Map.of(), Duration.ofSeconds(6)));
         Payment payment = pay("dispatch5");
 
-        await().atMost(WAIT).until(() -> attempts(payment).size() == 1);
-        assertThat(attempts(payment)).containsExactly("1 retried timeout");
+        await().atMost(WAIT).until(() -> status(payment).equals("delivered"));
+        assertThat(attempts(payment)).containsExactly("1 retried timeout", "2 delivered 200");
     }
 
     @Test
