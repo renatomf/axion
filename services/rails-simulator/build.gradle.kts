@@ -70,6 +70,12 @@ tasks.withType<JavaCompile>().configureEach {
     }
 }
 
+tasks.bootRun {
+    // `./gradlew bootRun` is how developers start the simulator locally, so
+    // it activates the `local` profile (src/main/resources/application-local.yml).
+    systemProperty("spring.profiles.active", "local")
+}
+
 tasks.test {
     // Run tests with the JUnit Platform (JUnit Jupiter). Without this line
     // Gradle looks for JUnit 4 tests and would find none.

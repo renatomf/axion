@@ -28,3 +28,10 @@ management:
         # /actuator/health/liveness and /actuator/health/readiness,
         # for container orchestrators.
         enabled: true
+
+logging:
+  structured:
+    format:
+      # One JSON object per line in the Elastic Common Schema (ECS), as the
+      # core writes, so both services' logs are searched the same way.
+      console: ecs
