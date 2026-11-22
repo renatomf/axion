@@ -140,8 +140,8 @@ class ChargePaymentsTest {
     void cannotBeBuiltPaidWithoutASettlingPayment() {
         Charge active = activeCharge();
 
-        assertThatThrownBy(() ->
-                        new Charge(active.id(), active.amount(), CREATED_AT, EXPIRES_AT, ChargeStatus.PAID, List.of()))
+        assertThatThrownBy(() -> new Charge(
+                        active.id(), active.amount(), CREATED_AT, EXPIRES_AT, ChargeStatus.PAID, List.of(), List.of()))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -150,7 +150,13 @@ class ChargePaymentsTest {
         Charge paid = activeCharge().receive(payment(10000, ON_TIME), NOW).charge();
 
         assertThatThrownBy(() -> new Charge(
-                        paid.id(), paid.amount(), CREATED_AT, EXPIRES_AT, ChargeStatus.ACTIVE, paid.payments()))
+                        paid.id(),
+                        paid.amount(),
+                        CREATED_AT,
+                        EXPIRES_AT,
+                        ChargeStatus.ACTIVE,
+                        paid.payments(),
+                        List.of()))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -165,7 +171,8 @@ class ChargePaymentsTest {
                         CREATED_AT,
                         EXPIRES_AT,
                         ChargeStatus.PAID,
-                        List.of(paid.payments().getFirst(), second)))
+                        List.of(paid.payments().getFirst(), second),
+                        List.of()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("at most one");
     }
