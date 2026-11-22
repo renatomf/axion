@@ -13,3 +13,4 @@ One design doc per significant feature, written and approved before implementati
 | [Tenancy and access](2026-11-19-tenancy-and-access.md) | Approved |
 | [Idempotency](2026-11-21-idempotency.md) | Approved |
 | [Rails simulator](2026-11-21-rails-simulator.md) | Approved |
+| [Billing](2026-11-22-billing.md) | Draft |
