@@ -28,8 +28,247 @@ servers:
     description: Local development
 security:
   - api_key: []
-paths: {}
+tags:
+  - name: Charges
+    description: >-
+      Requests for payment by Pix. A charge carries the BR Code the tenant
+      shows its customer, as a QR code or as text to copy and paste.
+paths:
+  /v1/charges:
+    post:
+      operationId: createCharge
+      tags: [Charges]
+      summary: Create a charge
+      description: >-
+        Creates an active charge for the amount, with its BR Code: the text
+        of the dynamic Pix QR code that the payer's bank app reads. The
+        charge expires `expires_in` seconds after creation; it is then no
+        longer offered for payment. The tenant is the API key's, and test
+        keys create test charges. Requires `charges:write`.
+      parameters:
+        - $ref: "components.yaml#/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateChargeRequest"
+      responses:
+        "201":
+          description: The charge was created.
+          headers:
+            Location:
+              description: The charge's path, `/v1/charges/{id}`.
+              schema:
+                type: string
+            Idempotent-Replayed:
+              $ref: "components.yaml#/headers/Idempotent-Replayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Charge"
+        "400":
+          description: >-
+            The body cannot be read, such as invalid JSON or a value of the
+            wrong type (`bad_request`), or the `Idempotency-Key` is missing
+            (`idempotency_key_required`) or malformed
+            (`invalid_idempotency_key`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The key lacks `charges:write` (`insufficient_permission`), or
+            its tenant is not active (`tenant_inactive`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "409":
+          $ref: "components.yaml#/responses/RequestInProgress"
+        "413":
+          $ref: "components.yaml#/responses/ContentTooLarge"
+        "422":
+          description: >-
+            Some fields are invalid or unknown (`validation_failed`, with
+            `errors`), or the `Idempotency-Key` was used for another request
+            (`idempotency_key_reused`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
 components:
+  schemas:
+    CreateChargeRequest:
+      description: >-
+        A charge to create. A field not listed here is refused, so a
+        misspelled optional field is reported instead of ignored.
+      type: object
+      required: [amount, currency]
+      additionalProperties: false
+      properties:
+        amount:
+          description: >-
+            In centavos, from R$ 0.01 to R$ 1,000,000.00. An integer: `100.0`
+            is refused.
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100000000
+        currency:
+          description: The only currency of Pix.
+          type: string
+          enum: [BRL]
+        description:
+          description: >-
+            For the tenant's own records. It is not in the BR Code, so the
+            payer does not see it.
+          type: string
+          minLength: 1
+          maxLength: 140
+        expires_in:
+          description: >-
+            Seconds from creation until the charge expires, from 1 minute to
+            7 days; 1 day when omitted, the default of the Central Bank's Pix
+            API.
+          type: integer
+          format: int32
+          minimum: 60
+          maximum: 604800
+          default: 86400
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+      examples:
+        - amount: 10000
+          currency: BRL
+          description: Mensalidade de novembro
+          expires_in: 1800
+          metadata:
+            order_id: ord_8842
+    Charge:
+      description: A request for payment by Pix.
+      type: object
+      required:
+        - id
+        - object
+        - status
+        - amount
+        - currency
+        - amount_refunded
+        - description
+        - metadata
+        - pix
+        - expires_at
+        - paid_at
+        - created_at
+        - livemode
+      properties:
+        id:
+          description: The charge's ID.
+          type: string
+          pattern: "^ch_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        object:
+          description: The kind of object, always `charge`.
+          type: string
+          const: charge
+        status:
+          description: >-
+            `active` until it is paid or expires. `paid` once a payment
+            settled it; `partially_refunded` and `refunded` after refunds of
+            that payment; `expired` if it expired unpaid.
+          type: string
+          enum: [active, paid, partially_refunded, refunded, expired]
+        amount:
+          description: In centavos.
+          type: integer
+          format: int64
+        currency:
+          type: string
+          enum: [BRL]
+        amount_refunded:
+          description: In centavos, what refunds returned of the settling payment.
+          type: integer
+          format: int64
+        description:
+          description: The tenant's description; null if it gave none.
+          type: [string, "null"]
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        pix:
+          $ref: "#/components/schemas/ChargePix"
+        expires_at:
+          description: When the charge stops being offered for payment.
+          type: string
+          format: date-time
+        paid_at:
+          description: >-
+            When the rails accepted the payment that settled the charge; null
+            until one did.
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        livemode:
+          description: >-
+            `false` for a charge of the test environment, which no real
+            payment can settle.
+          type: boolean
+      examples:
+        - id: ch_01jdq8k3m4n5p6q7r8s9t0v1w2
+          object: charge
+          status: active
+          amount: 10000
+          currency: BRL
+          amount_refunded: 0
+          description: Mensalidade de novembro
+          metadata:
+            order_id: ord_8842
+          pix:
+            transaction_id: fx7Kq2mP9wR4tY6uA8sD3fG5h
+            br_code: "00020101021226580014br.gov.bcb.pix0136a2b3bccd-2305-4632-9494-a795efa6fbb15204000053039865406100.005802BR5904Acme6009SAO PAULO62290525fx7Kq2mP9wR4tY6uA8sD3fG5h6304F475"
+          expires_at: "2026-11-22T15:00:00Z"
+          paid_at: null
+          created_at: "2026-11-22T14:30:00Z"
+          livemode: false
+    ChargePix:
+      description: How the payer pays the charge.
+      type: object
+      required: [transaction_id, br_code]
+      properties:
+        transaction_id:
+          description: >-
+            The 25 letters and digits that identify the charge on the Pix
+            rails; the payer's bank sends them back with the payment.
+          type: string
+          pattern: "^[0-9A-Za-z]{25}$"
+        br_code:
+          description: >-
+            The text of the dynamic Pix QR code, to show as a QR code or for
+            the payer to copy and paste.
+          type: string
+    Metadata:
+      description: >-
+        The tenant's own keys and values, such as its order ID: up to 20
+        keys of 1 to 40 characters, each with text of up to 500. Stored and
+        returned, never read by Finaxis. It must hold no personal data, such
+        as a name, a CPF or an email address.
+      type: object
+      maxProperties: 20
+      propertyNames:
+        minLength: 1
+        maxLength: 40
+      additionalProperties:
+        type: string
+        maxLength: 500
+      default: {}
   securitySchemes:
     api_key:
       description: >-
