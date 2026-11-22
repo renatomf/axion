@@ -6,11 +6,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.PostgresTestConfiguration;
+import dev.finaxis.core.billing.application.BillingService;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.TenancyApi;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
@@ -37,6 +39,7 @@ class CreateChargeTest {
     private final TenancyApi tenancy;
     private final JdbcClient owner;
     private final TransactionTemplate transaction;
+    private final MeterRegistry meters;
     private final String testPixKey;
     private final String livePixKey;
 
@@ -48,12 +51,14 @@ class CreateChargeTest {
             TenancyApi tenancy,
             DatabaseOwner databaseOwner,
             PlatformTransactionManager transactions,
+            MeterRegistry meters,
             @Value("${finaxis.billing.pix-keys.test}") String testPixKey,
             @Value("${finaxis.billing.pix-keys.live}") String livePixKey) {
         this.billing = billing;
         this.tenancy = tenancy;
         this.owner = databaseOwner.jdbc();
         this.transaction = new TransactionTemplate(transactions);
+        this.meters = meters;
         this.testPixKey = testPixKey;
         this.livePixKey = livePixKey;
     }
@@ -189,6 +194,31 @@ class CreateChargeTest {
     }
 
     @Test
+    void countsTheChargesItCreated() {
+        double before = chargesCreated();
+
+        create(organization.test(), Environment.TEST, ChargeRequest.of(brl(10_000)));
+        create(organization.live(), Environment.LIVE, ChargeRequest.of(brl(10_000)));
+
+        assertThat(chargesCreated()).isEqualTo(before + 2);
+    }
+
+    @Test
+    void countsNoChargeWhoseTransactionRolledBack() {
+        double before = chargesCreated();
+
+        TenantContext.run(
+                organization.test(),
+                Environment.TEST,
+                () -> transaction.executeWithoutResult(status -> {
+                    billing.createCharge(ChargeRequest.of(brl(10_000)));
+                    status.setRollbackOnly();
+                }));
+
+        assertThat(chargesCreated()).isEqualTo(before);
+    }
+
+    @Test
     void refusesToCreateAChargeWithNoTenantBound() {
         assertThatThrownBy(() -> billing.createCharge(ChargeRequest.of(brl(10_000))))
                 .isInstanceOf(IllegalStateException.class)
@@ -203,6 +233,10 @@ class CreateChargeTest {
         return switch (result) {
             case CreateChargeResult.Created created -> created.charge();
         };
+    }
+
+    private double chargesCreated() {
+        return meters.get(BillingService.CHARGES_CREATED).counter().count();
     }
 
     private long count(String sql, UUID id) {

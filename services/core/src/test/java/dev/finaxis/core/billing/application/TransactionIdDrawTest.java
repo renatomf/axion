@@ -16,6 +16,7 @@ import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.TenancyApi;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.io.Serial;
 import java.security.SecureRandom;
 import java.time.Clock;
@@ -45,6 +46,7 @@ class TransactionIdDrawTest {
     private final ModuleRoles roles;
     private final BillingProperties properties;
     private final Clock clock;
+    private final MeterRegistry meters;
     private final TransactionTemplate transaction;
 
     private NewOrganization first;
@@ -58,6 +60,7 @@ class TransactionIdDrawTest {
             ModuleRoles roles,
             BillingProperties properties,
             Clock clock,
+            MeterRegistry meters,
             PlatformTransactionManager transactions) {
         this.charges = charges;
         this.ledger = ledger;
@@ -65,6 +68,7 @@ class TransactionIdDrawTest {
         this.roles = roles;
         this.properties = properties;
         this.clock = clock;
+        this.meters = meters;
         this.transaction = new TransactionTemplate(transactions);
     }
 
@@ -101,7 +105,14 @@ class TransactionIdDrawTest {
 
     private BillingService billing(String... transactionIds) {
         return new BillingService(
-                charges, ledger, tenancy, roles, properties, clock, new ScriptedRandom(List.of(transactionIds)));
+                charges,
+                ledger,
+                tenancy,
+                roles,
+                properties,
+                clock,
+                meters,
+                new ScriptedRandom(List.of(transactionIds)));
     }
 
     // The service is not a Spring proxy here, so the test opens its transaction.

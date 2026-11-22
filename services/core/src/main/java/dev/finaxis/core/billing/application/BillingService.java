@@ -17,6 +17,8 @@ import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.shared.UuidV7Generator;
 import dev.finaxis.core.tenancy.TenancyApi;
 import dev.finaxis.core.tenancy.TenantView;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Instant;
@@ -25,12 +27,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 @EnableConfigurationProperties(BillingProperties.class)
 public class BillingService implements BillingApi {
 
     private static final String ROLE = "finaxis_billing";
+
+    public static final String CHARGES_CREATED = "finaxis.billing.charges.created";
 
     // A collision of 148 random bits is not expected in the life of the system; a few draws bound
     // the loop should the random source ever be broken.
@@ -44,6 +50,7 @@ public class BillingService implements BillingApi {
     private final Clock clock;
     private final SecureRandom random;
     private final UuidV7Generator ids;
+    private final Counter created;
 
     @Autowired
     public BillingService(
@@ -52,8 +59,9 @@ public class BillingService implements BillingApi {
             TenancyApi tenancy,
             ModuleRoles roles,
             BillingProperties properties,
-            Clock clock) {
-        this(charges, ledger, tenancy, roles, properties, clock, new SecureRandom());
+            Clock clock,
+            MeterRegistry meters) {
+        this(charges, ledger, tenancy, roles, properties, clock, meters, new SecureRandom());
     }
 
     BillingService(
@@ -63,6 +71,7 @@ public class BillingService implements BillingApi {
             ModuleRoles roles,
             BillingProperties properties,
             Clock clock,
+            MeterRegistry meters,
             SecureRandom random) {
         this.charges = charges;
         this.ledger = ledger;
@@ -72,6 +81,10 @@ public class BillingService implements BillingApi {
         this.clock = clock;
         this.random = random;
         this.ids = new UuidV7Generator(clock);
+        // Registered at zero, so a rate is defined before the first charge.
+        this.created = Counter.builder(CHARGES_CREATED)
+                .description("Charges created, counted when their transaction commits")
+                .register(meters);
     }
 
     @Override
@@ -86,7 +99,20 @@ public class BillingService implements BillingApi {
 
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         Charge charge = Charge.create(new ChargeId(ids.next()), request.amount(), now, now.plus(request.expiresIn()));
-        return roles.call(ROLE, () -> insert(tenant, charge, request));
+        CreateChargeResult result = roles.call(ROLE, () -> insert(tenant, charge, request));
+        countOnCommit();
+        return result;
+    }
+
+    // The caller's transaction may still roll back, as an idempotent request that fails later does;
+    // a charge that never existed is not counted.
+    private void countOnCommit() {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                created.increment();
+            }
+        });
     }
 
     // The transaction ID is unique across tenants (billing design, section 5.2), so a taken one,
