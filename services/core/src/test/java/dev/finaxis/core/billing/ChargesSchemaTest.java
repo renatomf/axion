@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
+import dev.finaxis.core.shared.TenantId;
 import java.sql.Types;
 import java.time.Duration;
 import java.time.Instant;
@@ -31,6 +32,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
 class ChargesSchemaTest {
+
+    private static final String RLS_VIOLATION = "violates row-level security policy";
 
     private final DatabaseOwner.Session session;
     private final JdbcClient jdbc;
@@ -149,7 +152,7 @@ class ChargesSchemaTest {
 
     @Test
     void letsTheModuleRoleInsertReadAndUpdateACharge() {
-        DatabaseRole.BILLING.actAs(jdbc);
+        DatabaseRole.BILLING.actAs(jdbc, new TenantId(tenant));
         var row = row();
         insert(row);
 
@@ -164,13 +167,86 @@ class ChargesSchemaTest {
     void deniesTheModuleRoleDeletingACharge() {
         var row = row();
         insert(row);
-        DatabaseRole.BILLING.actAs(jdbc);
+        DatabaseRole.BILLING.actAs(jdbc, new TenantId(tenant));
 
         assertThatThrownBy(() -> jdbc.sql("DELETE FROM billing.charges WHERE id = ?")
                         .param(row.id)
                         .update())
                 .rootCause()
                 .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void showsTheModuleRoleNoChargeWithNoTenantBound() {
+        insert(row());
+        DatabaseRole.BILLING.actAs(jdbc);
+
+        assertThat(visibleCharges()).isZero();
+    }
+
+    @Test
+    void hidesAnotherTenantsChargeFromTheModuleRole() {
+        insert(row().tenant(UUID.randomUUID()));
+        DatabaseRole.BILLING.actAs(jdbc, new TenantId(tenant));
+
+        assertThat(visibleCharges()).isZero();
+    }
+
+    @Test
+    void leavesAnotherTenantsChargeUnchangedByTheModuleRole() {
+        var other = row().tenant(UUID.randomUUID());
+        insert(other);
+        DatabaseRole.BILLING.actAs(jdbc, new TenantId(tenant));
+
+        var updated = jdbc.sql("UPDATE billing.charges SET status = 'EXPIRED' WHERE id = ?")
+                .param(other.id)
+                .update();
+
+        assertThat(updated).isZero();
+    }
+
+    @Test
+    void deniesTheModuleRoleInsertingAChargeForAnotherTenant() {
+        DatabaseRole.BILLING.actAs(jdbc, new TenantId(tenant));
+
+        assertThatThrownBy(() -> insert(row().tenant(UUID.randomUUID())))
+                .rootCause()
+                .hasMessageContaining(RLS_VIOLATION);
+    }
+
+    @Test
+    void deniesTheModuleRoleMovingAChargeToAnotherTenant() {
+        var row = row();
+        insert(row);
+        DatabaseRole.BILLING.actAs(jdbc, new TenantId(tenant));
+
+        assertThatThrownBy(() -> jdbc.sql("UPDATE billing.charges SET tenant_id = ? WHERE id = ?")
+                        .params(UUID.randomUUID(), row.id)
+                        .update())
+                .rootCause()
+                .hasMessageContaining(RLS_VIOLATION);
+    }
+
+    @Test
+    void deniesTheModuleRoleInsertingAChargeWithNoTenantBound() {
+        DatabaseRole.BILLING.actAs(jdbc);
+
+        assertThatThrownBy(() -> insert(row())).rootCause().hasMessageContaining(RLS_VIOLATION);
+    }
+
+    @Test
+    void keepsATransactionIdUniqueAcrossTenantsTheModuleRoleCannotSee() {
+        var other = row().tenant(UUID.randomUUID());
+        insert(other);
+        DatabaseRole.BILLING.actAs(jdbc, new TenantId(tenant));
+
+        assertRejected(row().transactionId(other.transactionId), "charges_transaction_id_key");
+    }
+
+    private long visibleCharges() {
+        return jdbc.sql("SELECT count(*) FROM billing.charges")
+                .query(Long.class)
+                .single();
     }
 
     private void assertRejected(Row row, String constraint) {
