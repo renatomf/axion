@@ -2,6 +2,7 @@ package dev.finaxis.simulator.delivery;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import dev.finaxis.simulator.chaos.AppliedFault;
+import dev.finaxis.simulator.chaos.Durations;
 import dev.finaxis.simulator.chaos.Fault;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -12,6 +13,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
@@ -39,7 +41,7 @@ class DeliveryRepository {
     private record StoredFault(
             String rule,
             String fault,
-            int attempt,
+            @Nullable Integer attempt,
             @Nullable String waited) {
 
         static StoredFault of(AppliedFault applied) {
@@ -48,13 +50,45 @@ class DeliveryRepository {
                     applied.rule().toString(),
                     applied.fault().tag(),
                     applied.attempt(),
-                    waited == null ? null : waited.toString());
+                    waited == null ? null : Durations.inSeconds(waited));
         }
 
         AppliedFault applied() {
             Fault kind = Fault.ofTag(fault).orElseThrow(() -> new IllegalStateException("Unknown fault " + fault));
             return new AppliedFault(
                     UUID.fromString(rule), kind, attempt, waited == null ? null : Duration.parse(waited));
+        }
+    }
+
+    /** A delivery as stored, to send again. A class, not a record: it holds the message's bytes. */
+    static final class Stored {
+
+        private final String endToEndId;
+        private final String messageId;
+        private final DeliveryStatus status;
+        private final byte[] message;
+
+        Stored(String endToEndId, String messageId, DeliveryStatus status, byte[] message) {
+            this.endToEndId = endToEndId;
+            this.messageId = messageId;
+            this.status = status;
+            this.message = message.clone();
+        }
+
+        String endToEndId() {
+            return endToEndId;
+        }
+
+        String messageId() {
+            return messageId;
+        }
+
+        DeliveryStatus status() {
+            return status;
+        }
+
+        byte[] message() {
+            return message.clone();
         }
     }
 
@@ -117,17 +151,79 @@ class DeliveryRepository {
         }
     }
 
-    void insert(UUID id, String endToEndId, String messageId, byte[] message, Instant createdAt) {
-        var now = utc(createdAt);
+    /**
+     * Records a delivery with the faults applied as it was created: pending, due at {@code nextAttemptAt}, or
+     * held by a {@code reorder} rule when there is none.
+     */
+    void insert(
+            UUID id,
+            String endToEndId,
+            String messageId,
+            Kind kind,
+            byte[] message,
+            Instant createdAt,
+            @Nullable Instant nextAttemptAt,
+            List<AppliedFault> faults) {
         jdbc.sql("""
-                        INSERT INTO deliveries (id, end_to_end_id, message_id, kind, message, status, next_attempt_at, created_at)
-                        VALUES (:id, :endToEndId, :messageId, 'original', :message, 'pending', :now, :now)
+                        INSERT INTO deliveries (id, end_to_end_id, message_id, kind, message, status, next_attempt_at, faults, created_at)
+                        VALUES (:id, :endToEndId, :messageId, :kind, :message, :status, :nextAttemptAt,
+                                CAST(:faults AS jsonb), :createdAt)
                         """)
                 .param("id", id)
                 .param("endToEndId", endToEndId)
                 .param("messageId", messageId)
+                .param("kind", kind.tag())
                 .param("message", message)
-                .param("now", now)
+                .param("status", nextAttemptAt == null ? "held" : "pending")
+                .param("nextAttemptAt", nextAttemptAt == null ? null : utc(nextAttemptAt))
+                .param("faults", json(faults))
+                .param("createdAt", utc(createdAt))
+                .update();
+    }
+
+    Optional<Stored> find(UUID id) {
+        return jdbc.sql("SELECT end_to_end_id, message_id, status, message FROM deliveries WHERE id = ?")
+                .param(id)
+                .query((row, number) -> new Stored(
+                        row.getString("end_to_end_id"),
+                        row.getString("message_id"),
+                        DeliveryStatus.valueOf(row.getString("status").toUpperCase(Locale.ROOT)),
+                        row.getBytes("message")))
+                .optional();
+    }
+
+    /** The {@code reorder} rules that hold at least one delivery. */
+    List<UUID> holdingRules() {
+        return jdbc.sql("""
+                        SELECT DISTINCT CAST(f ->> 'rule' AS uuid)
+                        FROM deliveries d CROSS JOIN LATERAL jsonb_array_elements(d.faults) f
+                        WHERE d.status = 'held' AND f ->> 'fault' = 'reorder'
+                        """)
+                .query((row, number) -> row.getObject(1, UUID.class))
+                .list();
+    }
+
+    /**
+     * Releases the deliveries a {@code reorder} rule holds: the newest becomes due at {@code now}, and each
+     * older one {@code gap} after the one created after it. The copies of one message are released together.
+     *
+     * @return how many deliveries were released
+     */
+    int release(UUID rule, Instant now, Duration gap) {
+        return jdbc.sql("""
+                        UPDATE deliveries d
+                        SET status = 'pending',
+                            next_attempt_at = :now + (held.position - 1) * :gapMillis * interval '1 millisecond'
+                        FROM (
+                            SELECT id, dense_rank() OVER (ORDER BY created_at DESC, message_id) AS position
+                            FROM deliveries
+                            WHERE status = 'held' AND faults @> CAST(:hold AS jsonb)
+                        ) held
+                        WHERE d.id = held.id
+                        """)
+                .param("now", utc(now))
+                .param("gapMillis", gap.toMillis())
+                .param("hold", json.writeValueAsString(List.of(Map.of("rule", rule.toString(), "fault", "reorder"))))
                 .update();
     }
 
@@ -184,10 +280,7 @@ class DeliveryRepository {
                         """)
                 .param("id", delivery.id())
                 .param("number", number)
-                .param(
-                        "faults",
-                        json.writeValueAsString(
-                                faults.stream().map(StoredFault::of).toList()))
+                .param("faults", json(faults))
                 .param("status", outcome.status().name().toLowerCase(Locale.ROOT))
                 .param("nextAttemptAt", nextAttemptAt == null ? null : utc(nextAttemptAt))
                 .update();
@@ -217,7 +310,7 @@ class DeliveryRepository {
                         SELECT id, kind, status, created_at, next_attempt_at, faults
                         FROM deliveries
                         WHERE end_to_end_id = ?
-                        ORDER BY created_at, id
+                        ORDER BY created_at, kind <> 'original', id
                         """)
                 .param(endToEndId)
                 .query((row, number) -> {
@@ -255,6 +348,10 @@ class DeliveryRepository {
                 row.getBytes("message"),
                 row.getInt("attempts"),
                 row.getObject("created_at", OffsetDateTime.class).toInstant());
+    }
+
+    private String json(List<AppliedFault> faults) {
+        return json.writeValueAsString(faults.stream().map(StoredFault::of).toList());
     }
 
     private static OffsetDateTime utc(Instant instant) {

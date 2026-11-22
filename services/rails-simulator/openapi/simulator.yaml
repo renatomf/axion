@@ -31,9 +31,13 @@ tags:
       simulated SPI.
   - name: Chaos
     description: >-
-      Fault rules that change how the simulator delivers its messages to the
-      core, never what it settles. Rules are held in memory: a restart clears
-      them.
+      Fault rules and the outage switch, which change how the simulator
+      delivers its messages to the core, never what it settles. Both are held
+      in memory: a restart clears them.
+  - name: Deliveries
+    description: >-
+      The deliveries of the simulator's messages to the core, followed on
+      their payment.
 paths:
   /pix/payments:
     post:
@@ -84,6 +88,22 @@ paths:
                 $ref: "#/components/schemas/Problem"
         "500":
           $ref: "#/components/responses/InternalServerError"
+        "503":
+          description: >-
+            The rails are down (`PUT /chaos/outage`), as a payer's bank answers
+            when the SPI is unavailable; nothing is settled.
+          headers:
+            Retry-After:
+              description: >-
+                Seconds until the outage ends, when it was started with a
+                duration.
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
   /pix/payments/{endToEndId}:
     get:
       operationId: getPayment
@@ -141,11 +161,13 @@ paths:
       tags: [Chaos]
       summary: Add a fault rule
       description: >-
-        The rule applies to the next `times` matching attempts to deliver a
-        message, then is retired. When several rules match one attempt, the
-        oldest of each fault applies, and of `fail` and `lost_response`, which
-        exclude each other, only the oldest. A test that matches its own
-        payments by `transactionId` sees exactly its faults.
+        A rule of `latency`, `fail` or `lost_response` applies to the next
+        `times` matching attempts to deliver a message; one of `delay`,
+        `duplicate` or `reorder`, to the next `times` matching notifications,
+        when their delivery is created. Then it is retired. When several rules
+        match, the oldest of each fault applies, and of `fail` and
+        `lost_response`, which exclude each other, only the oldest. A test that
+        matches its own payments by `transactionId` sees exactly its faults.
       requestBody:
         required: true
         content:
@@ -202,6 +224,95 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           description: No rule in force has this id; it was never added, was removed, or is retired.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /chaos/outage:
+    put:
+      operationId: startOutage
+      tags: [Chaos]
+      summary: Take the rails down
+      description: >-
+        From now on the payer API answers `503` and no delivery is attempted.
+        Deliveries already due wait, and when the outage ends they are sent
+        with the dispatcher's usual concurrency. An outage already in force is
+        replaced.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OutageRequest"
+      responses:
+        "200":
+          description: The outage, in force from now on.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Outage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      operationId: endOutage
+      tags: [Chaos]
+      summary: Bring the rails back
+      description: Ends the outage, if one is in force; payments and deliveries resume at once.
+      responses:
+        "204":
+          description: No outage is in force.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /deliveries/{id}/redeliver:
+    post:
+      operationId: redeliver
+      tags: [Deliveries]
+      summary: Redeliver a refused or failed delivery
+      description: >-
+        Creates a delivery of kind `redelivery` with the stored bytes of this
+        one, due now, and sends it as any other: retried with backoff, and
+        subject to the rules applied at each attempt. The delivery redelivered
+        keeps its status.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The id of the delivery to send again.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "201":
+          description: The redelivery is owed to the core.
+          headers:
+            Location:
+              description: The URL of the payment, where the redelivery is followed.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Redelivery"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No delivery has this id.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: >-
+            The delivery is neither `refused` nor `failed`: it is still owed to
+            the core, or the core accepted it.
           content:
             application/problem+json:
               schema:
@@ -327,7 +438,9 @@ components:
         createdAt:
           $ref: "#/components/schemas/Timestamp"
         nextAttemptAt:
-          description: When it is sent next; present only while it is pending.
+          description: >-
+            When it is sent next; present only while it is pending, and absent
+            while a `reorder` rule holds it.
           allOf:
             - $ref: "#/components/schemas/Timestamp"
         attempts:
@@ -341,9 +454,11 @@ components:
           items:
             $ref: "#/components/schemas/AppliedFault"
     AppliedFault:
-      description: A fault a chaos rule applied to one attempt.
+      description: >-
+        A fault a chaos rule applied to the delivery, when it was created or at
+        one attempt.
       type: object
-      required: [rule, fault, attempt]
+      required: [rule, fault]
       properties:
         rule:
           description: The id of the rule that applied it.
@@ -352,11 +467,15 @@ components:
         fault:
           $ref: "#/components/schemas/Fault"
         attempt:
-          description: The number of the attempt it applied to.
+          description: >-
+            The number of the attempt it applied to; absent for `delay`,
+            `duplicate` and `reorder`, applied when the delivery was created.
           type: integer
           minimum: 1
         waited:
-          description: For `latency`, how long the attempt waited before it was sent.
+          description: >-
+            For `latency`, how long the attempt waited before it was sent; for
+            `delay`, how long the first attempt was postponed.
           allOf:
             - $ref: "#/components/schemas/Duration"
     Attempt:
@@ -389,10 +508,11 @@ components:
           enum: [delivered, retried, refused, failed]
     DeliveryStatus:
       description: >-
-        `pending`, owed to the core; `delivered`, accepted; `refused` or
-        `failed`, kept for an operator to redeliver.
+        `pending`, owed to the core; `held`, owed but kept back by a `reorder`
+        rule; `delivered`, accepted; `refused` or `failed`, kept for an
+        operator to redeliver.
       type: string
-      enum: [pending, delivered, refused, failed]
+      enum: [pending, held, delivered, refused, failed]
     FaultRuleRequest:
       type: object
       required: [fault, times]
@@ -412,10 +532,27 @@ components:
             lease on a delivery.
           allOf:
             - $ref: "#/components/schemas/Duration"
+        duration:
+          description: >-
+            For `delay` only, and required by it: how long the first attempt is
+            postponed, an ISO 8601 duration up to an hour.
+          allOf:
+            - $ref: "#/components/schemas/Duration"
+        copies:
+          description: >-
+            For `duplicate` only, and required by it: how many copies are sent
+            besides the delivery itself.
+          type: integer
+          minimum: 1
+          maximum: 10
         match:
           $ref: "#/components/schemas/Match"
         times:
-          description: How many matching attempts the rule applies to before it is retired.
+          description: >-
+            How many matching attempts, or for `delay`, `duplicate` and
+            `reorder` how many matching notifications, the rule applies to
+            before it is retired. For `reorder`, how many notifications are
+            held and released in reverse, at least 2.
           type: integer
           minimum: 1
           maximum: 1000
@@ -436,14 +573,22 @@ components:
           description: For `latency`, the longest wait.
           allOf:
             - $ref: "#/components/schemas/Duration"
+        duration:
+          description: For `delay`, how long the first attempt is postponed.
+          allOf:
+            - $ref: "#/components/schemas/Duration"
+        copies:
+          description: For `duplicate`, how many copies are sent besides the delivery.
+          type: integer
+          minimum: 1
         match:
           $ref: "#/components/schemas/Match"
         times:
-          description: How many attempts the rule was added for.
+          description: How many attempts, or notifications, the rule was added for.
           type: integer
           minimum: 1
         remaining:
-          description: How many more attempts it applies to.
+          description: How many more attempts, or notifications, it applies to.
           type: integer
           minimum: 1
         createdAt:
@@ -459,12 +604,47 @@ components:
             $ref: "#/components/schemas/FaultRule"
     Fault:
       description: >-
-        What the rule does to each matching attempt: `latency` waits a random
+        What the rule does. At each matching attempt: `latency` waits a random
         time between `min` and `max` before sending it; `fail` does not send
         it, and the delivery is retried; `lost_response` sends it, discards the
-        core's answer, and the delivery is retried.
+        core's answer, and the delivery is retried. When a matching
+        notification's delivery is created: `delay` postpones its first attempt
+        by `duration`; `duplicate` also creates `copies` deliveries of kind
+        `duplicate`, with the same bytes, due at the same time; `reorder` holds
+        the next `times` notifications, then releases them in the reverse of
+        the order they were created, one second apart. Removing a `reorder`
+        rule, or a restart, releases what it holds.
       type: string
-      enum: [latency, fail, lost_response]
+      enum: [latency, fail, lost_response, delay, duplicate, reorder]
+    OutageRequest:
+      type: object
+      properties:
+        duration:
+          description: >-
+            How long the rails stay down, an ISO 8601 duration up to an hour;
+            until `DELETE /chaos/outage` when omitted.
+          allOf:
+            - $ref: "#/components/schemas/Duration"
+    Outage:
+      type: object
+      required: [startedAt]
+      properties:
+        startedAt:
+          $ref: "#/components/schemas/Timestamp"
+        endsAt:
+          description: When the outage ends on its own; absent when it lasts until removed.
+          allOf:
+            - $ref: "#/components/schemas/Timestamp"
+    Redelivery:
+      type: object
+      required: [id, endToEndId]
+      properties:
+        id:
+          description: The id of the new delivery, of kind `redelivery`.
+          type: string
+          format: uuid
+        endToEndId:
+          $ref: "#/components/schemas/EndToEndId"
     Match:
       description: >-
         Which deliveries the rule applies to: those of the payment with this
@@ -480,7 +660,7 @@ components:
     Duration:
       description: An ISO 8601 duration of seconds, such as `PT1.5S`.
       type: string
-      pattern: "^PT[0-9]{1,2}(\\.[0-9]{1,3})?S$"
+      pattern: "^PT[0-9]{1,4}(\\.[0-9]{1,3})?S$"
       examples: [PT1.5S]
     EndToEndId:
       description: >-

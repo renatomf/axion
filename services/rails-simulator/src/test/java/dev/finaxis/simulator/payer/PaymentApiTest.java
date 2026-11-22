@@ -3,7 +3,10 @@ package dev.finaxis.simulator.payer;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.finaxis.simulator.PostgresTestConfiguration;
+import dev.finaxis.simulator.chaos.Outage;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -33,12 +36,19 @@ class PaymentApiTest {
     private final MockMvcTester mvc;
     private final JdbcClient jdbc;
     private final JsonMapper json;
+    private final Outage outage;
 
     @Autowired
-    PaymentApiTest(MockMvcTester mvc, JdbcClient jdbc, JsonMapper json) {
+    PaymentApiTest(MockMvcTester mvc, JdbcClient jdbc, JsonMapper json, Outage outage) {
         this.mvc = mvc;
         this.jdbc = jdbc;
         this.json = json;
+        this.outage = outage;
+    }
+
+    @AfterEach
+    void railsBack() {
+        outage.end();
     }
 
     @Test
@@ -304,6 +314,34 @@ class PaymentApiTest {
     }
 
     @Test
+    void settlesNothingDuringAnOutage() {
+        long before = payments();
+        outage.start(Duration.ofSeconds(30));
+
+        MvcTestResult refused = pay("{\"brCode\": \"" + BrCodeTest.PAYABLE + "\"}");
+
+        assertThat(refused)
+                .hasStatus(HttpStatus.SERVICE_UNAVAILABLE)
+                .hasContentType(MediaType.APPLICATION_PROBLEM_JSON);
+        assertThat(refused).bodyJson().extractingPath("$.detail").isEqualTo("The Pix rails are down.");
+        assertThat(Integer.parseInt(String.valueOf(refused.getResponse().getHeader(HttpHeaders.RETRY_AFTER))))
+                .isBetween(1, 30);
+        assertThat(payments()).isEqualTo(before);
+    }
+
+    @Test
+    void paysAgainOnceTheOutageEnds() {
+        outage.start(null);
+
+        MvcTestResult refused = pay("{\"brCode\": \"" + BrCodeTest.PAYABLE + "\"}");
+        outage.end();
+
+        assertThat(refused).hasStatus(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(refused.getResponse().getHeader(HttpHeaders.RETRY_AFTER)).isNull();
+        assertThat(pay("{\"brCode\": \"" + BrCodeTest.PAYABLE + "\"}")).hasStatus(HttpStatus.CREATED);
+    }
+
+    @Test
     void requiresTheOperatorToken() {
         assertThat(mvc.post()
                         .uri("/pix/payments")
@@ -319,6 +357,10 @@ class PaymentApiTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body)
                 .exchange();
+    }
+
+    private long payments() {
+        return jdbc.sql("SELECT count(*) FROM payments").query(Long.class).single();
     }
 
     private static String location(MvcTestResult created) {

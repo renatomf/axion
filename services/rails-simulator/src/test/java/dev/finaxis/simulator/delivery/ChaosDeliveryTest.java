@@ -7,8 +7,10 @@ import dev.finaxis.simulator.PostgresTestConfiguration;
 import dev.finaxis.simulator.chaos.AppliedFault;
 import dev.finaxis.simulator.chaos.ChaosRules;
 import dev.finaxis.simulator.chaos.Fault;
+import dev.finaxis.simulator.chaos.FaultParameters;
 import dev.finaxis.simulator.chaos.FaultRule;
 import dev.finaxis.simulator.chaos.Match;
+import dev.finaxis.simulator.chaos.Outage;
 import dev.finaxis.simulator.delivery.StubCore.Received;
 import dev.finaxis.simulator.spi.Debtor;
 import dev.finaxis.simulator.spi.Payment;
@@ -40,14 +42,17 @@ class ChaosDeliveryTest {
     private final Spi spi;
     private final Deliveries deliveries;
     private final ChaosRules chaos;
+    private final Outage outage;
     private final JdbcClient jdbc;
     private final MeterRegistry meters;
 
     @Autowired
-    ChaosDeliveryTest(Spi spi, Deliveries deliveries, ChaosRules chaos, JdbcClient jdbc, MeterRegistry meters) {
+    ChaosDeliveryTest(
+            Spi spi, Deliveries deliveries, ChaosRules chaos, Outage outage, JdbcClient jdbc, MeterRegistry meters) {
         this.spi = spi;
         this.deliveries = deliveries;
         this.chaos = chaos;
+        this.outage = outage;
         this.jdbc = jdbc;
         this.meters = meters;
     }
@@ -64,7 +69,7 @@ class ChaosDeliveryTest {
 
     @Test
     void failsAnAttemptWithoutSendingIt() {
-        FaultRule rule = chaos.add(Fault.FAIL, null, null, new Match(null, "chaosFail1"), 1);
+        FaultRule rule = chaos.add(Fault.FAIL, FaultParameters.NONE, new Match(null, "chaosFail1"), 1);
         Payment payment = pay("chaosFail1");
 
         await().atMost(WAIT).until(() -> delivery(payment).status() == DeliveryStatus.DELIVERED);
@@ -75,7 +80,7 @@ class ChaosDeliveryTest {
 
     @Test
     void appliesARuleToExactlyItsTimes() {
-        chaos.add(Fault.FAIL, null, null, new Match(null, "chaosFail2"), 2);
+        chaos.add(Fault.FAIL, FaultParameters.NONE, new Match(null, "chaosFail2"), 2);
         Payment failed = pay("chaosFail2");
         Payment untouched = pay("chaosFail3");
 
@@ -90,7 +95,7 @@ class ChaosDeliveryTest {
 
     @Test
     void sendsAnAttemptAndDiscardsTheAnswer() {
-        FaultRule rule = chaos.add(Fault.LOST_RESPONSE, null, null, new Match(null, "chaosLost1"), 1);
+        FaultRule rule = chaos.add(Fault.LOST_RESPONSE, FaultParameters.NONE, new Match(null, "chaosLost1"), 1);
         Payment payment = pay("chaosLost1");
 
         await().atMost(WAIT).until(() -> delivery(payment).status() == DeliveryStatus.DELIVERED);
@@ -105,7 +110,8 @@ class ChaosDeliveryTest {
     @Test
     void waitsWithinTheLatencyBeforeSending() {
         Duration latency = Duration.ofMillis(500);
-        FaultRule rule = chaos.add(Fault.LATENCY, latency, latency, new Match(null, "chaosLatency1"), 1);
+        FaultRule rule = chaos.add(
+                Fault.LATENCY, FaultParameters.latency(latency, latency), new Match(null, "chaosLatency1"), 1);
         Payment payment = pay("chaosLatency1");
 
         await().atMost(WAIT).until(() -> delivery(payment).status() == DeliveryStatus.DELIVERED);
@@ -118,13 +124,136 @@ class ChaosDeliveryTest {
     }
 
     @Test
+    void postponesTheFirstAttemptByTheDelay() {
+        Duration delay = Duration.ofSeconds(1);
+        FaultRule rule = chaos.add(Fault.DELAY, FaultParameters.delay(delay), new Match(null, "chaosDelay1"), 1);
+        Payment payment = pay("chaosDelay1");
+
+        Delivery created = delivery(payment);
+        assertThat(created.nextAttemptAt()).isEqualTo(created.createdAt().plus(delay));
+        await().atMost(WAIT).until(() -> delivery(payment).status() == DeliveryStatus.DELIVERED);
+        Delivery delivered = delivery(payment);
+        assertThat(attempts(payment)).containsExactly("1 delivered 200");
+        assertThat(delivered.faults()).containsExactly(new AppliedFault(rule.id(), Fault.DELAY, null, delay));
+        assertThat(Duration.between(
+                        delivered.createdAt(), delivered.attempts().getFirst().attemptedAt()))
+                .isGreaterThanOrEqualTo(delay);
+    }
+
+    @Test
+    void sendsTheCopiesOfADuplicatedDeliveryWithIdenticalBytes() {
+        FaultRule rule = chaos.add(Fault.DUPLICATE, FaultParameters.duplicate(2), new Match(null, "chaosDup1"), 1);
+        Payment payment = pay("chaosDup1");
+        Payment untouched = pay("chaosDup1");
+
+        await().atMost(WAIT)
+                .until(() -> deliveries.of(payment.endToEndId().value()).stream()
+                        .allMatch(delivery -> delivery.status() == DeliveryStatus.DELIVERED));
+        List<Delivery> all = deliveries.of(payment.endToEndId().value());
+        assertThat(all).extracting(Delivery::kind).containsExactly("original", "duplicate", "duplicate");
+        assertThat(all)
+                .allSatisfy(delivery -> assertThat(delivery.faults())
+                        .containsExactly(new AppliedFault(rule.id(), Fault.DUPLICATE, null, null)));
+        assertThat(all)
+                .extracting(Delivery::createdAt)
+                .containsOnly(all.getFirst().createdAt());
+        await().atMost(WAIT).until(() -> delivery(untouched).status() == DeliveryStatus.DELIVERED);
+        assertThat(deliveries.of(untouched.endToEndId().value())).hasSize(1);
+        List<Received> requests = CORE.receivedFor("chaosDup1").stream()
+                .filter(request -> request.body().contains(payment.endToEndId().value()))
+                .toList();
+        assertThat(requests).hasSize(3);
+        assertThat(requests)
+                .extracting(Received::body)
+                .containsOnly(requests.getFirst().body());
+        assertThat(requests)
+                .extracting(request -> request.header("x-correlation-id"))
+                .containsOnly(requests.getFirst().header("x-correlation-id"));
+    }
+
+    @Test
+    void holdsDeliveriesThenReleasesThemInReverse() {
+        FaultRule rule = chaos.add(Fault.REORDER, FaultParameters.NONE, new Match(null, "chaosReorder1"), 3);
+        Payment first = pay("chaosReorder1");
+        Payment second = pay("chaosReorder1");
+
+        assertThat(delivery(first).status()).isEqualTo(DeliveryStatus.HELD);
+        assertThat(delivery(second).nextAttemptAt()).isNull();
+        Payment third = pay("chaosReorder1");
+
+        List<Payment> payments = List.of(first, second, third);
+        await().atMost(WAIT)
+                .until(() ->
+                        payments.stream().allMatch(payment -> delivery(payment).status() == DeliveryStatus.DELIVERED));
+        assertThat(receivedOrder("chaosReorder1", payments)).containsExactly(third, second, first);
+        assertThat(payments)
+                .allSatisfy(payment -> assertThat(delivery(payment).faults())
+                        .containsExactly(new AppliedFault(rule.id(), Fault.REORDER, null, null)));
+    }
+
+    @Test
+    void releasesWhatARemovedReorderRuleHeld() {
+        FaultRule rule = chaos.add(Fault.REORDER, FaultParameters.NONE, new Match(null, "chaosReorder2"), 3);
+        Payment first = pay("chaosReorder2");
+        Payment second = pay("chaosReorder2");
+
+        chaos.remove(rule.id());
+
+        List<Payment> payments = List.of(first, second);
+        await().atMost(WAIT)
+                .until(() ->
+                        payments.stream().allMatch(payment -> delivery(payment).status() == DeliveryStatus.DELIVERED));
+        assertThat(receivedOrder("chaosReorder2", payments)).containsExactly(second, first);
+    }
+
+    @Test
+    void sendsNothingDuringAnOutageAndDrainsWhenItEnds() {
+        outage.start(null);
+        try {
+            Payment payment = pay("chaosOutage1");
+
+            await().during(Duration.ofSeconds(1))
+                    .atMost(Duration.ofSeconds(2))
+                    .until(() -> attempts(payment).isEmpty());
+            assertThat(delivery(payment).status()).isEqualTo(DeliveryStatus.PENDING);
+            outage.end();
+            await().atMost(WAIT).until(() -> delivery(payment).status() == DeliveryStatus.DELIVERED);
+            assertThat(attempts(payment)).containsExactly("1 delivered 200");
+        } finally {
+            outage.end();
+        }
+    }
+
+    @Test
+    void countsAFaultAppliedAtCreationOnceCommitted() {
+        double before = faultsCounted("delay");
+        chaos.add(Fault.DELAY, FaultParameters.delay(Duration.ofMillis(1)), new Match(null, "chaosCount2"), 1);
+
+        pay("chaosCount2");
+
+        assertThat(faultsCounted("delay")).isEqualTo(before + 1);
+    }
+
+    @Test
     void countsEachFaultApplied() {
         double before = faultsCounted("lost_response");
-        chaos.add(Fault.LOST_RESPONSE, null, null, new Match(null, "chaosCount1"), 2);
+        chaos.add(Fault.LOST_RESPONSE, FaultParameters.NONE, new Match(null, "chaosCount1"), 2);
         Payment payment = pay("chaosCount1");
 
         await().atMost(WAIT).until(() -> delivery(payment).status() == DeliveryStatus.DELIVERED);
         assertThat(faultsCounted("lost_response")).isEqualTo(before + 2);
+    }
+
+    /** The payments in the order the core first heard of them. */
+    private static List<Payment> receivedOrder(String transactionId, List<Payment> payments) {
+        return CORE.receivedFor(transactionId).stream()
+                .map(request -> payments.stream()
+                        .filter(payment ->
+                                request.body().contains(payment.endToEndId().value()))
+                        .findFirst()
+                        .orElseThrow())
+                .distinct()
+                .toList();
     }
 
     private double faultsCounted(String fault) {

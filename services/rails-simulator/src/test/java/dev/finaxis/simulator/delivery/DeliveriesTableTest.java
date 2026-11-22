@@ -90,9 +90,20 @@ class DeliveriesTableTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
+    @Test
+    void acceptsAHeldDeliveryWithoutANextAttempt() {
+        UUID id = insert(END_TO_END_ID, MESSAGE_ID, "original", "held", null);
+
+        assertThat(jdbc.sql("SELECT status FROM deliveries WHERE id = ?")
+                        .param(id)
+                        .query(String.class)
+                        .single())
+                .isEqualTo("held");
+    }
+
     @ParameterizedTest
-    @ValueSource(strings = {"delivered", "refused", "failed"})
-    void refusesAFinishedDeliveryWithANextAttempt(String status) {
+    @ValueSource(strings = {"held", "delivered", "refused", "failed"})
+    void refusesADeliveryNotPendingWithANextAttempt(String status) {
         assertThatThrownBy(() -> insert(END_TO_END_ID, MESSAGE_ID, "original", status, NOW))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }

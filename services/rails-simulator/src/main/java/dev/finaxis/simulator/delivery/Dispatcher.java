@@ -2,6 +2,7 @@ package dev.finaxis.simulator.delivery;
 
 import dev.finaxis.simulator.chaos.AttemptFaults;
 import dev.finaxis.simulator.chaos.ChaosRules;
+import dev.finaxis.simulator.chaos.Outage;
 import dev.finaxis.simulator.delivery.DeliveryRepository.Due;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
@@ -10,6 +11,8 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.random.RandomGenerator;
@@ -24,7 +27,8 @@ import org.springframework.stereotype.Component;
  * a batch under a lease, send each outside any transaction, record what came of it, and schedule a retry
  * when the core did not accept it (section 6.2). A crash between sending and recording sends the message
  * again when the lease ends; the core deduplicates. The chaos rules matching an attempt change how it is
- * sent (section 7.2).
+ * sent (section 7.2), and deliveries a {@code reorder} rule no longer in force left held are released.
+ * During an outage nothing is sent; what is due waits, and is sent when it ends (section 7.3).
  */
 @Component
 @ConditionalOnBooleanProperty(name = "simulator.dispatcher.enabled", matchIfMissing = true)
@@ -38,28 +42,69 @@ class Dispatcher {
     private static final int BATCH = 16;
     private static final Duration LEASE = Duration.ofSeconds(30);
 
+    /**
+     * How long after a {@code reorder} rule held its last delivery the deliveries it still holds are taken as
+     * abandoned: by then that delivery's transaction, which released the others, has long committed, and
+     * what is left came from a payment committed after it.
+     */
+    private static final Duration SETTLED = Duration.ofSeconds(5);
+
     private final DeliveryRepository deliveries;
     private final CoreClient core;
     private final ChaosRules chaos;
+    private final Outage outage;
     private final Clock clock;
     private final MeterRegistry meters;
     private final RetryPolicy retries = new RetryPolicy(RandomGenerator.getDefault());
 
-    Dispatcher(DeliveryRepository deliveries, CoreClient core, ChaosRules chaos, Clock clock, MeterRegistry meters) {
+    Dispatcher(
+            DeliveryRepository deliveries,
+            CoreClient core,
+            ChaosRules chaos,
+            Outage outage,
+            Clock clock,
+            MeterRegistry meters) {
         this.deliveries = deliveries;
         this.core = core;
         this.chaos = chaos;
+        this.outage = outage;
         this.clock = clock;
         this.meters = meters;
     }
 
     @Scheduled(fixedDelay = 250, timeUnit = TimeUnit.MILLISECONDS)
     void dispatch() {
+        if (outage.current().isPresent()) {
+            return;
+        }
         Instant now = now();
+        releaseAbandoned(now);
         List<Due> due = deliveries.claimDue(now, now.plus(LEASE), BATCH);
         // Concurrent and unordered, as on the rails; closing the executor waits for every send.
         try (var senders = Executors.newVirtualThreadPerTaskExecutor()) {
             due.forEach(delivery -> senders.execute(() -> deliver(delivery)));
+        }
+    }
+
+    /**
+     * Releases what {@code reorder} rules hold when no rule will: one removed, or lost in a restart, and one
+     * whose last delivery was committed before a payment it had held. A rule in force, or whose last
+     * delivery may still be committing, is left to release its deliveries itself.
+     */
+    private void releaseAbandoned(Instant now) {
+        Set<UUID> inForce = chaos.holding();
+        for (UUID rule : deliveries.holdingRules()) {
+            boolean settling = chaos.completedAt(rule)
+                    .map(completed -> now.isBefore(completed.plus(SETTLED)))
+                    .orElse(false);
+            if (inForce.contains(rule) || settling) {
+                continue;
+            }
+            int released = deliveries.release(rule, now, Deliveries.RELEASE_GAP);
+            LOG.atInfo()
+                    .addKeyValue("rule", rule)
+                    .addKeyValue("released", released)
+                    .log("Abandoned held deliveries released");
         }
     }
 

@@ -245,27 +245,29 @@ The chaos API changes how the simulator delivers, not what it settles: a payment
 ```
 
 - `match` selects deliveries by `endToEndId`, by `transactionId`, or all of them when empty.
-- `times` applies the rule to the next *n* matching deliveries, then retires it; for a fault applied at each attempt, the next *n* matching attempts. Alternatively, `probability` (0 to 1) with a `seed` applies it to each match by chance, until it is removed, for game days and load tests. Tests use `times`, so their outcome is exact.
+- `times` applies the rule to the next *n* matching deliveries, then retires it; for a fault applied at each attempt, the next *n* matching attempts. A fault applied when a delivery is created applies to a payment's notification only, never to a redelivery an operator asked for. Alternatively, `probability` (0 to 1) with a `seed` applies it to each match by chance, until it is removed, for game days and load tests. Tests use `times`, so their outcome is exact.
 - When several rules match, the oldest of each fault applies, and of `fail` and `lost_response`, which exclude each other, only the oldest. Durations are ISO 8601 (`PT1.5S`).
 - Rules are held in memory and listed, removed one by one or all at once. A restart clears them: no fault outlives the session that set it.
-- Each delivery records the faults applied to it, with the rule and the attempt, so a test asserts what happened from the simulator's side as well as the core's.
+- Each delivery records the faults applied to it, with the rule and, for a fault applied at each attempt, the attempt, so a test asserts what happened from the simulator's side as well as the core's. The copies of a duplicated delivery record the faults of the delivery they copy.
 
 ### 7.2 Faults
 
 | Fault | Parameters | Effect | What it tests in the core |
 |---|---|---|---|
 | `latency` | `min`, `max` | Each matching attempt waits a random time in the range, at most 20 seconds, under the dispatcher's lease, before it is sent | Slow rails; timeouts on the callback path |
-| `delay` | `duration` | The first attempt is postponed by the duration | A late notification: with a code paid after its expiry, the late payment (PR 1.40) |
+| `delay` | `duration` | The first attempt is postponed by the duration, at most an hour | A late notification: with a code paid after its expiry, the late payment (PR 1.40) |
 | `fail` | — | The attempt is not sent, is recorded as `not_sent`, and is retried | Recovery through retries |
 | `lost_response` | — | The attempt is sent, its answer and any `Retry-After` discarded; it is recorded with the core's status and retried | A message the core received and committed, sent again: deduplication under the lost-acknowledgment case |
-| `duplicate` | `copies` | The delivery is sent `copies` more times, each its own delivery, with identical bytes | Duplicate notifications post once |
-| `reorder` | `count` | The next `count` matching deliveries are held, then released together in the reverse of their creation order | Two payments of one charge, notified in the opposite order |
+| `duplicate` | `copies` | The delivery is sent `copies` more times (1 to 10), each its own delivery, with identical bytes, due at the same time | Duplicate notifications post once |
+| `reorder` | — | The next `times` matching deliveries, at least 2, are held, then released in the reverse of their creation order, one second apart | Two payments of one charge, notified in the opposite order |
 
 `delay`, `duplicate` and `reorder` apply when a delivery is created; `latency`, `fail` and `lost_response`, at each attempt.
 
+A held delivery has the status `held` and no next attempt. The delivery that completes a `reorder` releases the others in its own transaction, so the order never depends on when the dispatcher looks. Releasing them one second apart is what makes the order hold: the dispatcher sends what is due concurrently, so deliveries released together would reach the core in no particular order. A rule removed before it completes, or lost in a restart, releases what it held at the dispatcher's next pass, so no delivery stays held once no rule can release it. A delivery held is due when it is released, so a `delay` applied to it as well has no further effect. Payments made concurrently under one `reorder` rule may be released apart: one committed after the rule's last delivery is released a few seconds later, on its own.
+
 ### 7.3 Outage
 
-`PUT /chaos/outage`, with a duration or until removed, takes the rails down: the payer API answers `503`, as a payer's bank does when the SPI is unavailable, and no delivery is attempted. Deliveries already due wait, and when the outage ends they drain with the dispatcher's usual concurrency, which produces the burst of the game day (overview, section 18.2).
+`PUT /chaos/outage`, with a duration of at most an hour or until removed, takes the rails down: the payer API answers `503`, as a payer's bank does when the SPI is unavailable, with a `Retry-After` when the outage has an end, and no delivery is attempted. Deliveries already due wait, and when the outage ends they drain with the dispatcher's usual concurrency, which produces the burst of the game day (overview, section 18.2). An outage started while one is in force replaces it. Like the rules, the outage is held in memory, so a restart ends it.
 
 ### 7.4 Operator API
 
@@ -313,12 +315,13 @@ deliveries
   message_id           char(32) not null      -- the message's messageId, for logs and X-Correlation-Id
   kind                 text not null          -- original | duplicate | redelivery (CHECK)
   message              bytea not null         -- the exact bytes sent on every attempt
-  status               text not null          -- pending | delivered | refused | failed (CHECK)
+  status               text not null          -- pending | held | delivered | refused | failed (CHECK)
   attempts             integer not null
   next_attempt_at      timestamptz null       -- set only while pending (CHECK)
-  faults               jsonb not null         -- chaos faults applied, in order: rule, fault, attempt, waited (section 7.1)
+  faults               jsonb not null         -- chaos faults applied, in order: rule, fault, attempt (at each attempt only), waited (section 7.1)
   created_at           timestamptz not null
   index (next_attempt_at) where status = 'pending'
+  index (created_at) where status = 'held'
 
 delivery_attempts
   delivery_id          uuid not null references deliveries
@@ -405,7 +408,8 @@ The simulator is a test system, but the core treats it as the rails: a message i
 | 1.29 | `services/rails-simulator`: Gradle project, Spring Boot skeleton with the core's quality gates, health endpoint, Compose service, CI build and container image | 8.1, 8.2 |
 | 1.30a | The payer API and BR Code reader, `EndToEndId`, the payments table and the simulator's database; the operator token; `simulator.yaml` | 3.2, 4, 8.2, 8.3 |
 | 1.30b | Credit notifications: the deliveries table, the dispatcher, retries, RFC 9421 signatures, key generation; the payer and the message of the payer API, and the payment's delivery state; `rails.yaml` | 4.2, 4.4, 5, 6, 8.4 |
-| 1.31 | The chaos API: fault rules and the outage switch | 7 |
+| 1.31a | The chaos rules API and the faults applied at each attempt: latency, failures and lost responses; the faults applied, recorded on each delivery and counted | 7.1, 7.2, 7.4, 8.3, 8.4 |
+| 1.31b | The faults applied when a delivery is created: delays, duplicates and reordering; the outage switch; manual redelivery | 7.1–7.4, 8.3 |
 
 The core's side, the signed endpoint and the translation into billing commands, is PR 1.38a and 1.38b; the fault-injection suite is PR 1.42.
 
