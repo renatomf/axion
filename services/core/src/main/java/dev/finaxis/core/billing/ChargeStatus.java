@@ -4,5 +4,7 @@ package dev.finaxis.core.billing;
 public enum ChargeStatus {
     ACTIVE,
     /** Its expiry passed unpaid; a payment accepted before the expiry still pays it. */
-    EXPIRED
+    EXPIRED,
+    /** Settled by a payment of its amount, accepted before its expiry. */
+    PAID
 }
