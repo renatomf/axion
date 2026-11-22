@@ -181,7 +181,7 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | PR | Title | Delivers |
 |---|---|---|
 | 1.32 | Billing design doc | Charge lifecycle, settlement transaction, late payments, refunds, security considerations ([#202](https://github.com/renatomf/finaxis/pull/202)) |
-| 1.33 | Charge domain | Aggregate and state machine; invalid transitions impossible |
+| 1.33 | Charge domain | Aggregate and state machine; invalid transitions impossible ([#204](https://github.com/renatomf/finaxis/pull/204)) |
 | 1.34 | BR Code | Dynamic QR (EMV) payload generation with CRC16, tests against known vectors |
 | 1.35 | Create charge | `POST /v1/charges`, contract-first, idempotent, limits |
 | ↳ 1.35a | Charge creation | The charges table, its constraints, roles and policies; `BillingApi.createCharge` with its limits; the tenant's and the platform's ledger accounts |
