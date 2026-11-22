@@ -20,6 +20,6 @@ class ModuleStructureTest {
     @Test
     void detectsEveryModule() {
         assertThat(modules.stream().map(ApplicationModule::getIdentifier).map(Object::toString))
-                .contains("shared", "observability", "web", "access", "ledger", "tenancy", "idempotency");
+                .contains("shared", "observability", "web", "access", "ledger", "tenancy", "idempotency", "billing");
     }
 }
