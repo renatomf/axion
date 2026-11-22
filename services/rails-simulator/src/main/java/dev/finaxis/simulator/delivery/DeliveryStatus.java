@@ -4,6 +4,8 @@ package dev.finaxis.simulator.delivery;
 public enum DeliveryStatus {
     /** Due now or later. */
     PENDING,
+    /** Owed, but held back by a chaos {@code reorder} rule until it releases it. */
+    HELD,
     /** The core accepted it. */
     DELIVERED,
     /** The core refused it for good; kept for an operator to redeliver. */

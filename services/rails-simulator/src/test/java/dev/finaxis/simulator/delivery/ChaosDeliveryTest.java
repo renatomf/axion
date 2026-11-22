@@ -168,6 +168,41 @@ class ChaosDeliveryTest {
     }
 
     @Test
+    void holdsDeliveriesThenReleasesThemInReverse() {
+        FaultRule rule = chaos.add(Fault.REORDER, FaultParameters.NONE, new Match(null, "chaosReorder1"), 3);
+        Payment first = pay("chaosReorder1");
+        Payment second = pay("chaosReorder1");
+
+        assertThat(delivery(first).status()).isEqualTo(DeliveryStatus.HELD);
+        assertThat(delivery(second).nextAttemptAt()).isNull();
+        Payment third = pay("chaosReorder1");
+
+        List<Payment> payments = List.of(first, second, third);
+        await().atMost(WAIT)
+                .until(() ->
+                        payments.stream().allMatch(payment -> delivery(payment).status() == DeliveryStatus.DELIVERED));
+        assertThat(receivedOrder("chaosReorder1", payments)).containsExactly(third, second, first);
+        assertThat(payments)
+                .allSatisfy(payment -> assertThat(delivery(payment).faults())
+                        .containsExactly(new AppliedFault(rule.id(), Fault.REORDER, null, null)));
+    }
+
+    @Test
+    void releasesWhatARemovedReorderRuleHeld() {
+        FaultRule rule = chaos.add(Fault.REORDER, FaultParameters.NONE, new Match(null, "chaosReorder2"), 3);
+        Payment first = pay("chaosReorder2");
+        Payment second = pay("chaosReorder2");
+
+        chaos.remove(rule.id());
+
+        List<Payment> payments = List.of(first, second);
+        await().atMost(WAIT)
+                .until(() ->
+                        payments.stream().allMatch(payment -> delivery(payment).status() == DeliveryStatus.DELIVERED));
+        assertThat(receivedOrder("chaosReorder2", payments)).containsExactly(second, first);
+    }
+
+    @Test
     void countsAFaultAppliedAtCreationOnceCommitted() {
         double before = faultsCounted("delay");
         chaos.add(Fault.DELAY, FaultParameters.delay(Duration.ofMillis(1)), new Match(null, "chaosCount2"), 1);
@@ -185,6 +220,18 @@ class ChaosDeliveryTest {
 
         await().atMost(WAIT).until(() -> delivery(payment).status() == DeliveryStatus.DELIVERED);
         assertThat(faultsCounted("lost_response")).isEqualTo(before + 2);
+    }
+
+    /** The payments in the order the core first heard of them. */
+    private static List<Payment> receivedOrder(String transactionId, List<Payment> payments) {
+        return CORE.receivedFor(transactionId).stream()
+                .map(request -> payments.stream()
+                        .filter(payment ->
+                                request.body().contains(payment.endToEndId().value()))
+                        .findFirst()
+                        .orElseThrow())
+                .distinct()
+                .toList();
     }
 
     private double faultsCounted(String fault) {

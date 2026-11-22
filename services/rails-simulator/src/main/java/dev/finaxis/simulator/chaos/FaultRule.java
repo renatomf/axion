@@ -29,6 +29,9 @@ public record FaultRule(
         if (times < 1 || times > MAX_TIMES || remaining < 1 || remaining > times) {
             throw new IllegalArgumentException("A rule applies to 1 to " + MAX_TIMES + " attempts");
         }
+        if (fault == Fault.REORDER && times < 2) {
+            throw new IllegalArgumentException("A reorder holds at least 2 deliveries");
+        }
         Duration min = parameters.min();
         Duration max = parameters.max();
         boolean latency = fault == Fault.LATENCY;

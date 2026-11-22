@@ -17,7 +17,9 @@ public enum Fault {
     /** The first attempt is postponed by the rule's duration. */
     DELAY("delay", true),
     /** The message is also sent as the rule's number of copies, each its own delivery. */
-    DUPLICATE("duplicate", true);
+    DUPLICATE("duplicate", true),
+    /** The next deliveries the rule applies to are held, then released in the reverse of their creation order. */
+    REORDER("reorder", true);
 
     private final String tag;
     private final boolean atCreation;

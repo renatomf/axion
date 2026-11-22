@@ -2,15 +2,19 @@ package dev.finaxis.simulator.chaos;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.random.RandomGenerator;
+import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Component;
 
@@ -27,6 +31,7 @@ public class ChaosRules {
 
     private final Clock clock;
     private final Map<UUID, FaultRule> rules = new LinkedHashMap<>();
+    private final Map<UUID, Instant> completed = new HashMap<>();
     private final RandomGenerator random = RandomGenerator.getDefault();
 
     ChaosRules(Clock clock) {
@@ -61,10 +66,27 @@ public class ChaosRules {
         rules.clear();
     }
 
+    /** The ids of the {@code reorder} rules in force, which may still hold deliveries back. */
+    public synchronized Set<UUID> holding() {
+        return rules.values().stream()
+                .filter(rule -> rule.fault() == Fault.REORDER)
+                .map(FaultRule::id)
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    /**
+     * When a {@code reorder} rule held its last delivery, which releases the others with it; empty for a
+     * rule still in force, removed, or set before a restart.
+     */
+    public synchronized Optional<Instant> completedAt(UUID rule) {
+        return Optional.ofNullable(completed.get(rule));
+    }
+
     /** The faults to apply to a notification as its delivery is created, spent as {@link #atAttempt} spends them. */
     public synchronized CreationFaults atCreation(String endToEndId, String transactionId) {
         List<AppliedFault> applied = new ArrayList<>();
         int copies = 0;
+        CreationFaults.@Nullable Hold hold = null;
         for (FaultRule rule : spend(endToEndId, transactionId, true)) {
             applied.add(new AppliedFault(
                     rule.id(), rule.fault(), null, rule.parameters().duration()));
@@ -72,8 +94,15 @@ public class ChaosRules {
             if (ruleCopies != null) {
                 copies = ruleCopies;
             }
+            if (rule.fault() == Fault.REORDER) {
+                boolean last = rule.remaining() == 1;
+                hold = new CreationFaults.Hold(rule.id(), last);
+                if (last) {
+                    completed.put(rule.id(), clock.instant());
+                }
+            }
         }
-        return new CreationFaults(applied, copies);
+        return new CreationFaults(applied, copies, hold);
     }
 
     /**

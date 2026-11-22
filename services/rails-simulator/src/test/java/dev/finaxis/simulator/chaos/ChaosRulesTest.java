@@ -112,6 +112,29 @@ class ChaosRulesTest {
     }
 
     @Test
+    void keepsAReorderToTwoDeliveriesOrMore() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> rules.add(Fault.REORDER, FaultParameters.NONE, Match.ANY, 1));
+        assertThat(rules.add(Fault.REORDER, FaultParameters.NONE, Match.ANY, 2).times())
+                .isEqualTo(2);
+    }
+
+    @Test
+    void holdsDeliveriesForAReorderUntilItsLast() {
+        FaultRule rule = rules.add(Fault.REORDER, FaultParameters.NONE, Match.ANY, 2);
+
+        assertThat(rules.atCreation(END_TO_END_ID, "chaos10").hold())
+                .isEqualTo(new CreationFaults.Hold(rule.id(), false));
+        assertThat(rules.holding()).containsExactly(rule.id());
+        assertThat(rules.completedAt(rule.id())).isEmpty();
+        assertThat(rules.atCreation(END_TO_END_ID, "chaos10").hold())
+                .isEqualTo(new CreationFaults.Hold(rule.id(), true));
+        assertThat(rules.holding()).isEmpty();
+        assertThat(rules.completedAt(rule.id())).contains(NOW);
+        assertThat(rules.atCreation(END_TO_END_ID, "chaos10").hold()).isNull();
+    }
+
+    @Test
     void appliesTheFaultsAtCreationOnlyWhenADeliveryIsCreated() {
         Duration delay = Duration.ofSeconds(90);
         FaultRule delayed = rules.add(Fault.DELAY, FaultParameters.delay(delay), Match.ANY, 1);

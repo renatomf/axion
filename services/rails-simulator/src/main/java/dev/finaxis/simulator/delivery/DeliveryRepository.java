@@ -118,7 +118,10 @@ class DeliveryRepository {
         }
     }
 
-    /** Records a pending delivery, due at {@code nextAttemptAt}, with the faults applied as it was created. */
+    /**
+     * Records a delivery with the faults applied as it was created: pending, due at {@code nextAttemptAt}, or
+     * held by a {@code reorder} rule when there is none.
+     */
     void insert(
             UUID id,
             String endToEndId,
@@ -126,11 +129,11 @@ class DeliveryRepository {
             Kind kind,
             byte[] message,
             Instant createdAt,
-            Instant nextAttemptAt,
+            @Nullable Instant nextAttemptAt,
             List<AppliedFault> faults) {
         jdbc.sql("""
                         INSERT INTO deliveries (id, end_to_end_id, message_id, kind, message, status, next_attempt_at, faults, created_at)
-                        VALUES (:id, :endToEndId, :messageId, :kind, :message, 'pending', :nextAttemptAt,
+                        VALUES (:id, :endToEndId, :messageId, :kind, :message, :status, :nextAttemptAt,
                                 CAST(:faults AS jsonb), :createdAt)
                         """)
                 .param("id", id)
@@ -138,9 +141,45 @@ class DeliveryRepository {
                 .param("messageId", messageId)
                 .param("kind", kind.tag())
                 .param("message", message)
-                .param("nextAttemptAt", utc(nextAttemptAt))
+                .param("status", nextAttemptAt == null ? "held" : "pending")
+                .param("nextAttemptAt", nextAttemptAt == null ? null : utc(nextAttemptAt))
                 .param("faults", json(faults))
                 .param("createdAt", utc(createdAt))
+                .update();
+    }
+
+    /** The {@code reorder} rules that hold at least one delivery. */
+    List<UUID> holdingRules() {
+        return jdbc.sql("""
+                        SELECT DISTINCT CAST(f ->> 'rule' AS uuid)
+                        FROM deliveries d CROSS JOIN LATERAL jsonb_array_elements(d.faults) f
+                        WHERE d.status = 'held' AND f ->> 'fault' = 'reorder'
+                        """)
+                .query((row, number) -> row.getObject(1, UUID.class))
+                .list();
+    }
+
+    /**
+     * Releases the deliveries a {@code reorder} rule holds: the newest becomes due at {@code now}, and each
+     * older one {@code gap} after the one created after it. The copies of one message are released together.
+     *
+     * @return how many deliveries were released
+     */
+    int release(UUID rule, Instant now, Duration gap) {
+        return jdbc.sql("""
+                        UPDATE deliveries d
+                        SET status = 'pending',
+                            next_attempt_at = :now + (held.position - 1) * :gapMillis * interval '1 millisecond'
+                        FROM (
+                            SELECT id, dense_rank() OVER (ORDER BY created_at DESC, message_id) AS position
+                            FROM deliveries
+                            WHERE status = 'held' AND faults @> CAST(:hold AS jsonb)
+                        ) held
+                        WHERE d.id = held.id
+                        """)
+                .param("now", utc(now))
+                .param("gapMillis", gap.toMillis())
+                .param("hold", json.writeValueAsString(List.of(Map.of("rule", rule.toString(), "fault", "reorder"))))
                 .update();
     }
 

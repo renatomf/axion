@@ -58,6 +58,9 @@ class ChaosController {
         if (times == null || times < 1 || times > FaultRule.MAX_TIMES) {
             throw badRequest("times must be an integer from 1 to " + FaultRule.MAX_TIMES + ".");
         }
+        if (fault == Fault.REORDER && times < 2) {
+            throw badRequest("times must be at least 2 for reorder, which reverses that many deliveries.");
+        }
         FaultRule rule = rules.add(fault, parameters(fault, request), match(request.match()), times);
         LOG.atInfo()
                 .addKeyValue("rule", rule.id())
@@ -100,7 +103,7 @@ class ChaosController {
             case LATENCY -> latency(request.min(), request.max());
             case DELAY -> FaultParameters.delay(delay(request.duration()));
             case DUPLICATE -> FaultParameters.duplicate(copies(request.copies()));
-            case FAIL, LOST_RESPONSE -> FaultParameters.NONE;
+            case FAIL, LOST_RESPONSE, REORDER -> FaultParameters.NONE;
         };
     }
 

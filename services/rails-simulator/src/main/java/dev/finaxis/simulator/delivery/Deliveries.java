@@ -6,10 +6,12 @@ import dev.finaxis.simulator.chaos.CreationFaults;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -27,6 +29,12 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 public class Deliveries {
 
     public static final String PENDING = "rails_sim.deliveries.pending";
+
+    /**
+     * How far apart a {@code reorder} rule releases the deliveries it held: the dispatcher sends what is due
+     * concurrently, so deliveries released at one moment would reach the core in no particular order.
+     */
+    static final Duration RELEASE_GAP = Duration.ofSeconds(1);
 
     private static final Logger LOG = LoggerFactory.getLogger(Deliveries.class);
 
@@ -48,7 +56,8 @@ public class Deliveries {
 
     /**
      * Records a message to deliver now, or later under a {@code delay} rule, in the caller's transaction;
-     * under a {@code duplicate} rule, its copies too, due at the same time.
+     * under a {@code duplicate} rule, its copies too, due at the same time. Under a {@code reorder} rule it is
+     * held instead, and the rule's last delivery releases every one the rule held, newest first.
      *
      * @param endToEndId the payment the message notifies
      * @param transactionId the transaction ID of the payment's BR Code, which rules may match
@@ -61,11 +70,20 @@ public class Deliveries {
         var id = UUID.randomUUID();
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         CreationFaults faults = chaos.atCreation(endToEndId, transactionId);
-        Instant due = faults.delay().map(now::plus).orElse(now);
+        CreationFaults.Hold hold = faults.hold();
+        @Nullable
+        Instant due = hold != null ? null : faults.delay().map(now::plus).orElse(now);
         deliveries.insert(id, endToEndId, messageId, Kind.ORIGINAL, message, now, due, faults.applied());
         for (int copy = 0; copy < faults.copies(); copy++) {
             deliveries.insert(
                     UUID.randomUUID(), endToEndId, messageId, Kind.DUPLICATE, message, now, due, faults.applied());
+        }
+        if (hold != null && hold.last()) {
+            int released = deliveries.release(hold.rule(), now, RELEASE_GAP);
+            LOG.atInfo()
+                    .addKeyValue("rule", hold.rule())
+                    .addKeyValue("released", released)
+                    .log("Held deliveries released");
         }
         if (!faults.applied().isEmpty()) {
             countOnCommit(faults.applied());
