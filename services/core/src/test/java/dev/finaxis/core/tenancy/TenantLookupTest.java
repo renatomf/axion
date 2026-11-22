@@ -39,6 +39,15 @@ class TenantLookupTest {
         assertThat(isPlatform(tenant.organization())).isTrue();
     }
 
+    @ParameterizedTest
+    @EnumSource(Environment.class)
+    void namesTheOrganizationOfATenant(Environment environment) {
+        var created = tenancy.createOrganization("Padaria São João", "subject-" + UUID.randomUUID());
+        var id = environment == Environment.TEST ? created.test() : created.live();
+
+        assertThat(tenancy.tenant(id).orElseThrow().organizationName()).isEqualTo("Padaria São João");
+    }
+
     @Test
     void findsNoTenantForAnUnknownId() {
         assertThat(tenancy.tenant(new TenantId(UUID.randomUUID()))).isEmpty();

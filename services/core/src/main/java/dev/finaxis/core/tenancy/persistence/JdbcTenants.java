@@ -25,9 +25,10 @@ public class JdbcTenants {
 
     public Optional<TenantView> find(TenantId id) {
         return jdbc.sql("""
-                        SELECT id, organization_id, environment, status
-                          FROM tenancy.tenants
-                         WHERE id = :id
+                        SELECT t.id, t.organization_id, o.name AS organization_name, t.environment, t.status
+                          FROM tenancy.tenants t
+                          JOIN tenancy.organizations o ON o.id = t.organization_id
+                         WHERE t.id = :id
                         """).param("id", id.value()).query(JdbcTenants::tenant).optional();
     }
 
@@ -37,9 +38,10 @@ public class JdbcTenants {
             return List.of();
         }
         return jdbc.sql("""
-                        SELECT id, organization_id, environment, status
-                          FROM tenancy.tenants
-                         WHERE organization_id IN (:organizations)
+                        SELECT t.id, t.organization_id, o.name AS organization_name, t.environment, t.status
+                          FROM tenancy.tenants t
+                          JOIN tenancy.organizations o ON o.id = t.organization_id
+                         WHERE t.organization_id IN (:organizations)
                         """)
                 .param(
                         "organizations",
@@ -52,6 +54,7 @@ public class JdbcTenants {
         return new TenantView(
                 new TenantId(row.getObject("id", UUID.class)),
                 new OrganizationId(row.getObject("organization_id", UUID.class)),
+                row.getString("organization_name"),
                 Environment.valueOf(row.getString("environment")),
                 TenantStatus.valueOf(row.getString("status")));
     }
