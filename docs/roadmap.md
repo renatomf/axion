@@ -184,19 +184,17 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | 1.33 | Charge domain | Aggregate and state machine; invalid transitions impossible |
 | 1.34 | BR Code | Dynamic QR (EMV) payload generation with CRC16, tests against known vectors |
 | 1.35 | Create charge | `POST /v1/charges`, contract-first, idempotent, limits |
-| ↳ 1.35a | Charge creation | The charges table, its constraints and database role; `BillingApi.createCharge` with its limits |
+| ↳ 1.35a | Charge creation | The charges table, its constraints, roles and policies; `BillingApi.createCharge` with its limits; the tenant's and the platform's ledger accounts |
 | ↳ 1.35b | Create charge endpoint | `POST /v1/charges` in `v1.yaml`, then the endpoint, idempotent |
 | 1.36 | Read charges | `GET /v1/charges` (cursor pagination, filters by status and date), `GET /v1/charges/{id}` |
 | 1.37 | Basic risk rules | Pre-charge decision: amount and velocity rules |
-| ↳ 1.37a | Risk rules | `RiskApi` with the amount rule and the velocity rule |
+| ↳ 1.37a | Risk rules | The `risk` module: `RiskApi` with the amount, daily amount and hourly count rules, held by conditional counters |
 | ↳ 1.37b | Risk before charging | The decision applied to charge creation |
-| 1.38 | Rails anti-corruption layer | Callback endpoint, signature verification, `EndToEndId` deduplication |
-| ↳ 1.38a | Callback endpoint | The rails callback endpoint and its signature verification (RFC 9421, Ed25519) |
-| ↳ 1.38b | Callback translation | `EndToEndId` deduplication; rails messages translated into billing commands |
-| 1.39 | Settlement | One transaction: charge `PAID` + ledger entry + outbox event |
-| 1.40 | Late payments | Payment after expiration: credited and flagged for review |
+| 1.38 | Rails anti-corruption layer | The `rails` module: the callback endpoint on its own filter chain, its signature verification (RFC 9421, Ed25519), and the inbox that deduplicates credits by `EndToEndId` |
+| 1.39 | Settlement | The inbox processor and the `PixCreditHandler` port; one transaction: charge `PAID` + payment + ledger entry; flagged and unmatched payments |
+| 1.40 | Late payments | The expiry job; a payment accepted after expiry credited and flagged; one accepted before it settles the expired charge |
 | 1.41 | Refunds | Reversal entries, partial and full refunds |
-| ↳ 1.41a | Refunds | Refunds, their states and table; reversal entries for full and partial refunds within the paid amount |
+| ↳ 1.41a | Refunds | Refunds of one payment and their table; reversal entries for full and partial refunds within the payment's amount |
 | ↳ 1.41b | Refund endpoint | `POST /v1/charges/{id}/refunds`, idempotent |
 | 1.42 | Fault-injection suite | Timeouts, duplicates, out-of-order and late callbacks, mid-settlement failure |
 
