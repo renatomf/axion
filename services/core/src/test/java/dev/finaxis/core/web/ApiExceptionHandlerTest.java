@@ -38,7 +38,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
         controllers = ApiExceptionHandlerTest.FailingController.class,
         excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE, classes = WebMvcConfigurer.class))
 @AutoConfigureMockMvc(addFilters = false)
-@Import(ApiExceptionHandlerTest.FailingController.class)
+@Import({ApiExceptionHandlerTest.FailingController.class, StrictJsonConfiguration.class})
 class ApiExceptionHandlerTest {
 
     private final MockMvcTester mvc;
@@ -204,6 +204,23 @@ class ApiExceptionHandlerTest {
                 .bodyJson()
                 .extractingPath("$.code")
                 .isEqualTo("bad_request");
+    }
+
+    @Test
+    void valueOfAnotherTypeIsABadRequestProblem() {
+        for (String value : new String[] {"2.5", "2.0", "\"3\"", "true"}) {
+            assertThat(validated("""
+                            {"name": "Acme", "tags": ["a"], "max_retries": %s}
+                            """.formatted(value)))
+                    .as("max_retries %s", value)
+                    .hasStatus(HttpStatus.BAD_REQUEST)
+                    .bodyJson()
+                    .extractingPath("$.code")
+                    .isEqualTo("bad_request");
+        }
+        assertThat(validated("""
+                        {"name": 5, "tags": ["a"]}
+                        """)).hasStatus(HttpStatus.BAD_REQUEST);
     }
 
     private MvcTestResult validated(String body) {
