@@ -41,4 +41,20 @@ public record Charge(ChargeId id, Money amount, Instant createdAt, Instant expir
     public static Charge create(ChargeId id, Money amount, Instant createdAt, Instant expiresAt) {
         return new Charge(id, amount, createdAt, expiresAt, ChargeStatus.ACTIVE);
     }
+
+    /**
+     * The charge, expired.
+     *
+     * @throws IllegalStateException if it is not active or its expiry has not passed, a bug in the caller
+     */
+    public Charge expire(Instant now) {
+        if (status != ChargeStatus.ACTIVE || now.isBefore(expiresAt)) {
+            throw new IllegalStateException("Charge " + id.value() + " cannot expire: " + status + " at " + now);
+        }
+        return withStatus(ChargeStatus.EXPIRED);
+    }
+
+    private Charge withStatus(ChargeStatus newStatus) {
+        return new Charge(id, amount, createdAt, expiresAt, newStatus);
+    }
 }

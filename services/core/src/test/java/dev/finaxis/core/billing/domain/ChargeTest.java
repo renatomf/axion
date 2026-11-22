@@ -2,6 +2,7 @@ package dev.finaxis.core.billing.domain;
 
 import static dev.finaxis.core.billing.BillingFixtures.CREATED_AT;
 import static dev.finaxis.core.billing.BillingFixtures.EXPIRES_AT;
+import static dev.finaxis.core.billing.BillingFixtures.activeCharge;
 import static dev.finaxis.core.billing.BillingFixtures.brl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -64,5 +65,27 @@ class ChargeTest {
                         CREATED_AT.plus(Charge.MIN_LIFETIME).minus(Duration.ofMillis(1))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("expires");
+    }
+
+    @Test
+    void expiresOnceItsExpiryHasPassed() {
+        Charge charge = activeCharge();
+
+        assertThat(charge.expire(EXPIRES_AT).status()).isEqualTo(ChargeStatus.EXPIRED);
+        assertThat(charge.expire(EXPIRES_AT.plusSeconds(3600)).status()).isEqualTo(ChargeStatus.EXPIRED);
+    }
+
+    @Test
+    void doesNotExpireBeforeItsExpiry() {
+        Charge charge = activeCharge();
+
+        assertThatThrownBy(() -> charge.expire(EXPIRES_AT.minusMillis(1))).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void expiresOnlyOnce() {
+        Charge expired = activeCharge().expire(EXPIRES_AT);
+
+        assertThatThrownBy(() -> expired.expire(EXPIRES_AT)).isInstanceOf(IllegalStateException.class);
     }
 }
