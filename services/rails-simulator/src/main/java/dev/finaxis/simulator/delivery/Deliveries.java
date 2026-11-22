@@ -100,6 +100,35 @@ public class Deliveries {
         return id;
     }
 
+    /**
+     * Sends a refused or failed delivery again: a new delivery of kind {@code redelivery}, with the stored
+     * bytes, due now. The rules applied at creation do not apply to it; those at each attempt do. The
+     * delivery redelivered keeps its status.
+     */
+    @Transactional
+    Redelivery redeliver(UUID id) {
+        return deliveries
+                .find(id)
+                .<Redelivery>map(stored -> {
+                    if (stored.status() != DeliveryStatus.REFUSED && stored.status() != DeliveryStatus.FAILED) {
+                        return new Redelivery.NotRedeliverable(stored.status());
+                    }
+                    var redelivery = UUID.randomUUID();
+                    Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
+                    deliveries.insert(
+                            redelivery,
+                            stored.endToEndId(),
+                            stored.messageId(),
+                            Kind.REDELIVERY,
+                            stored.message(),
+                            now,
+                            now,
+                            List.of());
+                    return new Redelivery.Created(redelivery, stored.endToEndId());
+                })
+                .orElseGet(Redelivery.NotFound::new);
+    }
+
     // Counted once committed: a delivery rolled back with its payment was never put through a fault.
     private void countOnCommit(List<AppliedFault> faults) {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {

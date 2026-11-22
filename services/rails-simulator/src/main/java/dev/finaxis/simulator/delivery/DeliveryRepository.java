@@ -13,6 +13,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
@@ -56,6 +57,38 @@ class DeliveryRepository {
             Fault kind = Fault.ofTag(fault).orElseThrow(() -> new IllegalStateException("Unknown fault " + fault));
             return new AppliedFault(
                     UUID.fromString(rule), kind, attempt, waited == null ? null : Duration.parse(waited));
+        }
+    }
+
+    /** A delivery as stored, to send again. A class, not a record: it holds the message's bytes. */
+    static final class Stored {
+
+        private final String endToEndId;
+        private final String messageId;
+        private final DeliveryStatus status;
+        private final byte[] message;
+
+        Stored(String endToEndId, String messageId, DeliveryStatus status, byte[] message) {
+            this.endToEndId = endToEndId;
+            this.messageId = messageId;
+            this.status = status;
+            this.message = message.clone();
+        }
+
+        String endToEndId() {
+            return endToEndId;
+        }
+
+        String messageId() {
+            return messageId;
+        }
+
+        DeliveryStatus status() {
+            return status;
+        }
+
+        byte[] message() {
+            return message.clone();
         }
     }
 
@@ -146,6 +179,17 @@ class DeliveryRepository {
                 .param("faults", json(faults))
                 .param("createdAt", utc(createdAt))
                 .update();
+    }
+
+    Optional<Stored> find(UUID id) {
+        return jdbc.sql("SELECT end_to_end_id, message_id, status, message FROM deliveries WHERE id = ?")
+                .param(id)
+                .query((row, number) -> new Stored(
+                        row.getString("end_to_end_id"),
+                        row.getString("message_id"),
+                        DeliveryStatus.valueOf(row.getString("status").toUpperCase(Locale.ROOT)),
+                        row.getBytes("message")))
+                .optional();
     }
 
     /** The {@code reorder} rules that hold at least one delivery. */
