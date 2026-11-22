@@ -15,12 +15,15 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.exc.UnrecognizedPropertyException;
 
 /**
  * The one place that decides what an error looks like: RFC 9457 Problem Details, each with a stable
@@ -59,6 +62,35 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         problem.setProperty(CODE, VALIDATION_FAILED);
         problem.setProperty("errors", fieldErrors(ex));
         return handleExceptionInternal(ex, problem, headers, unprocessable, request);
+    }
+
+    // A field the request does not define is refused as invalid, not ignored, so a misspelled
+    // optional field is not silently dropped. The rest of an unreadable body stays a 400.
+    @Override
+    protected @Nullable ResponseEntity<Object> handleHttpMessageNotReadable(
+            HttpMessageNotReadableException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        if (!(ex.getCause() instanceof UnrecognizedPropertyException unknown)) {
+            return super.handleHttpMessageNotReadable(ex, headers, status, request);
+        }
+        HttpStatus unprocessable = HttpStatus.UNPROCESSABLE_CONTENT;
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(unprocessable, "The request has invalid fields.");
+        problem.setProperty(CODE, VALIDATION_FAILED);
+        problem.setProperty("errors", List.of(new FieldProblem(jsonPath(unknown.getPath()), "is not a known field")));
+        return handleExceptionInternal(ex, problem, headers, unprocessable, request);
+    }
+
+    // Jackson's path ends with the unknown field itself and spells names as the request does.
+    static String jsonPath(List<JacksonException.Reference> references) {
+        StringBuilder path = new StringBuilder();
+        for (JacksonException.Reference reference : references) {
+            @Nullable String name = reference.getPropertyName();
+            if (name == null) {
+                path.append('[').append(reference.getIndex()).append(']');
+            } else {
+                path.append(path.isEmpty() ? "" : ".").append(name);
+            }
+        }
+        return path.toString();
     }
 
     private static List<FieldProblem> fieldErrors(MethodArgumentNotValidException ex) {

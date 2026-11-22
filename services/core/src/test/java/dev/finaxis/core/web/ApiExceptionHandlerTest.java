@@ -148,6 +148,34 @@ class ApiExceptionHandlerTest {
     }
 
     @Test
+    void unknownFieldIsAValidationProblemNamingIt() {
+        assertThat(validated("""
+                        {"name": "Acme", "tags": ["a"], "max_retry": 3}
+                        """))
+                .hasStatus(HttpStatus.UNPROCESSABLE_CONTENT)
+                .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .bodyJson()
+                .isLenientlyEqualTo("""
+                        {
+                          "status": 422,
+                          "code": "validation_failed",
+                          "errors": [{"field": "max_retry", "detail": "is not a known field"}]
+                        }
+                        """);
+    }
+
+    @Test
+    void unknownNestedFieldIsNamedWithItsPath() {
+        assertThat(validated("""
+                        {"name": "Acme", "tags": ["a"], "items": [{"sku": "x"}, {"sku": "y", "qty": 1}]}
+                        """))
+                .hasStatus(HttpStatus.UNPROCESSABLE_CONTENT)
+                .bodyJson()
+                .extractingPath("$.errors[*].field")
+                .isEqualTo(List.of("items[1].qty"));
+    }
+
+    @Test
     void javaPathsBecomeSnakeCase() {
         assertThat(ApiExceptionHandler.jsonPath("name")).isEqualTo("name");
         assertThat(ApiExceptionHandler.jsonPath("tags[1]")).isEqualTo("tags[1]");
@@ -218,5 +246,8 @@ class ApiExceptionHandlerTest {
     record Form(
             @NotBlank @Size(max = 10) String name,
             @NotEmpty List<@NotBlank String> tags,
-            @JsonProperty("max_retries") @Min(0) @Nullable Integer maxRetries) {}
+            @JsonProperty("max_retries") @Min(0) @Nullable Integer maxRetries,
+            @Nullable List<Item> items) {}
+
+    record Item(String sku) {}
 }

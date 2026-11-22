@@ -14,6 +14,11 @@ spring:
       # authenticates with a username and password, so that user is only a
       # credential to leak.
       - org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
+  jackson:
+    deserialization:
+      # Refuse a request body with a field its record does not define, so a
+      # misspelled optional field is reported instead of silently ignored.
+      fail-on-unknown-properties: true
   flyway:
     # Fail on a file in db/migration whose name Flyway cannot parse, instead
     # of silently skipping it.
