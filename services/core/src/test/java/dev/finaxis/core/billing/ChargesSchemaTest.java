@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.finaxis.core.DatabaseOwner;
+import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import java.sql.Types;
 import java.time.Duration;
@@ -24,7 +25,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
  * The charges table and the rules the database enforces on it (billing design, section 11), checked
- * against a real PostgreSQL as the schemas' owner; nothing is committed.
+ * against a real PostgreSQL. The owner arranges the rows, then the module's role reads and writes
+ * them; nothing is committed.
  */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
@@ -143,6 +145,32 @@ class ChargesSchemaTest {
     @ValueSource(strings = {"PAID", "PARTIALLY_REFUNDED", "REFUNDED"})
     void acceptsAPaymentTimeInEveryPaidState(String status) {
         insert(row().paid().status(status));
+    }
+
+    @Test
+    void letsTheModuleRoleInsertReadAndUpdateACharge() {
+        DatabaseRole.BILLING.actAs(jdbc);
+        var row = row();
+        insert(row);
+
+        var updated = jdbc.sql("UPDATE billing.charges SET status = 'EXPIRED' WHERE id = ?")
+                .param(row.id)
+                .update();
+
+        assertThat(updated).isOne();
+    }
+
+    @Test
+    void deniesTheModuleRoleDeletingACharge() {
+        var row = row();
+        insert(row);
+        DatabaseRole.BILLING.actAs(jdbc);
+
+        assertThatThrownBy(() -> jdbc.sql("DELETE FROM billing.charges WHERE id = ?")
+                        .param(row.id)
+                        .update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
     }
 
     private void assertRejected(Row row, String constraint) {
