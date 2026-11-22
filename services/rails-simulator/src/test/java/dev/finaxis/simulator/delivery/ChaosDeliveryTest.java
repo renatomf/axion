@@ -10,6 +10,7 @@ import dev.finaxis.simulator.chaos.Fault;
 import dev.finaxis.simulator.chaos.FaultParameters;
 import dev.finaxis.simulator.chaos.FaultRule;
 import dev.finaxis.simulator.chaos.Match;
+import dev.finaxis.simulator.chaos.Outage;
 import dev.finaxis.simulator.delivery.StubCore.Received;
 import dev.finaxis.simulator.spi.Debtor;
 import dev.finaxis.simulator.spi.Payment;
@@ -41,14 +42,17 @@ class ChaosDeliveryTest {
     private final Spi spi;
     private final Deliveries deliveries;
     private final ChaosRules chaos;
+    private final Outage outage;
     private final JdbcClient jdbc;
     private final MeterRegistry meters;
 
     @Autowired
-    ChaosDeliveryTest(Spi spi, Deliveries deliveries, ChaosRules chaos, JdbcClient jdbc, MeterRegistry meters) {
+    ChaosDeliveryTest(
+            Spi spi, Deliveries deliveries, ChaosRules chaos, Outage outage, JdbcClient jdbc, MeterRegistry meters) {
         this.spi = spi;
         this.deliveries = deliveries;
         this.chaos = chaos;
+        this.outage = outage;
         this.jdbc = jdbc;
         this.meters = meters;
     }
@@ -200,6 +204,24 @@ class ChaosDeliveryTest {
                 .until(() ->
                         payments.stream().allMatch(payment -> delivery(payment).status() == DeliveryStatus.DELIVERED));
         assertThat(receivedOrder("chaosReorder2", payments)).containsExactly(second, first);
+    }
+
+    @Test
+    void sendsNothingDuringAnOutageAndDrainsWhenItEnds() {
+        outage.start(null);
+        try {
+            Payment payment = pay("chaosOutage1");
+
+            await().during(Duration.ofSeconds(1))
+                    .atMost(Duration.ofSeconds(2))
+                    .until(() -> attempts(payment).isEmpty());
+            assertThat(delivery(payment).status()).isEqualTo(DeliveryStatus.PENDING);
+            outage.end();
+            await().atMost(WAIT).until(() -> delivery(payment).status() == DeliveryStatus.DELIVERED);
+            assertThat(attempts(payment)).containsExactly("1 delivered 200");
+        } finally {
+            outage.end();
+        }
     }
 
     @Test

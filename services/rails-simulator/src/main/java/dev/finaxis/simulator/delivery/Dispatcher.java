@@ -2,6 +2,7 @@ package dev.finaxis.simulator.delivery;
 
 import dev.finaxis.simulator.chaos.AttemptFaults;
 import dev.finaxis.simulator.chaos.ChaosRules;
+import dev.finaxis.simulator.chaos.Outage;
 import dev.finaxis.simulator.delivery.DeliveryRepository.Due;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
@@ -27,6 +28,7 @@ import org.springframework.stereotype.Component;
  * when the core did not accept it (section 6.2). A crash between sending and recording sends the message
  * again when the lease ends; the core deduplicates. The chaos rules matching an attempt change how it is
  * sent (section 7.2), and deliveries a {@code reorder} rule no longer in force left held are released.
+ * During an outage nothing is sent; what is due waits, and is sent when it ends (section 7.3).
  */
 @Component
 @ConditionalOnBooleanProperty(name = "simulator.dispatcher.enabled", matchIfMissing = true)
@@ -50,20 +52,31 @@ class Dispatcher {
     private final DeliveryRepository deliveries;
     private final CoreClient core;
     private final ChaosRules chaos;
+    private final Outage outage;
     private final Clock clock;
     private final MeterRegistry meters;
     private final RetryPolicy retries = new RetryPolicy(RandomGenerator.getDefault());
 
-    Dispatcher(DeliveryRepository deliveries, CoreClient core, ChaosRules chaos, Clock clock, MeterRegistry meters) {
+    Dispatcher(
+            DeliveryRepository deliveries,
+            CoreClient core,
+            ChaosRules chaos,
+            Outage outage,
+            Clock clock,
+            MeterRegistry meters) {
         this.deliveries = deliveries;
         this.core = core;
         this.chaos = chaos;
+        this.outage = outage;
         this.clock = clock;
         this.meters = meters;
     }
 
     @Scheduled(fixedDelay = 250, timeUnit = TimeUnit.MILLISECONDS)
     void dispatch() {
+        if (outage.current().isPresent()) {
+            return;
+        }
         Instant now = now();
         releaseAbandoned(now);
         List<Due> due = deliveries.claimDue(now, now.plus(LEASE), BATCH);

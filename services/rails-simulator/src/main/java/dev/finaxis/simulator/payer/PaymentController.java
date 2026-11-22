@@ -3,6 +3,7 @@ package dev.finaxis.simulator.payer;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import dev.finaxis.simulator.chaos.AppliedFault;
 import dev.finaxis.simulator.chaos.Durations;
+import dev.finaxis.simulator.chaos.Outage;
 import dev.finaxis.simulator.delivery.Deliveries;
 import dev.finaxis.simulator.delivery.Delivery;
 import dev.finaxis.simulator.spi.Debtor;
@@ -13,6 +14,7 @@ import dev.finaxis.simulator.spi.Payment;
 import dev.finaxis.simulator.spi.PaymentOrder;
 import dev.finaxis.simulator.spi.Spi;
 import java.net.URI;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -21,6 +23,7 @@ import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -43,14 +46,19 @@ class PaymentController {
 
     private final Spi spi;
     private final Deliveries deliveries;
+    private final Outage outage;
+    private final Clock clock;
 
-    PaymentController(Spi spi, Deliveries deliveries) {
+    PaymentController(Spi spi, Deliveries deliveries, Outage outage, Clock clock) {
         this.spi = spi;
         this.deliveries = deliveries;
+        this.outage = outage;
+        this.clock = clock;
     }
 
     @PostMapping("/pix/payments")
     ResponseEntity<PaymentCreated> pay(@RequestBody PaymentRequest request) {
+        outage.current().ifPresent(this::unavailable);
         String text = request.brCode();
         if (text == null) {
             throw badRequest("brCode is required.");
@@ -84,6 +92,22 @@ class PaymentController {
                         HttpStatus.NOT_FOUND,
                         ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "No payment has this EndToEndId."),
                         null));
+    }
+
+    /** As a payer's bank answers while the SPI is down: nothing is settled, and the payer may try again later. */
+    private void unavailable(Outage.State down) {
+        var refusal = new ErrorResponseException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, "The Pix rails are down."),
+                null);
+        Instant endsAt = down.endsAt();
+        if (endsAt != null) {
+            // Rounded up, so a payer who waits as told finds the rails back.
+            long seconds =
+                    Math.max(1, (Duration.between(clock.instant(), endsAt).toMillis() + 999) / 1000);
+            refusal.getHeaders().set(HttpHeaders.RETRY_AFTER, String.valueOf(seconds));
+        }
+        throw refusal;
     }
 
     @ExceptionHandler(InvalidBrCodeException.class)
