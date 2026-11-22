@@ -56,8 +56,10 @@ class MembershipsTest {
 
         assertThat(tenants)
                 .containsExactly(
-                        new TenantView(created.test(), created.organization(), Environment.TEST, TenantStatus.ACTIVE),
-                        new TenantView(created.live(), created.organization(), Environment.LIVE, TenantStatus.ACTIVE));
+                        new TenantView(
+                                created.test(), created.organization(), "Acme", Environment.TEST, TenantStatus.ACTIVE),
+                        new TenantView(
+                                created.live(), created.organization(), "Acme", Environment.LIVE, TenantStatus.ACTIVE));
     }
 
     @Test

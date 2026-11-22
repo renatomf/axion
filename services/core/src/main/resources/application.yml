@@ -28,6 +28,16 @@ finaxis:
     # The clients a member may log in through: today only the console's BFF.
     clients:
       - finaxis-console
+  billing:
+    # The random Pix keys that name Finaxis's account as the receiver in each
+    # environment's BR Codes (billing design, section 5.3). Not secrets: every
+    # payer's app shows the key of the code it reads.
+    pix-keys:
+      test: a2b3bccd-2305-4632-9494-a795efa6fbb1
+      live: 20562ad0-9498-433a-8a93-7dd95202870c
+    # The platform's city, which a payer's app shows before the payer
+    # confirms. Finaxis is the receiving participant.
+    merchant-city: SAO PAULO
 
 logging:
   structured:

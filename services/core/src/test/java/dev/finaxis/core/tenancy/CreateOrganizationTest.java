@@ -37,11 +37,11 @@ class CreateOrganizationTest {
         var test = tenancy.tenant(created.test()).orElseThrow();
         var live = tenancy.tenant(created.live()).orElseThrow();
         assertThat(test)
-                .isEqualTo(
-                        new TenantView(created.test(), created.organization(), Environment.TEST, TenantStatus.ACTIVE));
+                .isEqualTo(new TenantView(
+                        created.test(), created.organization(), "Acme", Environment.TEST, TenantStatus.ACTIVE));
         assertThat(live)
-                .isEqualTo(
-                        new TenantView(created.live(), created.organization(), Environment.LIVE, TenantStatus.ACTIVE));
+                .isEqualTo(new TenantView(
+                        created.live(), created.organization(), "Acme", Environment.LIVE, TenantStatus.ACTIVE));
     }
 
     @Test
