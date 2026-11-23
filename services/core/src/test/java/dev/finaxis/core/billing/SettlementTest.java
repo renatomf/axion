@@ -33,6 +33,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -273,6 +274,26 @@ class SettlementTest {
                 .containsEntry("outcome", "FLAGGED")
                 .containsEntry("review_reason", "CHARGE_ALREADY_PAID");
         assertThat(available()).isEqualTo(brl(20_000));
+    }
+
+    @Test
+    void flagsAPaymentOfAPartiallyRefundedChargeAndLeavesItsRefundsAlone() {
+        PixCredit first = credit(10_000, charge.createdAt().plusSeconds(60));
+        PixCredit second = credit(10_000, charge.createdAt().plusSeconds(120));
+        settlement.handle(first);
+        var partial = new RefundRequest(Optional.empty(), Optional.of(brl(2_500)), "req-refund");
+        RefundResult refund =
+                TenantContext.call(organization.test(), Environment.TEST, () -> billing.refund(charge.id(), partial));
+        assertThat(refund).isInstanceOf(RefundResult.Refunded.class);
+
+        assertThat(settlement.handle(second)).isEqualTo(CreditResult.RECORDED);
+
+        assertThat(read().status()).isEqualTo(ChargeStatus.PARTIALLY_REFUNDED);
+        assertThat(read().amountRefunded()).isEqualTo(brl(2_500));
+        assertThat(payment(second))
+                .containsEntry("outcome", "FLAGGED")
+                .containsEntry("review_reason", "CHARGE_ALREADY_PAID");
+        assertThat(available()).isEqualTo(brl(17_500));
     }
 
     @Test

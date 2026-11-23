@@ -12,6 +12,7 @@ import dev.finaxis.core.billing.domain.TransactionId;
 import dev.finaxis.core.billing.persistence.JdbcCharges;
 import dev.finaxis.core.billing.persistence.JdbcCharges.LockedCharge;
 import dev.finaxis.core.billing.persistence.JdbcPayments;
+import dev.finaxis.core.billing.persistence.JdbcRefunds;
 import dev.finaxis.core.ledger.AccountId;
 import dev.finaxis.core.ledger.EntryId;
 import dev.finaxis.core.ledger.EntryRequest;
@@ -67,6 +68,7 @@ public class Settlement implements PixCreditHandler {
 
     private final JdbcCharges charges;
     private final JdbcPayments payments;
+    private final JdbcRefunds refunds;
     private final LedgerApi ledger;
     private final TenancyApi tenancy;
     private final PlatformAccounts platform;
@@ -80,6 +82,7 @@ public class Settlement implements PixCreditHandler {
     public Settlement(
             JdbcCharges charges,
             JdbcPayments payments,
+            JdbcRefunds refunds,
             LedgerApi ledger,
             TenancyApi tenancy,
             PlatformAccounts platform,
@@ -89,6 +92,7 @@ public class Settlement implements PixCreditHandler {
             MeterRegistry meters) {
         this.charges = charges;
         this.payments = payments;
+        this.refunds = refunds;
         this.ledger = ledger;
         this.tenancy = tenancy;
         this.platform = platform;
@@ -133,7 +137,8 @@ public class Settlement implements PixCreditHandler {
         LockedCharge locked = roles.call(ROLE, () -> charges.lockByTransactionId(transactionId))
                 .orElseThrow(() -> new IllegalStateException(
                         "The charge of Pix credit " + credit.endToEndId() + " is not visible to its tenant"));
-        Charge charge = locked.with(roles.call(ROLE, () -> payments.ofCharge(locked.id())));
+        Charge charge =
+                roles.call(ROLE, () -> locked.with(payments.ofCharge(locked.id()), refunds.ofCharge(locked.id())));
         if (charge.hasReceived(credit.endToEndId())) {
             LOG.info(
                     "Pix credit {} was already recorded as a payment of charge {}",

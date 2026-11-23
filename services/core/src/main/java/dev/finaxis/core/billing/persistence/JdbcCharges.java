@@ -187,11 +187,6 @@ public class JdbcCharges {
     /** A charge's row as it was locked, before its payments and refunds are read. */
     public record LockedCharge(ChargeId id, Money amount, ChargeStatus status, Instant createdAt, Instant expiresAt) {
 
-        /** The charge, with the payments it had received. */
-        public Charge with(List<Payment> payments) {
-            return new Charge(id, amount, createdAt, expiresAt, status, payments, List.of());
-        }
-
         /** The charge, with the payments it had received and the refunds made of them. */
         public Charge with(List<Payment> payments, List<Refund> refunds) {
             return new Charge(id, amount, createdAt, expiresAt, status, payments, refunds);
