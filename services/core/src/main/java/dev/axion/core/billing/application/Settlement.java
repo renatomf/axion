@@ -1,8 +1,14 @@
 package dev.axion.core.billing.application;
 
 import dev.axion.core.ModuleRoles;
+import dev.axion.core.billing.ChargeDetail;
+import dev.axion.core.billing.ChargeExpired;
+import dev.axion.core.billing.ChargePaid;
+import dev.axion.core.billing.ChargeStatus;
+import dev.axion.core.billing.PaymentFlagged;
 import dev.axion.core.billing.PaymentId;
 import dev.axion.core.billing.PaymentOutcome;
+import dev.axion.core.billing.PaymentView;
 import dev.axion.core.billing.ReviewReason;
 import dev.axion.core.billing.domain.Charge;
 import dev.axion.core.billing.domain.IncomingPayment;
@@ -23,7 +29,12 @@ import dev.axion.core.ledger.PostingRequest;
 import dev.axion.core.rails.CreditResult;
 import dev.axion.core.rails.PixCredit;
 import dev.axion.core.rails.PixCreditHandler;
+import dev.axion.core.shared.Actor;
+import dev.axion.core.shared.ActorContext;
 import dev.axion.core.shared.BusinessCalendar;
+import dev.axion.core.shared.EventHeader;
+import dev.axion.core.shared.EventId;
+import dev.axion.core.shared.Money;
 import dev.axion.core.shared.TenantContext;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.shared.UuidV7Generator;
@@ -45,6 +56,7 @@ import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -64,16 +76,20 @@ public class Settlement implements PixCreditHandler {
 
     private static final String ROLE = "axion_billing";
 
+    private static final Actor ACTOR = new Actor.Job("pix-settlement");
+
     private static final Logger LOG = LoggerFactory.getLogger(Settlement.class);
 
     private final JdbcCharges charges;
     private final JdbcPayments payments;
     private final JdbcRefunds refunds;
+    private final ChargeDetails details;
     private final LedgerApi ledger;
     private final TenancyApi tenancy;
     private final PlatformAccounts platform;
     private final ModuleRoles roles;
     private final TransactionTemplate transactions;
+    private final ApplicationEventPublisher events;
     private final Clock clock;
     private final UuidV7Generator ids;
     private final Map<String, Counter> recorded = new HashMap<>();
@@ -83,21 +99,25 @@ public class Settlement implements PixCreditHandler {
             JdbcCharges charges,
             JdbcPayments payments,
             JdbcRefunds refunds,
+            ChargeDetails details,
             LedgerApi ledger,
             TenancyApi tenancy,
             PlatformAccounts platform,
             ModuleRoles roles,
             TransactionTemplate transactions,
+            ApplicationEventPublisher events,
             Clock clock,
             MeterRegistry meters) {
         this.charges = charges;
         this.payments = payments;
         this.refunds = refunds;
+        this.details = details;
         this.ledger = ledger;
         this.tenancy = tenancy;
         this.platform = platform;
         this.roles = roles;
         this.transactions = transactions;
+        this.events = events;
         this.clock = clock;
         this.ids = new UuidV7Generator(clock);
         // Registered at zero, so a rate is defined before the first payment of each kind.
@@ -113,7 +133,8 @@ public class Settlement implements PixCreditHandler {
 
     /**
      * Finds the charge's tenant from the transaction ID, then settles the credit in one transaction
-     * with that tenant bound (section 8.1).
+     * with that tenant bound (section 8.1). Its events name the settlement job, with the rails'
+     * message as their correlation ID.
      */
     @Override
     public CreditResult handle(PixCredit credit) {
@@ -129,7 +150,11 @@ public class Settlement implements PixCreditHandler {
         return TenantContext.call(
                 tenant.id(),
                 tenant.environment(),
-                () -> Objects.requireNonNull(transactions.execute(status -> settle(tenant, transactionId, credit))));
+                () -> ActorContext.call(
+                        ACTOR,
+                        credit.messageId(),
+                        () -> Objects.requireNonNull(
+                                transactions.execute(status -> settle(tenant, transactionId, credit)))));
     }
 
     private CreditResult settle(TenantView tenant, TransactionId transactionId, PixCredit credit) {
@@ -163,8 +188,43 @@ public class Settlement implements PixCreditHandler {
             }
             return null;
         });
+        publish(tenant, charge, receipt, now);
         observeOnCommit(receipt, credit, now);
         return CreditResult.RECORDED;
+    }
+
+    // After the role switch returns: the registry is written with the login role (events and
+    // webhooks design, section 4.2). A charge settlement found due expires first.
+    private void publish(TenantView tenant, Charge before, Receipt receipt, Instant now) {
+        var binding = new TenantContext.Binding(tenant.id(), tenant.environment());
+        ChargeDetail after = roles.call(ROLE, () -> details.find(binding, before.id()))
+                .orElseThrow(() -> new IllegalStateException(
+                        "Charge " + before.id().publicId() + " vanished while it was settled"));
+        if (before.status() == ChargeStatus.ACTIVE && receipt.charge().status() == ChargeStatus.EXPIRED) {
+            events.publishEvent(new ChargeExpired(header(now), after));
+        }
+        Payment payment = receipt.payment();
+        if (payment.isSettled()) {
+            events.publishEvent(new ChargePaid(header(now), after));
+        } else {
+            events.publishEvent(new PaymentFlagged(header(now), view(payment), after));
+        }
+    }
+
+    private EventHeader header(Instant now) {
+        return EventHeader.ofCurrentWork(new EventId(ids.next()), now);
+    }
+
+    // A payment just recorded: nothing of it has been refunded.
+    private static PaymentView view(Payment payment) {
+        return new PaymentView(
+                payment.id(),
+                payment.endToEndId(),
+                payment.amount(),
+                Money.zero(Charge.CURRENCY),
+                payment.acceptedAt(),
+                payment.outcome(),
+                payment.reviewReason());
     }
 
     // Logged and counted once the transaction commits: a payment rolled back was never recorded,
