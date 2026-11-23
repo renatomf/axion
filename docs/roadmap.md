@@ -213,7 +213,7 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | ↳ 1.45d | Webhook secret rolling | `POST …/{id}/secret/roll` with a grace period; the old secret removed when it ends ([#246](https://github.com/renatomf/axion/pull/246)) |
 | ↳ 1.45e | Webhook endpoints in the console | The `/internal` mirror of every endpoint operation, with step-up for changes ([#248](https://github.com/renatomf/axion/pull/248)) |
 | 1.46 | Webhook delivery | PostgreSQL queue (`SKIP LOCKED`), HMAC-SHA256 with timestamp |
-| ↳ 1.46a | Delivery queue | The public event catalog and its schemas in `v1.yaml`; PostgreSQL queue drained with `SKIP LOCKED`; HTTP delivery with timeouts and the SSRF check at connection |
+| ↳ 1.46a | Delivery queue | The public event catalog and its schemas in `v1.yaml`; PostgreSQL queue drained with `SKIP LOCKED`; HTTP delivery with timeouts and the SSRF check at connection ([#250](https://github.com/renatomf/axion/pull/250)) |
 | ↳ 1.46b | Webhook signing | HMAC-SHA256 with timestamp (Standard Webhooks); the webhook guide, with local ports for receiving on a developer's machine |
 | 1.47 | Webhook reliability | Exponential backoff, endpoint disabling, delivery log, manual replay, dead letters |
 | ↳ 1.47a | Retries and disabling | Exponential backoff; endpoints that keep failing are disabled; the fault-injection scenarios of webhooks |
