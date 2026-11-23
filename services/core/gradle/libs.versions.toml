@@ -62,6 +62,10 @@ jspecify = { module = "org.jspecify:jspecify" }
 # Google's cryptography library: AEAD encryption of webhook signing secrets
 # at rest, with a key-encryption key that never reaches the database.
 tink = { module = "com.google.crypto.tink:tink", version.ref = "tink" }
+# The HTTP client that delivers webhooks: its DNS resolver can be replaced, so
+# every address a delivery connects to is checked first. Version from Spring
+# Boot's BOM.
+httpclient5 = { module = "org.apache.httpcomponents.client5:httpclient5" }
 # Token-bucket rate limiting, in memory; the JDK 17+ build of its core module.
 bucket4j-core = { module = "com.bucket4j:bucket4j_jdk17-core", version.ref = "bucket4j" }
 # In-memory cache with a size bound and expiry, to hold the rate-limit buckets.

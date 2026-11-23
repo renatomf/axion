@@ -71,6 +71,8 @@ dependencies {
     implementation(libs.caffeine)
     // Encrypts webhook signing secrets at rest (AES-256-GCM AEAD).
     implementation(libs.tink)
+    // Sends webhooks, connecting only to addresses the core has checked.
+    implementation(libs.httpclient5)
 
     // Test-only libraries: on the test classpath, never in the packaged JAR.
     testImplementation(libs.spring.boot.starter.test)
