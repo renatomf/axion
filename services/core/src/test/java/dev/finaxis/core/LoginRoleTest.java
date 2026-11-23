@@ -25,7 +25,8 @@ class LoginRoleTest {
             "finaxis_idempotency_jobs",
             "finaxis_billing",
             "finaxis_risk",
-            "finaxis_risk_jobs");
+            "finaxis_risk_jobs",
+            "finaxis_rails");
 
     private final JdbcClient jdbc;
 

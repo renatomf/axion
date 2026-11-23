@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.finaxis.core.DatabaseOwner;
+import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -142,19 +143,43 @@ class PixCreditsSchemaTest {
                 () -> insert(Map.of("status", "processed", "next_attempt_at", "")), "pix_credits_processed_at_check");
     }
 
+    @Test
+    void letsTheModuleRoleRecordACreditOnce() {
+        DatabaseRole.RAILS.actAs(jdbc);
+
+        assertThat(insert(Map.of(), " ON CONFLICT (end_to_end_id) DO NOTHING")).isEqualTo(1);
+        assertThat(insert(Map.of(), " ON CONFLICT (end_to_end_id) DO NOTHING")).isZero();
+    }
+
+    @Test
+    void deniesTheModuleRoleDeletingACredit() {
+        insert(Map.of());
+        DatabaseRole.RAILS.actAs(jdbc);
+
+        assertThatThrownBy(() -> jdbc.sql("DELETE FROM rails.pix_credits WHERE end_to_end_id = ?")
+                        .param(END_TO_END_ID)
+                        .update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    private int insert(Map<String, String> changes) {
+        return insert(changes, "");
+    }
+
     /**
      * Inserts a received credit, with the given columns changed; an empty value is {@code NULL}. The
-     * digest is given in hex.
+     * digest is given in hex. Returns how many rows it inserted.
      */
-    private void insert(Map<String, String> changes) {
-        jdbc.sql("""
+    private int insert(Map<String, String> changes, String onConflict) {
+        return jdbc.sql("""
                         INSERT INTO rails.pix_credits (end_to_end_id, message_id, transaction_id, amount_minor,
                                                        currency, accepted_at, debtor_ispb, key_id, content_digest,
                                                        received_at, status, attempts, next_attempt_at, processed_at)
                         VALUES (:endToEndId, :messageId, :transactionId, CAST(:amount AS bigint), :currency,
                                 :acceptedAt, :debtorIspb, :keyId, decode(:digest, 'hex'), :acceptedAt, :status, 0,
                                 CAST(:nextAttemptAt AS timestamptz), CAST(:processedAt AS timestamptz))
-                        """)
+                        """ + onConflict)
                 .param("endToEndId", value(changes, "end_to_end_id", END_TO_END_ID))
                 .param("messageId", value(changes, "message_id", "M99990011aB3dE5gH7jK2mN4pQ6rS8tU"))
                 .param("transactionId", value(changes, "transaction_id", "fx7Kq2mP9wR4tY6uA8sD3fG5h"))
