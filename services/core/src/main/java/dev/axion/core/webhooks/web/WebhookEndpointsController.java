@@ -6,6 +6,7 @@ import dev.axion.core.tenancy.Permission;
 import dev.axion.core.web.ReplayBody;
 import dev.axion.core.webhooks.CreateEndpointResult;
 import dev.axion.core.webhooks.EndpointCursor;
+import dev.axion.core.webhooks.RollSecretResult;
 import dev.axion.core.webhooks.UpdateEndpointResult;
 import dev.axion.core.webhooks.WebhookEndpointId;
 import dev.axion.core.webhooks.WebhooksApi;
@@ -16,6 +17,8 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import java.net.URI;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -115,6 +118,26 @@ class WebhookEndpointsController {
         return ResponseEntity.noContent().build();
     }
 
+    // Idempotent, and stored without the new secret, like a registration. A retry under another key
+    // finds the grace period it began and answers 409 instead of rolling again.
+    @RequiresPermission(Permission.WEBHOOKS_MANAGE)
+    @PostMapping(PATH + "/{id}/secret/roll")
+    RolledWebhookEndpointResponse rollSecret(
+            @PathVariable("id") String id,
+            @Valid @RequestBody(required = false) @Nullable RollWebhookSecretRequest request,
+            HttpServletRequest servletRequest) {
+        Duration grace = request == null ? WebhooksApi.DEFAULT_SECRET_GRACE : request.gracePeriod();
+        return switch (webhooks.rollSecret(endpointIn(id), grace)) {
+            case RollSecretResult.Rolled rolled -> {
+                RolledWebhookEndpointResponse endpoint = RolledWebhookEndpointResponse.of(rolled.secret());
+                ReplayBody.set(servletRequest, endpoint.withoutSecret());
+                yield endpoint;
+            }
+            case RollSecretResult.EndpointNotFound unknown -> throw notFound();
+            case RollSecretResult.GracePeriodActive active -> throw gracePeriodActive(active.graceEndsAt());
+        };
+    }
+
     // A malformed ID answers 404, like another tenant's endpoint, not 400.
     private static WebhookEndpointId endpointIn(String text) {
         try {
@@ -158,6 +181,14 @@ class WebhookEndpointsController {
                 HttpStatus.UNPROCESSABLE_CONTENT, "The tenant already has " + limit + " webhook endpoints.");
         problem.setProperty("code", "limit_exceeded");
         return new ErrorResponseException(HttpStatus.UNPROCESSABLE_CONTENT, problem, null);
+    }
+
+    private static ErrorResponseException gracePeriodActive(Instant graceEndsAt) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.CONFLICT,
+                "The previous secret signs until " + graceEndsAt + "; the secret rolls again from then.");
+        problem.setProperty("code", "grace_period_active");
+        return new ErrorResponseException(HttpStatus.CONFLICT, problem, null);
     }
 
     private static ErrorResponseException notFound() {

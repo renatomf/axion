@@ -239,7 +239,7 @@ Events are delivered at least once and in no guaranteed order. A retried `charge
 A secret is `whsec_` followed by 32 random bytes in base64, the format of Standard Webhooks. HMAC needs the secret itself to sign, so it cannot be hashed as API keys are: it is encrypted at rest with [Tink](https://developers.google.com/tink) AEAD (AES-256-GCM), with the endpoint's ID as associated data, so a ciphertext copied to another endpoint fails to decrypt. The key-encryption key comes from `AXION_WEBHOOK_SECRETS_KEY` and never reaches the database (overview, section 4.7).
 
 - A secret is shown once and never logged; `.gitleaks.toml` gains a rule for its format. A repeat of the request that created it is answered without it: the response is stored for idempotency with `secret` null (idempotency design, section 15), so the secret is kept only encrypted. A tenant that lost the first response rolls the secret.
-- **Rolling** issues a new secret and keeps the old one signing for a grace period, from zero to 7 days (default 24 hours), so the tenant can deploy the new secret first. During the grace period each request carries two signatures (section 8.4), and the old secret is deleted when it ends. A secret is rolled again only after the previous grace period ends, so an endpoint never has more than two.
+- **Rolling** issues a new secret and keeps the old one signing for a grace period, from zero to 7 days (default 24 hours), so the tenant can deploy the new secret first. During the grace period each request carries two signatures (section 8.4). When it ends, the old secret signs nothing, and a job of `axion_webhooks_jobs` deletes it within a minute; that role's policies show it ended secrets only. A secret is rolled again only after the previous grace period ends, so an endpoint never has more than two secrets that sign; a roll before then answers `409 grace_period_active`, its `detail` naming when the period ends. The response is the endpoint, as creation returns it, with the new `secret` and `previous_secret_expires_at`, the end of the grace period; a repeat of the request is answered without the secret, as for creation.
 
 ### 6.3 Operations
 
@@ -478,9 +478,11 @@ webhooks.secrets
   endpoint_id       uuid not null references endpoints
   tenant_id         uuid not null
   ciphertext        bytea not null           -- Tink AEAD, the endpoint's ID as associated data
-  expires_at        timestamptz null         -- the end of a rolled secret's grace period
+  expires_at        timestamptz null         -- the end of a rolled secret's grace period; null for the current one
   created_at        timestamptz not null
   index (endpoint_id)
+  unique (endpoint_id) where expires_at is null
+  index (expires_at) where expires_at is not null
 
 webhooks.events
   id                uuid primary key         -- the domain event's ID
@@ -564,7 +566,7 @@ Public IDs: `evt_` for events, `we_` for webhook endpoints, `whd_` for deliverie
 | `GET /v1/webhook_endpoints/{id}` | `webhooks:manage` | |
 | `PATCH /v1/webhook_endpoints/{id}` | `webhooks:manage` | A JSON merge patch of the four fields of section 6.3, as `application/merge-patch+json` or `application/json` |
 | `DELETE /v1/webhook_endpoints/{id}` | `webhooks:manage` | |
-| `POST /v1/webhook_endpoints/{id}/secret/roll` | `webhooks:manage` | `grace_period_seconds`, 0 to 604,800; idempotent; returns the new secret once |
+| `POST /v1/webhook_endpoints/{id}/secret/roll` | `webhooks:manage` | An optional body with `grace_period_seconds`, 0 to 604,800; idempotent; `200` with the new secret once |
 | `GET /v1/webhook_endpoints/{id}/deliveries` | `webhooks:manage` | Newest first; filters on `status` and `type` |
 | `GET /v1/webhook_endpoints/{id}/deliveries/{delivery_id}` | `webhooks:manage` | With its attempts |
 | `POST /v1/webhook_endpoints/{id}/deliveries/{delivery_id}/replay` | `webhooks:manage` | Idempotent; `202 Accepted`, the attempt follows in the log |

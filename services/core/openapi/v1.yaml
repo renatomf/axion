@@ -582,6 +582,91 @@ paths:
           $ref: "components.yaml#/responses/TooManyRequests"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
+  /v1/webhook_endpoints/{id}/secret/roll:
+    parameters:
+      - $ref: "#/components/parameters/WebhookEndpointId"
+    post:
+      operationId: rollWebhookEndpointSecret
+      tags: [Webhook endpoints]
+      summary: Roll a webhook endpoint's secret
+      description: >-
+        Issues a new secret to sign the requests sent to the endpoint, and
+        lets the current one keep signing for a grace period, so the new
+        secret can be deployed before the old one stops: until
+        `previous_secret_expires_at`, each request carries a signature with
+        each secret. The new secret is in this response only, not in the
+        answer to a repeat of the request. The secret rolls again only once
+        the grace period has ended. The body is optional. Requires
+        `webhooks:manage`.
+      parameters:
+        - $ref: "components.yaml#/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RollWebhookEndpointSecretRequest"
+      responses:
+        "200":
+          description: The secret was rolled; the new secret is in this response only.
+          headers:
+            Idempotent-Replayed:
+              $ref: "components.yaml#/headers/Idempotent-Replayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RolledWebhookEndpoint"
+        "400":
+          description: >-
+            The body cannot be read, such as invalid JSON or a value of the
+            wrong type (`bad_request`), or the `Idempotency-Key` is missing
+            (`idempotency_key_required`) or malformed
+            (`invalid_idempotency_key`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The key lacks `webhooks:manage` (`insufficient_permission`), or
+            its tenant is not active (`tenant_inactive`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "409":
+          description: >-
+            The previous roll's grace period has not ended
+            (`grace_period_active`; `detail` says when it ends), or a request
+            with the same `Idempotency-Key` is still running
+            (`request_in_progress`; retry after `Retry-After`).
+          headers:
+            Retry-After:
+              $ref: "components.yaml#/headers/Retry-After"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "413":
+          $ref: "components.yaml#/responses/ContentTooLarge"
+        "422":
+          description: >-
+            The secret was not rolled. The grace period is invalid or a field
+            is unknown (`validation_failed`, with `errors`), or the
+            `Idempotency-Key` was used for another request
+            (`idempotency_key_reused`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
 components:
   schemas:
     CreateChargeRequest:
@@ -1120,6 +1205,95 @@ components:
             encrypted. If the first response was lost, roll the secret.
           type: [string, "null"]
           pattern: "^whsec_[0-9A-Za-z+/]{43}=$"
+    RollWebhookEndpointSecretRequest:
+      description: How to roll an endpoint's secret. A field not listed here is refused.
+      type: object
+      additionalProperties: false
+      properties:
+        grace_period_seconds:
+          description: >-
+            How long the current secret keeps signing, in seconds, from zero
+            to 7 days. Zero ends it at once. Without it, 24 hours.
+          type: integer
+          minimum: 0
+          maximum: 604800
+          default: 86400
+      examples:
+        - grace_period_seconds: 3600
+    RolledWebhookEndpoint:
+      description: >-
+        An endpoint whose secret was just rolled: the fields a read shows,
+        its new signing secret, which is never shown again, and when the
+        previous secret stops signing.
+      type: object
+      required:
+        - id
+        - object
+        - url
+        - description
+        - enabled_events
+        - status
+        - disabled_reason
+        - created_at
+        - secret
+        - previous_secret_expires_at
+      properties:
+        id:
+          description: The endpoint's ID.
+          type: string
+          pattern: "^we_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        object:
+          description: The kind of object, always `webhook_endpoint`.
+          type: string
+          const: webhook_endpoint
+        url:
+          description: Where the events are sent.
+          type: string
+          format: uri
+          maxLength: 2048
+        description:
+          description: The tenant's description; null if it gave none.
+          type: [string, "null"]
+        enabled_events:
+          description: >-
+            The event types the endpoint receives, sorted, or `["*"]` for
+            every type, including those added later.
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/WebhookEventType"
+        status:
+          description: >-
+            `enabled` while the endpoint receives events; `disabled` once it
+            stops, for `disabled_reason`.
+          type: string
+          enum: [enabled, disabled]
+        disabled_reason:
+          description: >-
+            Why a disabled endpoint receives nothing: its deliveries kept
+            failing (`failing`), or the tenant disabled it (`by_tenant`).
+            Null while it is enabled.
+          type: [string, "null"]
+          enum: [failing, by_tenant, null]
+        created_at:
+          type: string
+          format: date-time
+        secret:
+          description: >-
+            The new secret, in the format of the one a creation returns.
+            Null in the answer to a repeat of the request, with
+            `Idempotent-Replayed`: the secret is shown once and stored only
+            encrypted. If this response was lost, roll the secret again once
+            the grace period has ended.
+          type: [string, "null"]
+          pattern: "^whsec_[0-9A-Za-z+/]{43}=$"
+        previous_secret_expires_at:
+          description: >-
+            When the previous secret stops signing: the end of the grace
+            period.
+          type: string
+          format: date-time
     WebhookEndpoint:
       description: >-
         An HTTPS URL where Axion sends the tenant's events. An endpoint of

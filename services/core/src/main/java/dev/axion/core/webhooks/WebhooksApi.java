@@ -1,5 +1,6 @@
 package dev.axion.core.webhooks;
 
+import java.time.Duration;
 import java.util.Optional;
 
 /**
@@ -60,6 +61,17 @@ public interface WebhooksApi {
      */
     Optional<EndpointView> delete(WebhookEndpointId id);
 
+    /**
+     * Issues a new signing secret for one of the tenant's endpoints, publishing {@link
+     * WebhookSecretRolled}. The secret it replaces keeps signing for the grace period, so the tenant
+     * can deploy the new one first; a grace period of zero ends it at once.
+     *
+     * @throws IllegalArgumentException if the grace period is outside zero to {@link
+     *     #MAX_SECRET_GRACE}
+     * @throws IllegalStateException if no tenant is bound, a bug in the caller
+     */
+    RollSecretResult rollSecret(WebhookEndpointId id, Duration grace);
+
     /** The most endpoints one page of {@link #endpoints} holds. */
     int MAX_PAGE_SIZE = 100;
 
@@ -70,4 +82,8 @@ public interface WebhooksApi {
     int MAX_DESCRIPTION_LENGTH = 140;
 
     int MAX_EVENT_TYPES = 20;
+
+    Duration MAX_SECRET_GRACE = Duration.ofDays(7);
+
+    Duration DEFAULT_SECRET_GRACE = Duration.ofHours(24);
 }

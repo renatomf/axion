@@ -33,6 +33,9 @@ class WebhookEndpointsSchemaTest {
 
     private static final String RLS_VIOLATION = "violates row-level security policy";
 
+    // An hour back, so a secret that ends when it was created has ended before the transaction's now().
+    private static final Instant CREATED_AT = Instant.now().minusSeconds(3_600);
+
     private final DatabaseOwner.Session session;
     private final JdbcClient jdbc;
     private final UUID tenant = UUID.randomUUID();
@@ -146,6 +149,36 @@ class WebhookEndpointsSchemaTest {
     }
 
     @Test
+    void rejectsASecondCurrentSecret() {
+        var row = endpoint();
+        insert(row);
+        insertSecret(row.id, tenant);
+
+        assertThatThrownBy(() -> insertSecret(row.id, tenant))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("secrets_current_idx");
+    }
+
+    @Test
+    void keepsARolledSecretBesideTheCurrentOne() {
+        var row = endpoint();
+        insert(row);
+        insertSecret(row.id, tenant, Instant.now().plusSeconds(60));
+
+        insertSecret(row.id, tenant);
+    }
+
+    @Test
+    void rejectsASecretThatEndsBeforeItWasCreated() {
+        var row = endpoint();
+        insert(row);
+
+        assertThatThrownBy(() -> insertSecret(row.id, tenant, CREATED_AT.minusSeconds(1)))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("secrets_check");
+    }
+
+    @Test
     void letsTheModuleRoleInsertAndReadAnEndpoint() {
         DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
         insert(endpoint());
@@ -172,6 +205,74 @@ class WebhookEndpointsSchemaTest {
         assertThatThrownBy(() -> jdbc.sql("SELECT ciphertext FROM webhooks.secrets")
                         .query(byte[].class)
                         .list())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void letsTheModuleRoleEndTheCurrentSecret() {
+        var row = endpoint();
+        insert(row);
+        insertSecret(row.id, tenant);
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        int updated = jdbc.sql("""
+                        UPDATE webhooks.secrets SET expires_at = now() + interval '1 day'
+                         WHERE endpoint_id = ? AND expires_at IS NULL
+                        """).param(row.id).update();
+
+        assertThat(updated).isOne();
+        assertThat(jdbc.sql("SELECT count(*) FROM webhooks.secrets WHERE expires_at > now()")
+                        .query(Long.class)
+                        .single())
+                .isOne();
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "ciphertext = '\\x00'",
+                "endpoint_id = gen_random_uuid()",
+                "tenant_id = gen_random_uuid()",
+                "created_at = now()"
+            })
+    void deniesTheModuleRoleChangingASecretBeyondItsEnd(String assignment) {
+        var row = endpoint();
+        insert(row);
+        insertSecret(row.id, tenant);
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        assertThatThrownBy(() -> jdbc.sql("UPDATE webhooks.secrets SET " + assignment + " WHERE endpoint_id = ?")
+                        .param(row.id)
+                        .update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void hidesAnotherTenantsSecretFromTheModuleRole() {
+        var row = endpoint().tenant(UUID.randomUUID());
+        insert(row);
+        insertSecret(row.id, row.tenant);
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        int updated = jdbc.sql("UPDATE webhooks.secrets SET expires_at = now() WHERE endpoint_id = ?")
+                .param(row.id)
+                .update();
+
+        assertThat(updated).isZero();
+    }
+
+    @Test
+    void deniesTheModuleRoleDeletingASecret() {
+        var row = endpoint();
+        insert(row);
+        insertSecret(row.id, tenant);
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        assertThatThrownBy(() -> jdbc.sql("DELETE FROM webhooks.secrets WHERE endpoint_id = ?")
+                        .param(row.id)
+                        .update())
                 .rootCause()
                 .hasMessageContaining("permission denied");
     }
@@ -276,6 +377,53 @@ class WebhookEndpointsSchemaTest {
                 .hasMessageContaining(RLS_VIOLATION);
     }
 
+    @Test
+    void showsTheJobsRoleOnlyEndedSecrets() {
+        var row = endpoint();
+        insert(row);
+        insertSecret(row.id, tenant);
+        insertSecret(row.id, tenant, Instant.now().plusSeconds(3_600));
+        UUID ended = insertSecret(row.id, tenant, CREATED_AT);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThat(jdbc.sql("SELECT id FROM webhooks.secrets").query(UUID.class).list())
+                .containsExactly(ended);
+    }
+
+    @Test
+    void letsTheJobsRoleDeleteOnlyEndedSecrets() {
+        var row = endpoint();
+        insert(row);
+        insertSecret(row.id, tenant);
+        insertSecret(row.id, tenant, Instant.now().plusSeconds(3_600));
+        insertSecret(row.id, tenant, CREATED_AT);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThat(jdbc.sql("DELETE FROM webhooks.secrets").update()).isOne();
+    }
+
+    @Test
+    void deniesTheJobsRoleReadingASecret() {
+        var row = endpoint();
+        insert(row);
+        insertSecret(row.id, tenant, CREATED_AT);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> jdbc.sql("SELECT ciphertext FROM webhooks.secrets")
+                        .query(byte[].class)
+                        .list())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void deniesTheJobsRoleAnyEndpoint() {
+        insert(endpoint());
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> visibleEndpoints()).rootCause().hasMessageContaining("permission denied");
+    }
+
     private long visibleEndpoints() {
         return jdbc.sql("SELECT count(*) FROM webhooks.endpoints")
                 .query(Long.class)
@@ -312,16 +460,23 @@ class WebhookEndpointsSchemaTest {
     }
 
     private void insertSecret(UUID endpoint, UUID owner) {
+        insertSecret(endpoint, owner, null);
+    }
+
+    private UUID insertSecret(UUID endpoint, UUID owner, @Nullable Instant expiresAt) {
+        UUID id = UUID.randomUUID();
         jdbc.sql("""
-                        INSERT INTO webhooks.secrets (id, endpoint_id, tenant_id, ciphertext, created_at)
-                        VALUES (:id, :endpoint, :tenant, :ciphertext, :createdAt)
+                        INSERT INTO webhooks.secrets (id, endpoint_id, tenant_id, ciphertext, expires_at, created_at)
+                        VALUES (:id, :endpoint, :tenant, :ciphertext, :expiresAt, :createdAt)
                         """)
-                .param("id", UUID.randomUUID())
+                .param("id", id)
                 .param("endpoint", endpoint)
                 .param("tenant", owner)
                 .param("ciphertext", new byte[] {1, 2, 3})
-                .param("createdAt", Instant.now().atOffset(ZoneOffset.UTC))
+                .param("expiresAt", expiresAt == null ? null : expiresAt.atOffset(ZoneOffset.UTC))
+                .param("createdAt", CREATED_AT.atOffset(ZoneOffset.UTC))
                 .update();
+        return id;
     }
 
     /** A valid enabled endpoint; each method changes one column. */

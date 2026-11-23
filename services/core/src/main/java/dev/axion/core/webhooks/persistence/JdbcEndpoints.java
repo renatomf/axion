@@ -84,6 +84,49 @@ public class JdbcEndpoints {
                 .update();
     }
 
+    /**
+     * The end of the last roll's grace period, if it has not come yet: until then, the endpoint's
+     * previous secret still signs.
+     */
+    public Optional<Instant> secretGraceEnd(TenantId tenant, WebhookEndpointId endpoint, Instant now) {
+        return jdbc.sql("""
+                        SELECT expires_at FROM webhooks.secrets
+                         WHERE tenant_id = :tenant AND endpoint_id = :endpoint AND expires_at > :now
+                         ORDER BY expires_at DESC
+                         LIMIT 1
+                        """)
+                .param("tenant", tenant.value())
+                .param("endpoint", endpoint.value())
+                .param("now", utc(now))
+                .query(OffsetDateTime.class)
+                .optional()
+                .map(OffsetDateTime::toInstant);
+    }
+
+    /** Ends the endpoint's current secret, which signs until then beside the next one. */
+    public void endCurrentSecret(TenantId tenant, WebhookEndpointId endpoint, Instant expiresAt) {
+        int ended = jdbc.sql("""
+                        UPDATE webhooks.secrets SET expires_at = :expiresAt
+                         WHERE tenant_id = :tenant AND endpoint_id = :endpoint AND expires_at IS NULL
+                        """)
+                .param("tenant", tenant.value())
+                .param("endpoint", endpoint.value())
+                .param("expiresAt", utc(expiresAt))
+                .update();
+        if (ended != 1) {
+            throw new IllegalStateException(
+                    "Endpoint " + endpoint.publicId() + " has " + ended + " current secrets, not one");
+        }
+    }
+
+    /** Removes at most {@code limit} secrets of any tenant whose grace period ended by {@code now}. */
+    public int deleteEndedSecrets(Instant now, int limit) {
+        return jdbc.sql("""
+                        DELETE FROM webhooks.secrets
+                         WHERE id IN (SELECT id FROM webhooks.secrets WHERE expires_at <= :now LIMIT :limit)
+                        """).param("now", utc(now)).param("limit", limit).update();
+    }
+
     public Optional<EndpointView> find(TenantId tenant, WebhookEndpointId id) {
         return jdbc.sql(SELECT + " AND tenant_id = :tenant AND id = :id")
                 .param("tenant", tenant.value())
