@@ -157,7 +157,24 @@ class PaymentsSchemaTest {
     }
 
     @Test
-    void deniesTheModuleRoleUpdatingAPayment() {
+    void letsTheModuleRoleAddToWhatRefundsReturned() {
+        var row = row();
+        insert(row);
+        DatabaseRole.BILLING.actAs(jdbc, new TenantId(tenant));
+
+        jdbc.sql("UPDATE billing.payments SET amount_refunded = amount_refunded + 2500 WHERE id = ?")
+                .param(row.id)
+                .update();
+
+        assertThat(jdbc.sql("SELECT amount_refunded FROM billing.payments WHERE id = ?")
+                        .param(row.id)
+                        .query(Long.class)
+                        .single())
+                .isEqualTo(2_500L);
+    }
+
+    @Test
+    void deniesTheModuleRoleChangingAPaymentsOutcome() {
         var row = row();
         insert(row);
         DatabaseRole.BILLING.actAs(jdbc, new TenantId(tenant));

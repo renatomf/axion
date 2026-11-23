@@ -10,6 +10,8 @@ import dev.finaxis.core.billing.ChargePage;
 import dev.finaxis.core.billing.ChargeRequest;
 import dev.finaxis.core.billing.ChargeView;
 import dev.finaxis.core.billing.CreateChargeResult;
+import dev.finaxis.core.billing.RefundRequest;
+import dev.finaxis.core.billing.RefundResult;
 import dev.finaxis.core.billing.domain.BrCode;
 import dev.finaxis.core.billing.domain.Charge;
 import dev.finaxis.core.billing.domain.TransactionId;
@@ -55,6 +57,7 @@ public class BillingService implements BillingApi {
 
     private final JdbcCharges charges;
     private final JdbcPayments payments;
+    private final Refunds refunds;
     private final LedgerApi ledger;
     private final RiskApi risk;
     private final TenancyApi tenancy;
@@ -69,6 +72,7 @@ public class BillingService implements BillingApi {
     public BillingService(
             JdbcCharges charges,
             JdbcPayments payments,
+            Refunds refunds,
             LedgerApi ledger,
             RiskApi risk,
             TenancyApi tenancy,
@@ -76,12 +80,13 @@ public class BillingService implements BillingApi {
             BillingProperties properties,
             Clock clock,
             MeterRegistry meters) {
-        this(charges, payments, ledger, risk, tenancy, roles, properties, clock, meters, new SecureRandom());
+        this(charges, payments, refunds, ledger, risk, tenancy, roles, properties, clock, meters, new SecureRandom());
     }
 
     BillingService(
             JdbcCharges charges,
             JdbcPayments payments,
+            Refunds refunds,
             LedgerApi ledger,
             RiskApi risk,
             TenancyApi tenancy,
@@ -92,6 +97,7 @@ public class BillingService implements BillingApi {
             SecureRandom random) {
         this.charges = charges;
         this.payments = payments;
+        this.refunds = refunds;
         this.ledger = ledger;
         this.risk = risk;
         this.tenancy = tenancy;
@@ -145,6 +151,12 @@ public class BillingService implements BillingApi {
         }
         var binding = bound("Listing charges");
         return roles.call(ROLE, () -> page(binding, filter, cursor, limit));
+    }
+
+    @Override
+    @Transactional
+    public RefundResult refund(ChargeId charge, RefundRequest request) {
+        return refunds.refund(bound("Refunding a charge"), charge, request);
     }
 
     // One charge more than the limit tells whether there is a next page, so no cursor leads to an empty one.
