@@ -104,6 +104,39 @@ paths:
           $ref: "components.yaml#/responses/TooManyRequests"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
+  /v1/charges/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ChargeId"
+    get:
+      operationId: getCharge
+      tags: [Charges]
+      summary: Retrieve a charge
+      description: >-
+        The charge as it is now: its status moves from `active` as it is
+        paid, refunded or expires. Requires `charges:read`.
+      responses:
+        "200":
+          description: The charge.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Charge"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The key lacks `charges:read` (`insufficient_permission`), or its
+            tenant is not active (`tenant_inactive`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
 components:
   schemas:
     CreateChargeRequest:
@@ -269,6 +302,17 @@ components:
         type: string
         maxLength: 500
       default: {}
+  parameters:
+    ChargeId:
+      name: id
+      in: path
+      required: true
+      description: >-
+        One of the tenant's charges. A charge of another tenant, or of the
+        other environment, answers `404`, like an unknown one.
+      schema:
+        type: string
+        pattern: "^ch_[0-7][0-9a-hjkmnp-tv-z]{25}$"
   securitySchemes:
     api_key:
       description: >-
