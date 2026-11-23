@@ -6,6 +6,7 @@ import dev.axion.core.tenancy.Permission;
 import dev.axion.core.web.ReplayBody;
 import dev.axion.core.webhooks.CreateEndpointResult;
 import dev.axion.core.webhooks.EndpointCursor;
+import dev.axion.core.webhooks.UpdateEndpointResult;
 import dev.axion.core.webhooks.WebhookEndpointId;
 import dev.axion.core.webhooks.WebhooksApi;
 import dev.axion.core.webhooks.domain.UrlRefusal;
@@ -20,10 +21,13 @@ import java.util.Locale;
 import java.util.Map;
 import org.jspecify.annotations.Nullable;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.ErrorResponseException;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -37,6 +41,8 @@ class WebhookEndpointsController {
 
     // The contract's pattern for an endpoint's ID.
     private static final String ENDPOINT_ID = "we_[0-7][0-9a-hjkmnp-tv-z]{25}";
+
+    private static final String MERGE_PATCH = "application/merge-patch+json";
 
     private final WebhooksApi webhooks;
 
@@ -84,6 +90,31 @@ class WebhookEndpointsController {
                 .orElseThrow(WebhookEndpointsController::notFound);
     }
 
+    // A JSON merge patch, under its own media type or application/json, which most clients send.
+    @RequiresPermission(Permission.WEBHOOKS_MANAGE)
+    @PatchMapping(
+            path = PATH + "/{id}",
+            consumes = {MERGE_PATCH, MediaType.APPLICATION_JSON_VALUE})
+    WebhookEndpointResponse update(
+            @PathVariable("id") String id, @Valid @RequestBody UpdateWebhookEndpointRequest request) {
+        return switch (webhooks.update(endpointIn(id), request.toEndpointChanges())) {
+            case UpdateEndpointResult.Updated updated -> WebhookEndpointResponse.of(updated.endpoint());
+            case UpdateEndpointResult.EndpointNotFound unknown -> throw notFound();
+            case UpdateEndpointResult.InvalidUrl invalid -> throw invalidUrl(invalid.reason());
+        };
+    }
+
+    // 204: the endpoint is gone, so there is nothing to show. Deleting it again is 404, like an
+    // unknown endpoint; the request changes nothing more, as DELETE must not.
+    @RequiresPermission(Permission.WEBHOOKS_MANAGE)
+    @DeleteMapping(PATH + "/{id}")
+    ResponseEntity<Void> delete(@PathVariable("id") String id) {
+        if (webhooks.delete(endpointIn(id)).isEmpty()) {
+            throw notFound();
+        }
+        return ResponseEntity.noContent().build();
+    }
+
     // A malformed ID answers 404, like another tenant's endpoint, not 400.
     private static WebhookEndpointId endpointIn(String text) {
         try {
@@ -94,9 +125,9 @@ class WebhookEndpointsController {
         }
     }
 
-    // Thrown, not returned, so the idempotency step stores the refusal with the key and a retry gets
-    // it again. The reason names the rule, never the addresses the name resolved to (events and
-    // webhooks design, section 7.1).
+    // Thrown, not returned, so the idempotency step stores a registration's refusal with the key and
+    // a retry gets it again. The reason names the rule, never the addresses the name resolved to
+    // (events and webhooks design, section 7.1).
     private static ErrorResponseException invalidUrl(UrlRefusal reason) {
         String detail = switch (reason) {
             case MALFORMED -> "must be an absolute URL with a host, and no user information or fragment";

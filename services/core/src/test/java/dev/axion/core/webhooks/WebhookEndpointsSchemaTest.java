@@ -177,16 +177,47 @@ class WebhookEndpointsSchemaTest {
     }
 
     @Test
-    void deniesTheModuleRoleUpdatingAnEndpoint() {
+    void letsTheModuleRoleChangeAnEndpointAndMarkItDeleted() {
         var row = endpoint();
         insert(row);
         DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
 
-        assertThatThrownBy(() -> jdbc.sql("UPDATE webhooks.endpoints SET url = 'https://attacker.example' WHERE id = ?")
+        int updated = jdbc.sql("""
+                        UPDATE webhooks.endpoints
+                           SET url = 'https://hooks.example.com', description = NULL, enabled_events = '{*}',
+                               status = 'DISABLED', disabled_reason = 'BY_TENANT', updated_at = now(),
+                               deleted_at = now()
+                         WHERE id = ?
+                        """).param(row.id).update();
+
+        assertThat(updated).isOne();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"id = gen_random_uuid()", "tenant_id = gen_random_uuid()", "created_at = now()"})
+    void deniesTheModuleRoleChangingWhatNeverChanges(String assignment) {
+        var row = endpoint();
+        insert(row);
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        assertThatThrownBy(() -> jdbc.sql("UPDATE webhooks.endpoints SET " + assignment + " WHERE id = ?")
                         .param(row.id)
                         .update())
                 .rootCause()
                 .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void hidesAnotherTenantsEndpointFromTheModuleRolesChanges() {
+        var row = endpoint().tenant(UUID.randomUUID());
+        insert(row);
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        int updated = jdbc.sql("UPDATE webhooks.endpoints SET url = 'https://attacker.example' WHERE id = ?")
+                .param(row.id)
+                .update();
+
+        assertThat(updated).isZero();
     }
 
     @Test

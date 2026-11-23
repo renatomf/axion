@@ -8,13 +8,18 @@ import dev.axion.core.shared.TenantId;
 import dev.axion.core.shared.UuidV7Generator;
 import dev.axion.core.webhooks.CreateEndpointResult;
 import dev.axion.core.webhooks.CreatedEndpoint;
+import dev.axion.core.webhooks.DisabledReason;
+import dev.axion.core.webhooks.EndpointChanges;
 import dev.axion.core.webhooks.EndpointCursor;
 import dev.axion.core.webhooks.EndpointPage;
 import dev.axion.core.webhooks.EndpointRequest;
 import dev.axion.core.webhooks.EndpointStatus;
 import dev.axion.core.webhooks.EndpointView;
+import dev.axion.core.webhooks.UpdateEndpointResult;
 import dev.axion.core.webhooks.WebhookEndpointCreated;
+import dev.axion.core.webhooks.WebhookEndpointDeleted;
 import dev.axion.core.webhooks.WebhookEndpointId;
+import dev.axion.core.webhooks.WebhookEndpointUpdated;
 import dev.axion.core.webhooks.WebhooksApi;
 import dev.axion.core.webhooks.domain.EventTypes;
 import dev.axion.core.webhooks.domain.SigningSecret;
@@ -27,6 +32,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -97,6 +103,69 @@ public class WebhooksService implements WebhooksApi {
         return roles.call(ROLE, () -> endpoints.find(tenant, id));
     }
 
+    @Override
+    @Transactional
+    public UpdateEndpointResult update(WebhookEndpointId id, EndpointChanges changes) {
+        changes.url().ifPresent(WebhooksService::requireUrlLength);
+        changes.description().ifPresent(WebhooksService::requireDescription);
+        changes.enabledEvents().ifPresent(WebhooksService::requireEnabledEvents);
+        TenantId tenant = bound("Changing a webhook endpoint");
+        // Before the lock, as for a registration.
+        if (changes.url().isPresent() && urls.validate(changes.url().get()) instanceof UrlValidation.Refused refused) {
+            return new UpdateEndpointResult.InvalidUrl(refused.reason());
+        }
+        Optional<Change> change = roles.call(ROLE, () -> change(tenant, id, changes));
+        if (change.isEmpty()) {
+            return new UpdateEndpointResult.EndpointNotFound();
+        }
+        Change made = change.get();
+        if (!made.endpoint().equals(made.previous())) {
+            events.publishEvent(new WebhookEndpointUpdated(header(made.at()), made.endpoint(), made.previous()));
+        }
+        return new UpdateEndpointResult.Updated(made.endpoint());
+    }
+
+    @Override
+    @Transactional
+    public Optional<EndpointView> delete(WebhookEndpointId id) {
+        TenantId tenant = bound("Deleting a webhook endpoint");
+        Instant now = now();
+        Optional<EndpointView> deleted = roles.call(ROLE, () -> endpoints.markDeleted(tenant, id, now));
+        deleted.ifPresent(endpoint -> events.publishEvent(new WebhookEndpointDeleted(header(now), endpoint)));
+        return deleted;
+    }
+
+    // Locked, so concurrent changes apply one after another and each event's previous endpoint is the
+    // one it changed.
+    private Optional<Change> change(TenantId tenant, WebhookEndpointId id, EndpointChanges changes) {
+        return endpoints.lock(tenant, id).map(previous -> {
+            Instant now = now();
+            EndpointView endpoint = changed(previous, changes);
+            if (!endpoint.equals(previous)) {
+                endpoints.update(tenant, endpoint, now);
+            }
+            return new Change(endpoint, previous, now);
+        });
+    }
+
+    private static EndpointView changed(EndpointView previous, EndpointChanges changes) {
+        EndpointStatus status = changes.status().orElse(previous.status());
+        Optional<DisabledReason> reason = switch (status) {
+            case ENABLED -> Optional.empty();
+            case DISABLED -> previous.disabledReason().or(() -> Optional.of(DisabledReason.BY_TENANT));
+        };
+        return new EndpointView(
+                previous.id(),
+                changes.url().orElse(previous.url()),
+                changes.description().orElse(previous.description()),
+                changes.enabledEvents().orElse(previous.enabledEvents()),
+                status,
+                reason,
+                previous.createdAt());
+    }
+
+    private record Change(EndpointView endpoint, EndpointView previous, Instant at) {}
+
     // One endpoint more than the limit tells whether there is a next page, so no cursor leads to an empty one.
     private EndpointPage page(TenantId tenant, EndpointCursor cursor, int limit) {
         List<EndpointView> found = endpoints.list(tenant, cursor.after(), Math.addExact(limit, 1));
@@ -147,16 +216,28 @@ public class WebhooksService implements WebhooksApi {
     // The schema checks the same rules; checking first gives a clear error, not a constraint name,
     // and refuses an oversized URL before its name is resolved.
     private static void requireLimits(EndpointRequest request) {
-        if (request.url().length() > MAX_URL_LENGTH) {
+        requireUrlLength(request.url());
+        requireDescription(request.description());
+        requireEnabledEvents(request.enabledEvents());
+    }
+
+    private static void requireUrlLength(String url) {
+        if (url.length() > MAX_URL_LENGTH) {
             throw new IllegalArgumentException("A URL is at most " + MAX_URL_LENGTH + " characters");
         }
-        request.description().ifPresent(description -> {
-            int length = description.codePointCount(0, description.length());
+    }
+
+    private static void requireDescription(Optional<String> description) {
+        description.ifPresent(text -> {
+            int length = text.codePointCount(0, text.length());
             if (length < 1 || length > MAX_DESCRIPTION_LENGTH) {
                 throw new IllegalArgumentException("A description is 1 to " + MAX_DESCRIPTION_LENGTH + " characters");
             }
         });
-        if (request.enabledEvents().size() > MAX_EVENT_TYPES || !EventTypes.isValidSelection(request.enabledEvents())) {
+    }
+
+    private static void requireEnabledEvents(Set<String> types) {
+        if (types.size() > MAX_EVENT_TYPES || !EventTypes.isValidSelection(types)) {
             throw new IllegalArgumentException("Enabled events must be 1 to " + MAX_EVENT_TYPES
                     + " webhook event types, or " + EventTypes.ALL + " alone");
         }

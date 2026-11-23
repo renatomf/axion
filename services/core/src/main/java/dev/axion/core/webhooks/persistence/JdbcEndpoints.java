@@ -22,10 +22,10 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class JdbcEndpoints {
 
-    private static final String SELECT = """
-            SELECT id, url, description, enabled_events, status, disabled_reason, created_at
-              FROM webhooks.endpoints
-            """;
+    private static final String COLUMNS = "id, url, description, enabled_events, status, disabled_reason, created_at";
+
+    // A deleted endpoint is never read: it receives nothing and is never listed.
+    private static final String SELECT = "SELECT " + COLUMNS + " FROM webhooks.endpoints WHERE deleted_at IS NULL";
 
     private final JdbcClient jdbc;
 
@@ -43,15 +43,13 @@ public class JdbcEndpoints {
     }
 
     public int count(TenantId tenant) {
-        return jdbc.sql("SELECT count(*) FROM webhooks.endpoints WHERE tenant_id = :tenant")
+        return jdbc.sql("SELECT count(*) FROM webhooks.endpoints WHERE tenant_id = :tenant AND deleted_at IS NULL")
                 .param("tenant", tenant.value())
                 .query(Integer.class)
                 .single();
     }
 
     public void insert(TenantId tenant, EndpointView endpoint) {
-        // Sorted, so stored types do not depend on set iteration order.
-        String[] types = endpoint.enabledEvents().stream().sorted().toArray(String[]::new);
         jdbc.sql("""
                         INSERT INTO webhooks.endpoints
                                (id, tenant_id, url, description, enabled_events, status, disabled_reason,
@@ -63,7 +61,7 @@ public class JdbcEndpoints {
                 .param("tenant", tenant.value())
                 .param("url", endpoint.url())
                 .param("description", endpoint.description().orElse(null))
-                .param("events", types)
+                .param("events", sortedTypes(endpoint))
                 .param("status", endpoint.status().name())
                 .param(
                         "reason",
@@ -87,9 +85,55 @@ public class JdbcEndpoints {
     }
 
     public Optional<EndpointView> find(TenantId tenant, WebhookEndpointId id) {
-        return jdbc.sql(SELECT + " WHERE tenant_id = :tenant AND id = :id")
+        return jdbc.sql(SELECT + " AND tenant_id = :tenant AND id = :id")
                 .param("tenant", tenant.value())
                 .param("id", id.value())
+                .query(JdbcEndpoints::view)
+                .optional();
+    }
+
+    /** Locked until the transaction ends, so a change is made to the endpoint as it is. */
+    public Optional<EndpointView> lock(TenantId tenant, WebhookEndpointId id) {
+        return jdbc.sql(SELECT + " AND tenant_id = :tenant AND id = :id FOR UPDATE")
+                .param("tenant", tenant.value())
+                .param("id", id.value())
+                .query(JdbcEndpoints::view)
+                .optional();
+    }
+
+    public void update(TenantId tenant, EndpointView endpoint, Instant updatedAt) {
+        jdbc.sql("""
+                        UPDATE webhooks.endpoints
+                           SET url = :url, description = :description, enabled_events = :events,
+                               status = :status, disabled_reason = :reason, updated_at = :updatedAt
+                         WHERE tenant_id = :tenant AND id = :id
+                        """)
+                .param("id", endpoint.id().value())
+                .param("tenant", tenant.value())
+                .param("url", endpoint.url())
+                .param("description", endpoint.description().orElse(null))
+                .param("events", sortedTypes(endpoint))
+                .param("status", endpoint.status().name())
+                .param(
+                        "reason",
+                        endpoint.disabledReason().map(DisabledReason::name).orElse(null))
+                .param("updatedAt", utc(updatedAt))
+                .update();
+    }
+
+    /**
+     * Marks the endpoint deleted, keeping its row for its delivery log; empty if it is unknown or
+     * already deleted, so of concurrent deletions only one succeeds.
+     */
+    public Optional<EndpointView> markDeleted(TenantId tenant, WebhookEndpointId id, Instant deletedAt) {
+        return jdbc.sql("""
+                        UPDATE webhooks.endpoints
+                           SET deleted_at = :deletedAt, updated_at = :deletedAt
+                         WHERE tenant_id = :tenant AND id = :id AND deleted_at IS NULL
+                        """ + "RETURNING " + COLUMNS)
+                .param("tenant", tenant.value())
+                .param("id", id.value())
+                .param("deletedAt", utc(deletedAt))
                 .query(JdbcEndpoints::view)
                 .optional();
     }
@@ -100,7 +144,7 @@ public class JdbcEndpoints {
      * @param after the last endpoint of the previous page; only older ones follow it
      */
     public List<EndpointView> list(TenantId tenant, Optional<WebhookEndpointId> after, int count) {
-        StringBuilder sql = new StringBuilder(SELECT).append(" WHERE tenant_id = :tenant");
+        StringBuilder sql = new StringBuilder(SELECT).append(" AND tenant_id = :tenant");
         Map<String, Object> params = new HashMap<>();
         params.put("tenant", tenant.value());
         after.ifPresent(last -> {
@@ -125,6 +169,11 @@ public class JdbcEndpoints {
                 EndpointStatus.valueOf(row.getString("status")),
                 Optional.ofNullable(row.getString("disabled_reason")).map(DisabledReason::valueOf),
                 row.getObject("created_at", OffsetDateTime.class).toInstant());
+    }
+
+    // Sorted, so stored types do not depend on set iteration order.
+    private static String[] sortedTypes(EndpointView endpoint) {
+        return endpoint.enabledEvents().stream().sorted().toArray(String[]::new);
     }
 
     // Bound as an offset, so the JVM's time zone never shifts the stored instant.

@@ -38,6 +38,28 @@ public interface WebhooksApi {
      */
     Optional<EndpointView> endpoint(WebhookEndpointId id);
 
+    /**
+     * Changes one of the tenant's endpoints, publishing {@link WebhookEndpointUpdated}; changes that
+     * leave it as it was change nothing and publish nothing. A URL in the changes is checked before
+     * anything is stored, as for a registration, even when it is the endpoint's own.
+     *
+     * @throws IllegalArgumentException for a URL, description or event types outside the limits of
+     *     {@link #create}
+     * @throws IllegalStateException if no tenant is bound, a bug in the caller
+     */
+    UpdateEndpointResult update(WebhookEndpointId id, EndpointChanges changes);
+
+    /**
+     * Deletes one of the tenant's endpoints, publishing {@link WebhookEndpointDeleted}: it receives
+     * nothing from then on, is never read or listed again, and no longer counts toward {@link
+     * #MAX_ENDPOINTS}.
+     *
+     * @return the endpoint as it was, or empty for an unknown endpoint, another tenant's and one
+     *     already deleted alike
+     * @throws IllegalStateException if no tenant is bound, a bug in the caller
+     */
+    Optional<EndpointView> delete(WebhookEndpointId id);
+
     /** The most endpoints one page of {@link #endpoints} holds. */
     int MAX_PAGE_SIZE = 100;
 

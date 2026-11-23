@@ -247,8 +247,8 @@ A secret is `whsec_` followed by 32 random bytes in base64, the format of Standa
 |---|---|
 | Create | URL validated (section 7.1); secret generated and returned once; at most 16 endpoints |
 | Read and list | Never the secret |
-| Update | `url`, `description`, `enabled_events` and `status`; a new URL is validated again. Setting `status` to `enabled` clears `disabled_reason` and starts the endpoint afresh: deliveries that died while it was disabled are not resent; the tenant replays the ones it wants (section 8.7) |
-| Delete | The endpoint stops receiving at once; its pending deliveries are canceled; its delivery log stays readable until its retention ends (section 8.8) |
+| Update | `url`, `description`, `enabled_events` and `status`, as a JSON merge patch: a field left out keeps its value, and `null` removes the description, the one field that can be removed. A URL in the patch is validated again, even the endpoint's own. Setting `status` to `enabled` clears `disabled_reason` and starts the endpoint afresh: deliveries that died while it was disabled are not resent; the tenant replays the ones it wants (section 8.7). Setting it to `disabled` disables an enabled endpoint `by_tenant` and leaves a disabled one with its reason. A patch that leaves the endpoint as it was publishes nothing |
+| Delete | The endpoint stops receiving at once and no longer counts toward the limit; its pending deliveries are canceled; its delivery log stays readable until its retention ends (section 8.8). `204`; deleting it again is `404`, like an unknown endpoint |
 | Roll secret | Section 6.2 |
 
 Each operation publishes its event of section 3.3 for the audit trail. On `/internal`, every change needs step-up, as the overview requires for changing webhook URLs (section 4.3).
@@ -562,7 +562,7 @@ Public IDs: `evt_` for events, `we_` for webhook endpoints, `whd_` for deliverie
 | `POST /v1/webhook_endpoints` | `webhooks:manage` | Section 6.3; idempotent; returns the secret once |
 | `GET /v1/webhook_endpoints` | `webhooks:manage` | Newest first; a cursor on the endpoint's ID |
 | `GET /v1/webhook_endpoints/{id}` | `webhooks:manage` | |
-| `PATCH /v1/webhook_endpoints/{id}` | `webhooks:manage` | A JSON merge patch of the four fields of section 6.3 |
+| `PATCH /v1/webhook_endpoints/{id}` | `webhooks:manage` | A JSON merge patch of the four fields of section 6.3, as `application/merge-patch+json` or `application/json` |
 | `DELETE /v1/webhook_endpoints/{id}` | `webhooks:manage` | |
 | `POST /v1/webhook_endpoints/{id}/secret/roll` | `webhooks:manage` | `grace_period_seconds`, 0 to 604,800; idempotent; returns the new secret once |
 | `GET /v1/webhook_endpoints/{id}/deliveries` | `webhooks:manage` | Newest first; filters on `status` and `type` |
@@ -661,7 +661,7 @@ Events and webhooks carry money's news out of the core and requests into other n
 | 1.48b | The audited events of section 3.3 | 9.4 |
 | 1.49 | The `notifications` module and the live stream | 10 |
 
-1.44a publishes events before any module consumes them: the slice prepares the ground for every consumer of the block, and its tests read the registry. How listeners run (section 4.3) arrives with 1.44b, which makes them idempotent; the first listener of the core follows it. 1.46a delivers unsigned requests for one slice, so that signing, a security boundary, is reviewed on its own in 1.46b; nothing is deployed in between. Endpoints arrive in four slices, each small enough to review with care: registration, with the encryption of secrets, a security boundary of its own; changes; rolling; and the console's mirror. Until the catalog arrives with 1.46a, the event types an endpoint may receive are listed in `webhooks`, and 1.46a checks them against it.
+1.44a publishes events before any module consumes them: the slice prepares the ground for every consumer of the block, and its tests read the registry. How listeners run (section 4.3) arrives with 1.44b, which makes them idempotent; the first listener of the core follows it. 1.46a delivers unsigned requests for one slice, so that signing, a security boundary, is reviewed on its own in 1.46b; nothing is deployed in between. Endpoints arrive in four slices, each small enough to review with care: registration, with the encryption of secrets, a security boundary of its own; changes; rolling; and the console's mirror. Until the catalog arrives with 1.46a, the event types an endpoint may receive are listed in `webhooks`, and 1.46a checks them against it. Deliveries arrive with 1.46a too, so the cancellation of a deleted endpoint's pending deliveries arrives with them.
 
 ## 17. Decisions from review
 
