@@ -94,3 +94,64 @@ The `events` module turns domain events into public ones (section 5.1). `webhook
 | `ApiKeyIssued`, `ApiKeyRevoked` and `MemberRolesChanged` (tenancy design, section 7) | `ApiKeyRolled` is published too | A roll issues a key and schedules the end of another; one event records both |
 | Dead letters for consumers "with reprocessing from the back office" (section 7.6) | Failed publications stay in the registry, retried with backoff; after the last attempt they are counted, alerted and resubmitted by an operator command | The back office does not exist in phase 1; the registry already holds what a dead-letter table would copy |
 | "The endpoint is disabled and the tenant notified" (section 7.6) | The console is notified through the live stream and a banner; email arrives with the email channel | Phase 1 has no email channel |
+
+## 4. Domain events
+
+### 4.1 Shape
+
+Every domain event implements `DomainEvent`, in `shared`:
+
+```java
+public interface DomainEvent {
+    EventId id();               // UUIDv7, generated when the event is created
+    TenantId tenant();          // the tenant whose data changed
+    Environment environment();
+    Actor actor();              // a member, an API key, or a job of the platform
+    String correlationId();     // the request's, or the job run's
+    Instant occurredAt();       // from the injected Clock, in the publishing transaction
+}
+```
+
+- An event carries what its consumers need to act without calling back: `ChargePaid` carries the `ChargeDetail` as it is after settlement, `ChargeRefunded` the `RefundView` and the `ChargeDetail`. Event-only modules are never called synchronously (overview, section 5.2, rule 5), so they cannot read the charge themselves.
+- An event carries no secret and no personal data. A charge's `metadata` is the tenant's own data, sent only to the tenant's own endpoints, and is never logged.
+- `Actor` is a sealed type: `Member(MemberId)`, `ApiKey(ApiKeyId)` or `System(String job)`, such as `System("charge-expiry")`. The audit trail records it; public events leave it out.
+- The event ID is the public event's ID (section 5.1) and the key every consumer deduplicates by (section 4.4).
+
+### 4.2 Publication registry
+
+The core uses Spring Modulith's JDBC registry (`spring-modulith-starter-jdbc`). When a transaction publishes an event, Modulith writes one row per listener that will handle it into `events.event_publication`, in the same transaction; after the commit it hands the event to each listener, and marks its row completed when the listener returns. A publication whose listener failed, or whose process stopped first, stays incomplete and is handed to the listener again (section 4.5).
+
+- The table is the one Modulith 2.1 defines, created by `events`' Flyway migration in the `events` schema; Modulith's own schema initialization is off, so the database has one source of migrations.
+- The registry is the platform's, not a tenant's: it has no tenant column and no policy. Modulith writes it with the connection's login role, `axion_app`, which alone is granted on it; a module publishes after its role switch returns (tenancy design, section 5.6), still inside its transaction. The module roles cannot read it.
+- `serialized_event` is the event as JSON, written by Modulith's Jackson serializer. Events are records of IDs, values and views, so the serializer needs no customization; a test serializes and reads back every event of the catalog.
+- Completed publications are deleted after 7 days by a job of `events`; incomplete ones are never deleted automatically.
+
+### 4.3 Listeners
+
+A consumer is a method annotated `@ApplicationModuleListener`: it runs after the publishing transaction commits, on another thread, in a new transaction of its own. Before it touches the database, it binds the event's tenant with `TenantContext.run(event.tenant(), event.environment(), …)` (tenancy design, section 5.3), so Row-Level Security applies to the consumer as it does to a request.
+
+- Listeners run on a bounded executor of virtual threads, 32 at a time; a burst of events waits in the executor's queue, never in a request thread.
+- A listener does one thing in one transaction: record an audit record, create deliveries, push to streams. A listener that has to call something slow, such as a tenant's endpoint, records the work and leaves it to a job (section 8).
+- A listener never publishes into the transaction of the module whose event it handles, and no listener sits on the money path: settlement commits whether or not any listener exists.
+
+### 4.4 Idempotent consumers
+
+Delivery is at least once: a listener may be handed the same event again after a crash between its commit and Modulith's completion mark, or after an operator resubmits it. Every consumer therefore records the events it handled, in its own schema, in the transaction of its effect:
+
+```
+<schema>.consumed_events
+  consumer      text not null
+  event_id      uuid not null
+  consumed_at   timestamptz not null
+  primary key (consumer, event_id)
+```
+
+`IdempotentConsumer`, in `shared`, inserts the row with `ON CONFLICT DO NOTHING` and runs the effect only when the row was inserted; a duplicate commits nothing else and returns. The effect and the row commit together, so an event is handled once even if the duplicate arrives while the first is still running: the second insert waits for the first transaction's key and then finds it.
+
+Where a consumer's own table already has the event ID as a unique key, as `webhooks.events` does (section 8.1), that key is its record and no `consumed_events` row is needed. Rows older than 30 days are deleted; a registry that resubmits a 30-day-old event has a problem an operator must see first (section 4.5).
+
+### 4.5 Failed publications
+
+A listener that throws leaves its publication incomplete. A job of `events` resubmits incomplete publications every minute, with a backoff by attempt: 1, 5 and 30 minutes, then every 2 hours, up to 10 attempts. Modulith also resubmits them when the core starts, so a publication interrupted by a restart is handled within seconds of the next start.
+
+After the tenth attempt a publication is left alone: it is a dead letter. It is counted (`axion_events_publications_failed`), alerted on, and kept until an operator resubmits it, with a command that names the listener and the publication, once the cause is fixed. A consumer that keeps failing never blocks the others: each listener has its own publication of the event.
