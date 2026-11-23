@@ -57,22 +57,18 @@ public final class EventFixtures {
 
     /** One of each domain event of the catalog, with every optional field filled. */
     public static Stream<DomainEvent> catalog() {
-        var charge = charge();
+        var chargeId = new ChargeId(UUID.randomUUID());
         var payment = new PaymentView(
                 new PaymentId(UUID.randomUUID()),
-                "E99990011202611231403abcdefghij",
+                "E99990011202611231403abcdefghijk",
                 AMOUNT,
-                Money.zero(AMOUNT.currency()),
+                AMOUNT,
                 NOW,
                 PaymentOutcome.FLAGGED,
                 Optional.of(ReviewReason.AMOUNT_MISMATCH));
         var refund = new RefundView(
-                new RefundId(UUID.randomUUID()),
-                charge.charge().id(),
-                payment.id(),
-                AMOUNT,
-                RefundStatus.SUCCEEDED,
-                NOW);
+                new RefundId(UUID.randomUUID()), chargeId, payment.id(), AMOUNT, RefundStatus.SUCCEEDED, NOW);
+        var charge = new ChargeDetail(charge(chargeId), List.of(payment), List.of(refund));
         var key = key();
         return Stream.of(
                 new ChargeCreated(header(new Actor.ApiKey(new ApiKeyId(UUID.randomUUID()))), charge),
@@ -90,6 +86,11 @@ public final class EventFixtures {
                 new WebhookSecretRolled(header(new Actor.ApiKey(new ApiKeyId(UUID.randomUUID()))), endpoint(), NOW));
     }
 
+    /** The catalog's event of the type. */
+    public static <T extends DomainEvent> T one(Class<T> type) {
+        return catalog().filter(type::isInstance).map(type::cast).findFirst().orElseThrow();
+    }
+
     private static EventHeader header(Actor actor) {
         return new EventHeader(
                 new EventId(UUID.randomUUID()),
@@ -100,22 +101,20 @@ public final class EventFixtures {
                 NOW);
     }
 
-    // Every optional field filled, so each is written and read back.
-    private static ChargeDetail charge() {
-        var view = new ChargeView(
-                new ChargeId(UUID.randomUUID()),
+    private static ChargeView charge(ChargeId id) {
+        return new ChargeView(
+                id,
                 ChargeStatus.PAID,
                 AMOUNT,
                 Money.zero(AMOUNT.currency()),
                 "Mensalidade de novembro",
                 Map.of("order_id", "ord_8842"),
-                "AXN0123456789ABCDEFGHIJK",
+                "AXN0123456789ABCDEFGHIJKL",
                 "00020101021226850014br.gov.bcb.pix",
                 NOW.plusSeconds(1_800),
                 NOW,
                 NOW.minusSeconds(60),
                 Environment.TEST);
-        return new ChargeDetail(view, List.of(), List.of());
     }
 
     private static EndpointView endpoint() {
