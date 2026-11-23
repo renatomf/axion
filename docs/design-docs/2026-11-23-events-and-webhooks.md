@@ -282,3 +282,88 @@ Deliveries use Spring's `RestClient` on Apache HttpClient 5, whose `DnsResolver`
 - No proxy, no cookies, no authentication cache; every attempt is a new, plain request.
 - Connection timeout 5 seconds, whole-response timeout 10 seconds, at most 64 KiB of response body read, of which the first 1 KiB is kept for the delivery log.
 - In the `local` profile, `axion.webhooks.allowed-local-ports` lets a developer receive webhooks on `localhost` for chosen ports; the setting does not exist in the default profile, so no deployed core can enable it.
+
+## 8. Delivery
+
+### 8.1 From event to deliveries
+
+`webhooks` listens to the domain events with a public type. For each, in one transaction:
+
+1. It inserts the public event into `webhooks.events`, rendered by `EventCatalog.render`, keyed by the event's ID; a duplicate insert finds the key and stops (section 4.4).
+2. It inserts one delivery per endpoint of the tenant that is enabled and subscribed to the type, with `next_attempt_at` now.
+
+Endpoints created later do not receive earlier events, and a disabled endpoint receives none.
+
+### 8.2 The queue
+
+Workers drain `webhooks.deliveries` every second, as `axion_webhooks_jobs`. A worker claims a batch of up to 20 due deliveries in a short transaction and lets it commit before sending anything:
+
+```sql
+UPDATE webhooks.deliveries
+   SET leased_until = now() + interval '30 seconds'
+ WHERE id IN (SELECT id FROM webhooks.deliveries
+               WHERE status = 'PENDING' AND next_attempt_at <= now()
+                 AND (leased_until IS NULL OR leased_until < now())
+               ORDER BY next_attempt_at
+               LIMIT 20
+               FOR UPDATE SKIP LOCKED)
+RETURNING …
+```
+
+- `SKIP LOCKED` lets several workers, or several instances of the core, claim batches at once without waiting on each other or claiming the same row.
+- The lease, not a held lock, keeps the claim during the HTTP request: no transaction and no connection stays open while a tenant's server takes ten seconds to answer. A worker that dies mid-request leaves its lease to expire, and the delivery is claimed again: at least once, which receivers already handle by `id` (section 5.3).
+- Each attempt's result is written in a second short transaction that updates the delivery and inserts the attempt.
+- No endpoint has more than 4 deliveries in flight; the claim skips deliveries of endpoints at their limit, so one slow endpoint holds at most 4 of the workers' requests and every other endpoint keeps its pace.
+- The job role reads across tenants, like the billing jobs: its policies let it see deliveries, the events they send and their endpoints, and change only a delivery's status, lease, attempt count and next attempt.
+
+### 8.3 The request
+
+```
+POST /axion/webhooks HTTP/1.1
+Host: example.com
+Content-Type: application/cloudevents+json; charset=utf-8
+User-Agent: Axion-Webhooks/1.0
+webhook-id: evt_01jdr3b6f7g8h9j0k1m2n3p4q5
+webhook-timestamp: 1795442591
+webhook-signature: v1,K5oZfzN95Z9UVu1EsfQmfVNQhnkZ2pj9o9NDN/H/pI4=
+
+{"specversion":"1.0","id":"evt_01jdr3b6f7g8h9j0k1m2n3p4q5",…}
+```
+
+A `2xx` received within the timeout is a success; the body of the response is ignored. Anything else is a failure: another status, a timeout, a refused address, a TLS error, a redirect.
+
+### 8.4 Signing
+
+The signature follows Standard Webhooks: HMAC-SHA256, keyed with the secret's 32 bytes, over `{webhook-id}.{webhook-timestamp}.{body}`, base64-encoded and prefixed with the scheme version `v1,`.
+
+- `webhook-timestamp` is the attempt's time in Unix seconds, so a replay of an old attempt is signed afresh. Receivers reject a timestamp more than five minutes from their clock, which bounds the replay of a captured request; the signed `webhook-id` lets them reject one inside that window.
+- During a secret's grace period, `webhook-signature` carries two signatures separated by a space, new first; a receiver accepts the request if any one verifies.
+- The body is signed as the bytes sent, never re-serialized, so a receiver verifies the raw body before parsing it. The webhook guide (`docs/api/webhooks.md`) shows how, with the reference libraries.
+
+### 8.5 Retries
+
+A failed delivery is attempted again after a delay that grows with each attempt:
+
+| Attempt | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
+|---|---|---|---|---|---|---|---|---|---|
+| After the previous | immediately | 1 min | 5 min | 30 min | 2 h | 6 h | 12 h | 24 h | 24 h |
+
+Nine attempts span about 68 hours, the overview's "about three days". Each delay varies by up to 10% at random, so the deliveries of an outage do not all return at the same second. A `410 Gone` ends the delivery at once: the receiver said the URL is not coming back. After the ninth failure the delivery is `DEAD`.
+
+### 8.6 Disabling
+
+An endpoint records `failing_since`, the time of its first failure after its last success; a success clears it. When an endpoint has been failing for 72 hours and its last 20 attempts all failed, it is disabled with `disabled_reason: failing`: its pending deliveries are canceled, and `WebhookEndpointDisabled` puts a notice on the tenant's live stream and in the audit trail. The two conditions together keep an endpoint that receives one event a week from being disabled by a single bad night, and one that receives thousands from being disabled in minutes.
+
+The tenant enables it again with an update (section 6.3), after fixing its server, and replays what it missed.
+
+### 8.7 Delivery log and replay
+
+Every attempt is recorded: its time, the duration, the status code or the failure reason (`timeout`, `connection_refused`, `address_refused`, `tls_error`, `redirect`), and at most 1 KiB of the response body. The log lists an endpoint's deliveries, newest first, filterable by status and event type, each with its attempts.
+
+A replay sends one delivery again, now: it adds an attempt to it, with the same event ID and body and a fresh timestamp and signature. A dead or succeeded delivery can be replayed, at most 10 times a day each; replaying does not change the schedule of a delivery that is still pending. Replays are how a tenant recovers from a fixed outage, so they work on a disabled endpoint's log too, once it is enabled again.
+
+The response body is the tenant's server talking. It is stored as text, shown escaped, never interpreted and never followed.
+
+### 8.8 Retention
+
+Events, deliveries and attempts are kept for 30 days, then deleted by a job of `webhooks`. The audit trail, not the delivery log, is the permanent record.
