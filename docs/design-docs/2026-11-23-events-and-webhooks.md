@@ -644,3 +644,11 @@ Events and webhooks carry money's news out of the core and requests into other n
 | 1.49 | The `notifications` module and the live stream | 10 |
 
 1.44a publishes events before any module consumes them: the slice prepares the ground for every consumer of the block, and its tests read the registry. 1.46a delivers unsigned requests for one slice, so that signing, a security boundary, is reviewed on its own in 1.46b; nothing is deployed in between.
+
+## 17. Decisions from review
+
+1. **A new `events` module renders public events.** `webhooks` and `notifications` send the same payload, built in one place by a pure function, so the event-only modules still call nothing that can slow them down (sections 3.2 and 5.1).
+2. **Signatures follow Standard Webhooks.** An open scheme with receiver libraries, which carries two signatures while a secret rolls (section 8.4).
+3. **Public events carry the resource's snapshot.** Receivers and the console act without calling back; they deduplicate by `id` and compare state instead of relying on order (sections 5.1 and 5.3).
+4. **One audit chain per tenant.** No platform-wide serialization point, and each tenant's chain verifies on its own (section 9.1).
+5. **An endpoint is disabled only when both conditions hold:** failing for 72 hours and its last 20 attempts failed (section 8.6).
