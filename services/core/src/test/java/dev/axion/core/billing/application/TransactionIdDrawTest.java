@@ -12,8 +12,6 @@ import dev.axion.core.billing.ChargeRequest;
 import dev.axion.core.billing.ChargeView;
 import dev.axion.core.billing.domain.TransactionId;
 import dev.axion.core.billing.persistence.JdbcCharges;
-import dev.axion.core.billing.persistence.JdbcPayments;
-import dev.axion.core.billing.persistence.JdbcRefunds;
 import dev.axion.core.ledger.LedgerApi;
 import dev.axion.core.risk.RiskApi;
 import dev.axion.core.shared.Environment;
@@ -45,8 +43,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 class TransactionIdDrawTest {
 
     private final JdbcCharges charges;
-    private final JdbcPayments payments;
-    private final JdbcRefunds refunds;
+    private final ChargeDetails details;
     private final Refunds refunding;
     private final LedgerApi ledger;
     private final RiskApi risk;
@@ -64,8 +61,7 @@ class TransactionIdDrawTest {
     @Autowired
     TransactionIdDrawTest(
             JdbcCharges charges,
-            JdbcPayments payments,
-            JdbcRefunds refunds,
+            ChargeDetails details,
             Refunds refunding,
             LedgerApi ledger,
             RiskApi risk,
@@ -77,8 +73,7 @@ class TransactionIdDrawTest {
             MeterRegistry meters,
             PlatformTransactionManager transactions) {
         this.charges = charges;
-        this.payments = payments;
-        this.refunds = refunds;
+        this.details = details;
         this.refunding = refunding;
         this.ledger = ledger;
         this.risk = risk;
@@ -125,8 +120,7 @@ class TransactionIdDrawTest {
     private BillingService billing(String... transactionIds) {
         return new BillingService(
                 charges,
-                payments,
-                refunds,
+                details,
                 refunding,
                 ledger,
                 risk,

@@ -17,8 +17,6 @@ import dev.axion.core.billing.domain.BrCode;
 import dev.axion.core.billing.domain.Charge;
 import dev.axion.core.billing.domain.TransactionId;
 import dev.axion.core.billing.persistence.JdbcCharges;
-import dev.axion.core.billing.persistence.JdbcPayments;
-import dev.axion.core.billing.persistence.JdbcRefunds;
 import dev.axion.core.ledger.AccountRequest;
 import dev.axion.core.ledger.AccountType;
 import dev.axion.core.ledger.LedgerApi;
@@ -61,8 +59,7 @@ public class BillingService implements BillingApi {
     static final int MAX_TRANSACTION_ID_DRAWS = 3;
 
     private final JdbcCharges charges;
-    private final JdbcPayments payments;
-    private final JdbcRefunds refunds;
+    private final ChargeDetails details;
     private final Refunds refunding;
     private final LedgerApi ledger;
     private final RiskApi risk;
@@ -78,8 +75,7 @@ public class BillingService implements BillingApi {
     @Autowired
     public BillingService(
             JdbcCharges charges,
-            JdbcPayments payments,
-            JdbcRefunds refunds,
+            ChargeDetails details,
             Refunds refunding,
             LedgerApi ledger,
             RiskApi risk,
@@ -91,8 +87,7 @@ public class BillingService implements BillingApi {
             MeterRegistry meters) {
         this(
                 charges,
-                payments,
-                refunds,
+                details,
                 refunding,
                 ledger,
                 risk,
@@ -107,8 +102,7 @@ public class BillingService implements BillingApi {
 
     BillingService(
             JdbcCharges charges,
-            JdbcPayments payments,
-            JdbcRefunds refunds,
+            ChargeDetails details,
             Refunds refunding,
             LedgerApi ledger,
             RiskApi risk,
@@ -120,8 +114,7 @@ public class BillingService implements BillingApi {
             MeterRegistry meters,
             SecureRandom random) {
         this.charges = charges;
-        this.payments = payments;
-        this.refunds = refunds;
+        this.details = details;
         this.refunding = refunding;
         this.ledger = ledger;
         this.risk = risk;
@@ -166,11 +159,7 @@ public class BillingService implements BillingApi {
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Optional<ChargeDetail> charge(ChargeId charge) {
         var binding = bound("Reading a charge");
-        return roles.call(
-                ROLE,
-                () -> charges.find(binding, charge)
-                        .map(found -> new ChargeDetail(
-                                found, payments.views(found.id(), MAX_DETAIL_PAYMENTS), refunds.views(found.id()))));
+        return roles.call(ROLE, () -> details.find(binding, charge));
     }
 
     @Override
