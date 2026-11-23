@@ -262,7 +262,7 @@ A webhook is a request the core makes to an address someone else chose. Checking
 A URL is accepted only if:
 
 - its scheme is `https`, it has a host, and it has no user information and no fragment;
-- its host is a DNS name, not an IP literal, and not `localhost` or a name under `.localhost`, `.local`, `.internal` or `.home.arpa`;
+- its host is a DNS name of two labels or more, not an IP literal in any notation (`2130706433` is `127.0.0.1` to a resolver), and not `localhost` or a name under `.localhost`, `.local`, `.internal` or `.home.arpa`; a single label such as `metadata` is completed with the resolver's search domains, so it names a host of the core's own network;
 - its port is 443 or between 1024 and 65535;
 - its host resolves, and every address it resolves to is public.
 
@@ -278,7 +278,16 @@ An address is public unless it is in one of these ranges, for IPv4 and IPv6 alik
 | `192.0.0.0/24`, `192.0.2.0/24`, `198.18.0.0/15`, `198.51.100.0/24`, `203.0.113.0/24`, `2001:db8::/32` | Protocol assignments, benchmarking and documentation |
 | `224.0.0.0/4`, `240.0.0.0/4`, `ff00::/8` | Multicast, reserved and broadcast |
 
-A refused URL is `422 validation_failed` on `url`, with a reason that names the rule (`must_be_https`, `must_be_public`) but never the addresses the name resolved to: the core does not answer DNS questions about its own network.
+The rules that need no lookup are checked first, so a URL they refuse never makes the core resolve its name. A refused URL is `422 validation_failed` on `url`, with a reason that names the rule but never the addresses the name resolved to: the core does not answer DNS questions about its own network.
+
+| Reason | Rule |
+|---|---|
+| `malformed` | Not an absolute URL with a host, or one with user information or a fragment |
+| `must_be_https` | The scheme is not `https` |
+| `must_use_domain_name` | The host is an IP address |
+| `port_not_allowed` | The port is neither 443 nor between 1024 and 65535 |
+| `must_be_public` | A local or single-label name, or a name with an address that is not public |
+| `must_resolve` | The name does not resolve |
 
 ### 7.2 At connection
 
