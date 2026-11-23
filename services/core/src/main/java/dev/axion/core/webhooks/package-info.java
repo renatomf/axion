@@ -18,7 +18,7 @@
  */
 @ApplicationModule(
         displayName = "Webhooks",
-        allowedDependencies = {"shared", "access", "tenancy"})
+        allowedDependencies = {"shared", "web", "access", "tenancy"})
 @NullMarked
 package dev.axion.core.webhooks;
 

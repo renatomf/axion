@@ -382,6 +382,81 @@ paths:
           $ref: "components.yaml#/responses/TooManyRequests"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
+    post:
+      operationId: createWebhookEndpoint
+      tags: [Webhook endpoints]
+      summary: Create a webhook endpoint
+      description: >-
+        Registers an HTTPS URL to receive the tenant's events of
+        `enabled_events`, and returns the secret that signs the requests
+        sent to it. The secret is in this response only, not in the answer
+        to a repeat of the request: store it, or roll a new one if it is
+        lost. The URL must name a host on the public
+        internet by a domain name, on port 443 or a port from 1024 to
+        65535, and every address the name resolves to must be public. A
+        tenant has at most 16 endpoints. Requires `webhooks:manage`.
+      parameters:
+        - $ref: "components.yaml#/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWebhookEndpointRequest"
+      responses:
+        "201":
+          description: The endpoint was registered, with its secret.
+          headers:
+            Location:
+              description: The endpoint's path, `/v1/webhook_endpoints/{id}`.
+              schema:
+                type: string
+            Idempotent-Replayed:
+              $ref: "components.yaml#/headers/Idempotent-Replayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedWebhookEndpoint"
+        "400":
+          description: >-
+            The body cannot be read, such as invalid JSON or a value of the
+            wrong type (`bad_request`), or the `Idempotency-Key` is missing
+            (`idempotency_key_required`) or malformed
+            (`invalid_idempotency_key`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The key lacks `webhooks:manage` (`insufficient_permission`), or
+            its tenant is not active (`tenant_inactive`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "409":
+          $ref: "components.yaml#/responses/RequestInProgress"
+        "413":
+          $ref: "components.yaml#/responses/ContentTooLarge"
+        "422":
+          description: >-
+            The endpoint was not registered. Some fields are invalid or
+            unknown (`validation_failed`, with `errors`; a refused `url`
+            carries the rule it failed as `reason`, never the addresses its
+            name resolved to); the tenant has 16 endpoints already
+            (`limit_exceeded`); or the `Idempotency-Key` was used for
+            another request (`idempotency_key_reused`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
   /v1/webhook_endpoints/{id}:
     parameters:
       - $ref: "#/components/parameters/WebhookEndpointId"
@@ -822,6 +897,96 @@ components:
           amount: 5000
           status: succeeded
           created_at: "2026-11-22T16:10:00Z"
+    CreateWebhookEndpointRequest:
+      description: >-
+        A webhook endpoint to register. A field not listed here is refused,
+        so a misspelled optional field is reported instead of ignored.
+      type: object
+      required: [url, enabled_events]
+      additionalProperties: false
+      properties:
+        url:
+          description: >-
+            An `https` URL with a domain name, without user information or
+            a fragment.
+          type: string
+          maxLength: 2048
+        description:
+          description: Up to 140 characters, for the tenant's own reference.
+          type: string
+          minLength: 1
+          maxLength: 140
+        enabled_events:
+          description: >-
+            The event types the endpoint receives, 1 to 20, or `["*"]` for
+            every type, including those added later.
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/WebhookEventType"
+      examples:
+        - url: https://example.com/axion/webhooks
+          description: Order service
+          enabled_events: [charge.paid, charge.refunded]
+    CreatedWebhookEndpoint:
+      description: >-
+        An endpoint just registered: the fields a read shows, and its
+        signing secret, which is never shown again.
+      type: object
+      required:
+        - id
+        - object
+        - url
+        - description
+        - enabled_events
+        - status
+        - disabled_reason
+        - created_at
+        - secret
+      properties:
+        id:
+          description: The endpoint's ID.
+          type: string
+          pattern: "^we_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        object:
+          description: The kind of object, always `webhook_endpoint`.
+          type: string
+          const: webhook_endpoint
+        url:
+          description: Where the events are sent.
+          type: string
+          format: uri
+          maxLength: 2048
+        description:
+          description: The tenant's description; null if it gave none.
+          type: [string, "null"]
+        enabled_events:
+          description: The event types the endpoint receives, sorted, or `["*"]`.
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/WebhookEventType"
+        status:
+          description: Always `enabled` for a new endpoint.
+          type: string
+          const: enabled
+        disabled_reason:
+          description: Always null for a new endpoint.
+          type: "null"
+        created_at:
+          type: string
+          format: date-time
+        secret:
+          description: >-
+            The secret that signs the requests sent to the endpoint: `whsec_`
+            and 32 random bytes in base64, the format of Standard Webhooks.
+            Null in the answer to a repeat of the request, with
+            `Idempotent-Replayed`: the secret is shown once and stored only
+            encrypted. If the first response was lost, roll the secret.
+          type: [string, "null"]
+          pattern: "^whsec_[0-9A-Za-z+/]{43}=$"
     WebhookEndpoint:
       description: >-
         An HTTPS URL where Axion sends the tenant's events. An endpoint of

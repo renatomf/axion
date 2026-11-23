@@ -94,6 +94,7 @@ class TenantIsolationTest {
             Map.entry("getCharge", this::getChargeHidesAnotherTenantsCharge),
             Map.entry("listCharges", this::listChargesHidesAnotherTenantsCharges),
             Map.entry("createRefund", this::createRefundRefundsNothingOfAnotherTenant),
+            Map.entry("createWebhookEndpoint", this::createWebhookEndpointRegistersNothingForAnotherTenant),
             Map.entry("listWebhookEndpoints", this::listWebhookEndpointsHidesAnotherTenantsEndpoints),
             Map.entry("getWebhookEndpoint", this::getWebhookEndpointHidesAnotherTenantsEndpoint));
 
@@ -262,6 +263,35 @@ class TenantIsolationTest {
         assertThat(request.sendWithKey(refunder, "refund-2", "{}", own.publicId()))
                 .hasStatus(HttpStatus.CREATED);
         assertThat(refunds(scene.caller().test())).isOne();
+    }
+
+    private void createWebhookEndpointRegistersNothingForAnotherTenant(Request request, Scene scene) {
+        IssuedApiKey manager = webhookManager(scene);
+
+        // A body that names a tenant is refused: the field is not the request's.
+        MvcTestResult naming = request.sendWithKey(
+                manager, "endpoint-1", """
+                {"url": "https://orders.example.com/axion", "enabled_events": ["charge.paid"], "tenant_id": "%s"}
+                """.formatted(scene.other().test().publicId()));
+        assertThat(naming)
+                .hasStatus(HttpStatus.UNPROCESSABLE_CONTENT)
+                .bodyJson()
+                .extractingPath("$.errors[*].field")
+                .isEqualTo(List.of("tenant_id"));
+
+        assertThat(request.sendWithKey(manager, "endpoint-2", """
+                        {"url": "https://orders.example.com/axion", "enabled_events": ["charge.paid"]}
+                        """)).hasStatus(HttpStatus.CREATED);
+        assertThat(endpoints(scene.caller().test())).isOne();
+        assertThat(endpoints(scene.other().test())).isZero();
+    }
+
+    private long endpoints(TenantId tenant) {
+        return Objects.requireNonNull(owner.jdbc()
+                .sql("SELECT count(*) FROM webhooks.endpoints WHERE tenant_id = ?")
+                .param(tenant.value())
+                .query(Long.class)
+                .single());
     }
 
     private void listWebhookEndpointsHidesAnotherTenantsEndpoints(Request request, Scene scene) {
