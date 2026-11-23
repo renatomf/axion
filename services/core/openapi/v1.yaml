@@ -35,6 +35,91 @@ tags:
       shows its customer, as a QR code or as text to copy and paste.
 paths:
   /v1/charges:
+    get:
+      operationId: listCharges
+      tags: [Charges]
+      summary: List charges
+      description: >-
+        The tenant's charges, newest first, a page at a time. Charges that
+        are created while a client pages through the list do not shift its
+        pages: to read the next page, send the `id` of the last charge of
+        this one as `starting_after`, with the same filters, while
+        `has_more` is `true`. Requires `charges:read`.
+      parameters:
+        - name: limit
+          in: query
+          description: How many charges a page holds, from 1 to 100.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: starting_after
+          in: query
+          description: >-
+            The `id` of the last charge of the previous page; the page holds
+            the charges created before it. Omitted, the page is the first.
+          schema:
+            type: string
+            pattern: "^ch_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        - name: status
+          in: query
+          description: Only the charges in this status.
+          schema:
+            type: string
+            enum: [active, paid, partially_refunded, refunded, expired]
+        - name: created[gte]
+          in: query
+          description: >-
+            Only the charges created at or after this time, such as
+            `2026-11-22T00:00:00Z`. A `+` in an offset is sent as `%2B`.
+          schema:
+            type: string
+            format: date-time
+        - name: created[lt]
+          in: query
+          description: Only the charges created before this time.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: A page of the tenant's charges, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChargeList"
+        "400":
+          description: >-
+            A parameter has a value of the wrong type, such as a word for
+            `limit` or a time that cannot be read (`bad_request`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The key lacks `charges:read` (`insufficient_permission`), or its
+            tenant is not active (`tenant_inactive`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "422":
+          description: >-
+            Some parameters are outside their rules (`validation_failed`,
+            with `errors` naming each one).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
     post:
       operationId: createCharge
       tags: [Charges]
@@ -271,6 +356,25 @@ components:
           paid_at: null
           created_at: "2026-11-22T14:30:00Z"
           livemode: false
+    ChargeList:
+      description: A page of charges, newest first.
+      type: object
+      required: [object, data, has_more]
+      properties:
+        object:
+          description: The kind of object, always `list`.
+          type: string
+          const: list
+        data:
+          description: The charges of the page, at most `limit`.
+          type: array
+          items:
+            $ref: "#/components/schemas/Charge"
+        has_more:
+          description: >-
+            `true` if more charges follow this page; send the last one's
+            `id` as `starting_after` to read them.
+          type: boolean
     ChargePix:
       description: How the payer pays the charge.
       type: object
