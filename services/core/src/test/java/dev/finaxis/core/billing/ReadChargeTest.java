@@ -4,8 +4,11 @@ import static dev.finaxis.core.billing.BillingFixtures.brl;
 import static dev.finaxis.core.billing.BillingFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 import dev.finaxis.core.PostgresTestConfiguration;
+import dev.finaxis.core.rails.PixCredit;
+import dev.finaxis.core.rails.PixCreditHandler;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.shared.TenantId;
@@ -14,6 +17,7 @@ import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.TenancyApi;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -30,13 +34,15 @@ class ReadChargeTest {
 
     private final BillingApi billing;
     private final TenancyApi tenancy;
+    private final PixCreditHandler settlement;
 
     private NewOrganization organization;
 
     @Autowired
-    ReadChargeTest(BillingApi billing, TenancyApi tenancy) {
+    ReadChargeTest(BillingApi billing, TenancyApi tenancy, PixCreditHandler settlement) {
         this.billing = billing;
         this.tenancy = tenancy;
+        this.settlement = settlement;
     }
 
     @BeforeEach
@@ -63,6 +69,53 @@ class ReadChargeTest {
         var created = create(organization.live(), Environment.LIVE, ChargeRequest.of(brl(100)));
 
         assertThat(read(organization.live(), Environment.LIVE, created.id())).contains(created);
+    }
+
+    @Test
+    void readsNoPaymentOfAChargeNotPaidYet() {
+        var created = create(organization.test(), Environment.TEST, ChargeRequest.of(brl(10_000)));
+
+        assertThat(detail(organization.test(), Environment.TEST, created.id())
+                        .orElseThrow()
+                        .payments())
+                .isEmpty();
+    }
+
+    @Test
+    void readsThePaymentsTheChargeReceivedOldestFirst() {
+        var created = create(organization.test(), Environment.TEST, ChargeRequest.of(brl(10_000)));
+        PixCredit mismatched = credit(created, 5_000, created.createdAt().plusSeconds(1));
+        PixCredit settling = credit(created, 10_000, created.createdAt().plusSeconds(2));
+        settlement.handle(mismatched);
+        settlement.handle(settling);
+
+        ChargeDetail detail =
+                detail(organization.test(), Environment.TEST, created.id()).orElseThrow();
+
+        assertThat(detail.charge().status()).isEqualTo(ChargeStatus.PAID);
+        assertThat(detail.payments())
+                .extracting(
+                        PaymentView::endToEndId,
+                        PaymentView::amount,
+                        PaymentView::amountRefunded,
+                        PaymentView::acceptedAt,
+                        PaymentView::outcome,
+                        PaymentView::reviewReason)
+                .containsExactly(
+                        tuple(
+                                mismatched.endToEndId(),
+                                brl(5_000),
+                                brl(0),
+                                mismatched.acceptedAt(),
+                                PaymentOutcome.FLAGGED,
+                                Optional.of(ReviewReason.AMOUNT_MISMATCH)),
+                        tuple(
+                                settling.endToEndId(),
+                                brl(10_000),
+                                brl(0),
+                                settling.acceptedAt(),
+                                PaymentOutcome.SETTLED,
+                                Optional.empty()));
     }
 
     @Test
@@ -96,6 +149,20 @@ class ReadChargeTest {
     }
 
     private Optional<ChargeView> read(TenantId tenant, Environment environment, ChargeId charge) {
+        return detail(tenant, environment, charge).map(ChargeDetail::charge);
+    }
+
+    private Optional<ChargeDetail> detail(TenantId tenant, Environment environment, ChargeId charge) {
         return TenantContext.call(tenant, environment, () -> billing.charge(charge));
+    }
+
+    private PixCredit credit(ChargeView charge, long minorUnits, Instant acceptedAt) {
+        return new PixCredit(
+                BillingFixtures.endToEndId(),
+                "M99990011aB3dE5gH7jK2mN4pQ6rS8tU",
+                charge.transactionId(),
+                brl(minorUnits),
+                acceptedAt,
+                "99990011");
     }
 }

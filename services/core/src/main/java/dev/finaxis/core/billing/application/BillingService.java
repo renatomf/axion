@@ -3,6 +3,7 @@ package dev.finaxis.core.billing.application;
 import dev.finaxis.core.ModuleRoles;
 import dev.finaxis.core.billing.BillingApi;
 import dev.finaxis.core.billing.ChargeCursor;
+import dev.finaxis.core.billing.ChargeDetail;
 import dev.finaxis.core.billing.ChargeFilter;
 import dev.finaxis.core.billing.ChargeId;
 import dev.finaxis.core.billing.ChargePage;
@@ -13,6 +14,7 @@ import dev.finaxis.core.billing.domain.BrCode;
 import dev.finaxis.core.billing.domain.Charge;
 import dev.finaxis.core.billing.domain.TransactionId;
 import dev.finaxis.core.billing.persistence.JdbcCharges;
+import dev.finaxis.core.billing.persistence.JdbcPayments;
 import dev.finaxis.core.ledger.AccountRequest;
 import dev.finaxis.core.ledger.AccountType;
 import dev.finaxis.core.ledger.LedgerApi;
@@ -34,6 +36,7 @@ import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -51,6 +54,7 @@ public class BillingService implements BillingApi {
     static final int MAX_TRANSACTION_ID_DRAWS = 3;
 
     private final JdbcCharges charges;
+    private final JdbcPayments payments;
     private final LedgerApi ledger;
     private final RiskApi risk;
     private final TenancyApi tenancy;
@@ -64,6 +68,7 @@ public class BillingService implements BillingApi {
     @Autowired
     public BillingService(
             JdbcCharges charges,
+            JdbcPayments payments,
             LedgerApi ledger,
             RiskApi risk,
             TenancyApi tenancy,
@@ -71,11 +76,12 @@ public class BillingService implements BillingApi {
             BillingProperties properties,
             Clock clock,
             MeterRegistry meters) {
-        this(charges, ledger, risk, tenancy, roles, properties, clock, meters, new SecureRandom());
+        this(charges, payments, ledger, risk, tenancy, roles, properties, clock, meters, new SecureRandom());
     }
 
     BillingService(
             JdbcCharges charges,
+            JdbcPayments payments,
             LedgerApi ledger,
             RiskApi risk,
             TenancyApi tenancy,
@@ -85,6 +91,7 @@ public class BillingService implements BillingApi {
             MeterRegistry meters,
             SecureRandom random) {
         this.charges = charges;
+        this.payments = payments;
         this.ledger = ledger;
         this.risk = risk;
         this.tenancy = tenancy;
@@ -118,11 +125,16 @@ public class BillingService implements BillingApi {
         return result;
     }
 
+    // One snapshot, so a payment committed between the two reads cannot appear beside a charge it
+    // has not paid yet.
     @Override
-    @Transactional(readOnly = true)
-    public Optional<ChargeView> charge(ChargeId charge) {
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public Optional<ChargeDetail> charge(ChargeId charge) {
         var binding = bound("Reading a charge");
-        return roles.call(ROLE, () -> charges.find(binding, charge));
+        return roles.call(
+                ROLE,
+                () -> charges.find(binding, charge)
+                        .map(found -> new ChargeDetail(found, payments.views(found.id(), MAX_DETAIL_PAYMENTS))));
     }
 
     @Override
@@ -181,7 +193,7 @@ public class BillingService implements BillingApi {
     }
 
     // A liability: money Finaxis owes the tenant (platform overview, section 6.3).
-    private static AccountRequest availableAccount(TenantView tenant) {
+    static AccountRequest availableAccount(TenantView tenant) {
         return new AccountRequest(
                 tenant.id().value(),
                 "tenant:" + tenant.id().value() + ":available",

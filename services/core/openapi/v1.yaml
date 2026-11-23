@@ -203,15 +203,16 @@ paths:
       tags: [Charges]
       summary: Retrieve a charge
       description: >-
-        The charge as it is now: its status moves from `active` as it is
-        paid, refunded or expires. Requires `charges:read`.
+        The charge as it is now, with the payments it received: its status
+        moves from `active` as it is paid, refunded or expires. Requires
+        `charges:read`.
       responses:
         "200":
-          description: The charge.
+          description: The charge and its payments.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Charge"
+                $ref: "#/components/schemas/ChargeDetail"
         "401":
           $ref: "components.yaml#/responses/Unauthorized"
         "403":
@@ -362,6 +363,89 @@ components:
           paid_at: null
           created_at: "2026-11-22T14:30:00Z"
           livemode: false
+    ChargeDetail:
+      description: >-
+        A charge, with the payments it received. Its fields are those of a
+        `Charge`.
+      type: object
+      required:
+        - id
+        - object
+        - status
+        - amount
+        - currency
+        - amount_refunded
+        - description
+        - metadata
+        - pix
+        - expires_at
+        - paid_at
+        - created_at
+        - livemode
+        - payments
+      properties:
+        id:
+          $ref: "#/components/schemas/Charge/properties/id"
+        object:
+          $ref: "#/components/schemas/Charge/properties/object"
+        status:
+          $ref: "#/components/schemas/Charge/properties/status"
+        amount:
+          $ref: "#/components/schemas/Charge/properties/amount"
+        currency:
+          $ref: "#/components/schemas/Charge/properties/currency"
+        amount_refunded:
+          $ref: "#/components/schemas/Charge/properties/amount_refunded"
+        description:
+          $ref: "#/components/schemas/Charge/properties/description"
+        metadata:
+          $ref: "#/components/schemas/Charge/properties/metadata"
+        pix:
+          $ref: "#/components/schemas/Charge/properties/pix"
+        expires_at:
+          $ref: "#/components/schemas/Charge/properties/expires_at"
+        paid_at:
+          $ref: "#/components/schemas/Charge/properties/paid_at"
+        created_at:
+          $ref: "#/components/schemas/Charge/properties/created_at"
+        livemode:
+          $ref: "#/components/schemas/Charge/properties/livemode"
+        payments:
+          description: >-
+            The payments the charge received, oldest first, at most 100.
+            Every payment is credited to the tenant: the one whose
+            `outcome` is `settled` paid the charge, and the others are
+            flagged with a `review_reason` for the tenant to decide whether
+            to refund them.
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/Payment"
+      examples:
+        - id: ch_01jdq8k3m4n5p6q7r8s9t0v1w2
+          object: charge
+          status: paid
+          amount: 10000
+          currency: BRL
+          amount_refunded: 0
+          description: Mensalidade de novembro
+          metadata:
+            order_id: ord_8842
+          pix:
+            transaction_id: fx7Kq2mP9wR4tY6uA8sD3fG5h
+            br_code: "00020101021226580014br.gov.bcb.pix0136a2b3bccd-2305-4632-9494-a795efa6fbb15204000053039865406100.005802BR5904Acme6009SAO PAULO62290525fx7Kq2mP9wR4tY6uA8sD3fG5h6304F475"
+          expires_at: "2026-11-22T15:00:00Z"
+          paid_at: "2026-11-22T14:41:07.512Z"
+          created_at: "2026-11-22T14:30:00Z"
+          livemode: false
+          payments:
+            - id: pmt_01jdq9a2b3c4d5e6f7g8h9j0k1
+              end_to_end_id: E99990011202611221441aB3dE5gH7jK
+              amount: 10000
+              amount_refunded: 0
+              accepted_at: "2026-11-22T14:41:07.512Z"
+              outcome: settled
+              review_reason: null
     ChargeList:
       description: A page of charges, newest first.
       type: object
@@ -412,6 +496,61 @@ components:
         type: string
         maxLength: 500
       default: {}
+    Payment:
+      description: >-
+        A Pix payment a charge received. Whatever its outcome, its amount
+        was credited to the tenant.
+      type: object
+      required:
+        - id
+        - end_to_end_id
+        - amount
+        - amount_refunded
+        - accepted_at
+        - outcome
+        - review_reason
+      properties:
+        id:
+          description: The payment's ID.
+          type: string
+          pattern: "^pmt_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        end_to_end_id:
+          description: >-
+            The payment's ID on the Pix rails, which the payer's bank shows
+            the payer too.
+          type: string
+          pattern: "^E[0-9]{20}[0-9A-Za-z]{11}$"
+        amount:
+          description: In centavos, what the payer paid.
+          type: integer
+          format: int64
+        amount_refunded:
+          description: In centavos, what refunds returned of this payment.
+          type: integer
+          format: int64
+        accepted_at:
+          description: >-
+            When the Pix rails accepted the payment. A payment of the
+            charge's amount accepted before its `expires_at` pays the charge,
+            however late Finaxis hears of it, so an `expired` charge can
+            still become `paid`.
+          type: string
+          format: date-time
+        outcome:
+          description: >-
+            `settled` for the payment that paid the charge; `flagged` for a
+            payment that did not, with its `review_reason`.
+          type: string
+          enum: [settled, flagged]
+        review_reason:
+          description: >-
+            Why a flagged payment did not pay the charge: another payment had
+            paid it already (`charge_already_paid`), it was accepted at or
+            after the charge's `expires_at` (`charge_expired`), or its
+            amount differs from the charge's (`amount_mismatch`). Null for
+            the settled payment.
+          type: [string, "null"]
+          enum: [charge_already_paid, charge_expired, amount_mismatch, null]
   parameters:
     ChargeId:
       name: id

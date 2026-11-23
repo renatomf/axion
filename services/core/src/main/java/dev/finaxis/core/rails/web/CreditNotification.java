@@ -1,6 +1,6 @@
 package dev.finaxis.core.rails.web;
 
-import dev.finaxis.core.rails.domain.ReceivedCredit;
+import dev.finaxis.core.rails.PixCredit;
 import dev.finaxis.core.shared.Money;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -64,7 +64,7 @@ record CreditNotification(
      *
      * @throws MalformedNotification naming the first field that is not
      */
-    ReceivedCredit toCredit(String receiverIspb) {
+    PixCredit toCredit(String receiverIspb) {
         require("messageType", "pacs.008".equals(messageType));
         require("localInstrument", "QRDN".equals(localInstrument));
         require("creditorAgent.ispb", creditorAgent != null && receiverIspb.equals(creditorAgent.ispb()));
@@ -72,7 +72,7 @@ record CreditNotification(
         String endToEnd = matching("endToEndId", endToEndId, END_TO_END_ID);
         String transaction = matching("transactionId", transactionId, TRANSACTION_ID);
         String debtor = matching("debtorAgent.ispb", debtorAgent == null ? null : debtorAgent.ispb(), ISPB);
-        return new ReceivedCredit(endToEnd, message, transaction, amount(), acceptedAt(), debtor);
+        return new PixCredit(endToEnd, message, transaction, amount(), acceptedAt(), debtor);
     }
 
     private Money amount() {

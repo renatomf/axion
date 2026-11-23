@@ -9,6 +9,11 @@ finaxis:
     # token; tests that send one start a real Keycloak and override this.
     issuer: http://keycloak.invalid/realms/finaxis
   rails:
+    processor:
+      # Tests hand the inbox's credits to billing themselves, so a credit a
+      # test records stays as it left it. The tests of the schedule turn it
+      # back on.
+      enabled: false
     signing:
       # The public key of RFC 9421, appendix B.1.4, whose private half is
       # published: no test signs with it. Tests that send the rails' messages

@@ -38,6 +38,16 @@ class ChargePaymentsTest {
     }
 
     @Test
+    void knowsWhichPaymentsItReceived() {
+        IncomingPayment incoming = payment(10000, ON_TIME);
+
+        Charge paid = activeCharge().receive(incoming, NOW).charge();
+
+        assertThat(paid.hasReceived(incoming.endToEndId())).isTrue();
+        assertThat(activeCharge().hasReceived(incoming.endToEndId())).isFalse();
+    }
+
+    @Test
     void aPaymentOneMillisecondBeforeExpiryIsOnTime() {
         Receipt receipt = activeCharge().receive(payment(10000, EXPIRES_AT.minusMillis(1)), NOW);
 
