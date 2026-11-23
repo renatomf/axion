@@ -50,8 +50,6 @@ public class JdbcEndpoints {
     }
 
     public void insert(TenantId tenant, EndpointView endpoint) {
-        // Sorted, so stored types do not depend on set iteration order.
-        String[] types = endpoint.enabledEvents().stream().sorted().toArray(String[]::new);
         jdbc.sql("""
                         INSERT INTO webhooks.endpoints
                                (id, tenant_id, url, description, enabled_events, status, disabled_reason,
@@ -63,7 +61,7 @@ public class JdbcEndpoints {
                 .param("tenant", tenant.value())
                 .param("url", endpoint.url())
                 .param("description", endpoint.description().orElse(null))
-                .param("events", types)
+                .param("events", sortedTypes(endpoint))
                 .param("status", endpoint.status().name())
                 .param(
                         "reason",
@@ -92,6 +90,35 @@ public class JdbcEndpoints {
                 .param("id", id.value())
                 .query(JdbcEndpoints::view)
                 .optional();
+    }
+
+    /** Locked until the transaction ends, so a change is made to the endpoint as it is. */
+    public Optional<EndpointView> lock(TenantId tenant, WebhookEndpointId id) {
+        return jdbc.sql(SELECT + " WHERE tenant_id = :tenant AND id = :id FOR UPDATE")
+                .param("tenant", tenant.value())
+                .param("id", id.value())
+                .query(JdbcEndpoints::view)
+                .optional();
+    }
+
+    public void update(TenantId tenant, EndpointView endpoint, Instant updatedAt) {
+        jdbc.sql("""
+                        UPDATE webhooks.endpoints
+                           SET url = :url, description = :description, enabled_events = :events,
+                               status = :status, disabled_reason = :reason, updated_at = :updatedAt
+                         WHERE tenant_id = :tenant AND id = :id
+                        """)
+                .param("id", endpoint.id().value())
+                .param("tenant", tenant.value())
+                .param("url", endpoint.url())
+                .param("description", endpoint.description().orElse(null))
+                .param("events", sortedTypes(endpoint))
+                .param("status", endpoint.status().name())
+                .param(
+                        "reason",
+                        endpoint.disabledReason().map(DisabledReason::name).orElse(null))
+                .param("updatedAt", utc(updatedAt))
+                .update();
     }
 
     /**
@@ -125,6 +152,11 @@ public class JdbcEndpoints {
                 EndpointStatus.valueOf(row.getString("status")),
                 Optional.ofNullable(row.getString("disabled_reason")).map(DisabledReason::valueOf),
                 row.getObject("created_at", OffsetDateTime.class).toInstant());
+    }
+
+    // Sorted, so stored types do not depend on set iteration order.
+    private static String[] sortedTypes(EndpointView endpoint) {
+        return endpoint.enabledEvents().stream().sorted().toArray(String[]::new);
     }
 
     // Bound as an offset, so the JVM's time zone never shifts the stored instant.

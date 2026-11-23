@@ -38,6 +38,7 @@ import dev.axion.core.webhooks.EndpointStatus;
 import dev.axion.core.webhooks.EndpointView;
 import dev.axion.core.webhooks.WebhookEndpointCreated;
 import dev.axion.core.webhooks.WebhookEndpointId;
+import dev.axion.core.webhooks.WebhookEndpointUpdated;
 import java.time.Instant;
 import java.util.Currency;
 import java.util.List;
@@ -106,7 +107,9 @@ class EventSerializationTest {
                 new ApiKeyIssued(header(new Actor.Member(new MemberId(UUID.randomUUID()))), key),
                 new ApiKeyRolled(header(new Actor.Member(new MemberId(UUID.randomUUID()))), key, key),
                 new ApiKeyRevoked(header(new Actor.Member(new MemberId(UUID.randomUUID()))), key),
-                new WebhookEndpointCreated(header(new Actor.ApiKey(new ApiKeyId(UUID.randomUUID()))), endpoint()));
+                new WebhookEndpointCreated(header(new Actor.ApiKey(new ApiKeyId(UUID.randomUUID()))), endpoint()),
+                new WebhookEndpointUpdated(
+                        header(new Actor.ApiKey(new ApiKeyId(UUID.randomUUID()))), endpoint(), endpoint()));
     }
 
     private static EventHeader header(Actor actor) {
