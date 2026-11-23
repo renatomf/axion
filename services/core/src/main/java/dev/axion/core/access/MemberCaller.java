@@ -1,5 +1,6 @@
 package dev.axion.core.access;
 
+import dev.axion.core.shared.Actor;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.MemberId;
 import dev.axion.core.shared.TenantId;
@@ -12,5 +13,10 @@ public record MemberCaller(TenantId tenant, Environment environment, MemberId me
 
     public MemberCaller {
         permissions = Set.copyOf(permissions);
+    }
+
+    @Override
+    public Actor actor() {
+        return new Actor.Member(member);
     }
 }

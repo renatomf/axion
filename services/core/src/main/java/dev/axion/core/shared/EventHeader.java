@@ -17,4 +17,19 @@ public record EventHeader(
             throw new IllegalArgumentException("An event names the request or job run that caused it");
         }
     }
+
+    /**
+     * The header of an event of the current work: the tenant from {@link TenantContext}, the actor
+     * and correlation ID from {@link ActorContext}.
+     *
+     * @throws IllegalStateException if either is unbound: every change is made for a tenant, by someone
+     */
+    public static EventHeader ofCurrentWork(EventId id, Instant occurredAt) {
+        TenantContext.Binding tenant =
+                TenantContext.current().orElseThrow(() -> new IllegalStateException("An event needs a tenant bound"));
+        ActorContext.Binding actor =
+                ActorContext.current().orElseThrow(() -> new IllegalStateException("An event needs an actor bound"));
+        return new EventHeader(
+                id, tenant.tenant(), tenant.environment(), actor.actor(), actor.correlationId(), occurredAt);
+    }
 }
