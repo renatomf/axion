@@ -186,7 +186,7 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | 1.35 | Create charge | `POST /v1/charges`, contract-first, idempotent, limits |
 | ↳ 1.35a | Charge creation | The charges table, its constraints, roles and policies; `BillingApi.createCharge` with its limits; the tenant's and the platform's ledger accounts ([#208](https://github.com/renatomf/finaxis/pull/208)) |
 | ↳ 1.35b | Create charge endpoint | `POST /v1/charges` in `v1.yaml`, then the endpoint, idempotent ([#210](https://github.com/renatomf/finaxis/pull/210)) |
-| 1.36 | Read charges | `GET /v1/charges` (cursor pagination, filters by status and date), `GET /v1/charges/{id}` |
+| 1.36 | Read charges | `GET /v1/charges` (cursor pagination, filters by status and date), `GET /v1/charges/{id}` ([#212](https://github.com/renatomf/finaxis/pull/212)) |
 | 1.37 | Basic risk rules | Pre-charge decision: amount and velocity rules |
 | ↳ 1.37a | Risk rules | The `risk` module: `RiskApi` with the amount, daily amount and hourly count rules, held by conditional counters |
 | ↳ 1.37b | Risk before charging | The decision applied to charge creation |
