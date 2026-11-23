@@ -91,6 +91,8 @@ dependencies {
         exclude(group = "tools.jackson.core")
         exclude(group = "tools.jackson.dataformat")
     }
+    // Issues the certificates of the HTTPS servers that receive the tests' webhooks.
+    testImplementation(libs.bcpkix)
     // Reads the YAML contracts; its version comes from Spring Boot's BOM.
     testImplementation(libs.jackson.dataformat.yaml)
     testRuntimeOnly(libs.junit.platform.launcher)
