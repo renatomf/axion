@@ -36,7 +36,7 @@ Content-Type: application/json
 
 A replay repeats the first response's status, `Content-Type`, `Location` and body. The headers about the request you just sent are its own: `X-Correlation-Id`, `RateLimit-Policy` and `RateLimit`.
 
-A secret is shown once, so it is not part of a replay: a repeat of `POST /v1/webhook_endpoints` gets the same endpoint with `secret` set to `null`, and the rest of the first response. Axion keeps the secret only encrypted. If the first response was lost, roll the endpoint's secret.
+A secret is shown once, so it is not part of a replay: a repeat of `POST /v1/webhook_endpoints` or `POST /v1/webhook_endpoints/{id}/secret/roll` gets the same endpoint with `secret` set to `null`, and the rest of the first response. Axion keeps the secret only encrypted. If the first response was lost, roll the endpoint's secret, once any grace period of the previous roll has ended.
 
 A replay is answered only to a caller who could make the request now: it is authenticated, rate-limited and checked for the scope first. A revoked API key gets `401`, and a key without the scope `403`, not the stored response.
 
