@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -27,6 +28,7 @@ import org.springframework.web.ErrorResponseException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -232,6 +234,41 @@ class ApiExceptionHandlerTest {
     }
 
     @Test
+    void validQueryParametersReachTheController() {
+        assertThat(mvc.get().uri("/test/parameters?max_items=100&tag[eq]=abc"))
+                .hasStatus(HttpStatus.OK)
+                .bodyText()
+                .isEqualTo("100 abc");
+    }
+
+    @Test
+    void invalidQueryParametersAreAValidationProblemNamingEach() {
+        assertThat(mvc.get().uri("/test/parameters?max_items=101&tag[eq]=abcd"))
+                .hasStatus(HttpStatus.UNPROCESSABLE_CONTENT)
+                .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .bodyJson()
+                .isLenientlyEqualTo("""
+                        {
+                          "status": 422,
+                          "code": "validation_failed",
+                          "errors": [
+                            {"field": "max_items", "detail": "must be less than or equal to 100"},
+                            {"field": "tag[eq]", "detail": "size must be between 0 and 3"}
+                          ]
+                        }
+                        """);
+    }
+
+    @Test
+    void queryParameterOfAnotherTypeIsABadRequestProblem() {
+        assertThat(mvc.get().uri("/test/parameters?max_items=ten"))
+                .hasStatus(HttpStatus.BAD_REQUEST)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("bad_request");
+    }
+
+    @Test
     void statusSpringDoesNotKnowHasAGenericCode() {
         assertThat(ApiExceptionHandler.defaultCode(HttpStatusCode.valueOf(499))).isEqualTo("error");
     }
@@ -251,6 +288,14 @@ class ApiExceptionHandlerTest {
             ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.CONFLICT);
             problem.setProperty(ApiExceptionHandler.CODE, "request_in_progress");
             throw new ErrorResponseException(HttpStatus.CONFLICT, problem, null);
+        }
+
+        /** Answers with the parameters, once Spring MVC has validated them. */
+        @GetMapping("/test/parameters")
+        String parameters(
+                @RequestParam(name = "max_items", defaultValue = "10") @Min(1) @Max(100) int maxItems,
+                @RequestParam(name = "tag[eq]", required = false) @Size(max = 3) @Nullable String tag) {
+            return maxItems + " " + tag;
         }
 
         /** Answers with the name, once Spring MVC has validated the body. */
