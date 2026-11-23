@@ -5,10 +5,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.axion.core.DatabaseOwner;
 import dev.axion.core.MutableClock;
 import dev.axion.core.PostgresTestConfiguration;
+import dev.axion.core.billing.ChargeExpired;
+import dev.axion.core.billing.ChargeStatus;
+import dev.axion.core.events.CommittedEvents;
+import dev.axion.core.shared.Actor;
+import dev.axion.core.shared.Environment;
+import dev.axion.core.shared.TenantId;
+import dev.axion.core.tenancy.TenancyApi;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -22,7 +31,7 @@ import org.springframework.context.annotation.Primary;
  * expires them in transactions of its own; the clock stands at {@link #NOW}.
  */
 @SpringBootTest
-@Import({PostgresTestConfiguration.class, ChargeExpiryTest.Configuration.class})
+@Import({PostgresTestConfiguration.class, CommittedEvents.class, ChargeExpiryTest.Configuration.class})
 class ChargeExpiryTest {
 
     private static final Instant NOW = Instant.parse("2026-11-22T14:30:00Z");
@@ -39,12 +48,24 @@ class ChargeExpiryTest {
 
     private final ChargeExpiry expiry;
     private final DatabaseOwner owner;
-    private final UUID tenant = UUID.randomUUID();
+    private final TenancyApi tenancy;
+    private final CommittedEvents events;
+
+    private UUID tenant;
 
     @Autowired
-    ChargeExpiryTest(ChargeExpiry expiry, DatabaseOwner owner) {
+    ChargeExpiryTest(ChargeExpiry expiry, DatabaseOwner owner, TenancyApi tenancy, CommittedEvents events) {
         this.expiry = expiry;
         this.owner = owner;
+        this.tenancy = tenancy;
+        this.events = events;
+    }
+
+    @BeforeEach
+    void createOrganization() {
+        tenant = tenancy.createOrganization("Padaria São João", "subject-" + UUID.randomUUID())
+                .test()
+                .value();
     }
 
     @Test
@@ -112,6 +133,47 @@ class ChargeExpiryTest {
     }
 
     @Test
+    void publishesEachExpiredChargeAsTheJobOfOneRun() {
+        insertCharges(3, "ACTIVE", NOW.minus(Duration.ofMinutes(5)));
+
+        expiry.expireDue();
+
+        List<ChargeExpired> expired = events.of(new TenantId(tenant), ChargeExpired.class);
+        assertThat(expired).hasSize(3).allSatisfy(event -> {
+            assertThat(event.charge().charge().status()).isEqualTo(ChargeStatus.EXPIRED);
+            assertThat(event.environment()).isEqualTo(Environment.TEST);
+            assertThat(event.actor()).isEqualTo(new Actor.Job("charge-expiry"));
+            assertThat(event.occurredAt()).isEqualTo(NOW);
+        });
+        assertThat(expired.stream().map(ChargeExpired::correlationId).distinct())
+                .hasSize(1);
+        assertThat(expired.stream().map(event -> event.charge().charge().id().value()))
+                .containsExactlyInAnyOrderElementsOf(chargesWith("EXPIRED"));
+    }
+
+    @Test
+    void keepsExpiringOtherTenantsWhenOneFails() {
+        insertCharges(1, "ACTIVE", NOW.minus(Duration.ofMinutes(5)));
+        UUID known = tenant;
+        tenant = UUID.randomUUID();
+        insertCharges(1, "ACTIVE", NOW.minus(Duration.ofMinutes(5)));
+
+        try {
+            expiry.expireDue();
+
+            assertThat(chargesOfTheTenant("ACTIVE")).isOne();
+            tenant = known;
+            assertThat(chargesOfTheTenant("EXPIRED")).isOne();
+        } finally {
+            // A tenancy without the tenant is a bug; leave no such charge to the next test.
+            owner.jdbc()
+                    .sql("DELETE FROM billing.charges WHERE status = 'ACTIVE' AND tenant_id <> ?")
+                    .param(known)
+                    .update();
+        }
+    }
+
+    @Test
     void expiresNothingWhenNoChargeIsDue() {
         expiry.expireDue();
 
@@ -144,6 +206,14 @@ class ChargeExpiryTest {
                 .params(tenant, status)
                 .query(Long.class)
                 .single();
+    }
+
+    private List<UUID> chargesWith(String status) {
+        return owner.jdbc()
+                .sql("SELECT id FROM billing.charges WHERE tenant_id = ? AND status = ?")
+                .params(tenant, status)
+                .query((row, number) -> row.getObject("id", UUID.class))
+                .list();
     }
 
     private String statusOf(UUID charge) {

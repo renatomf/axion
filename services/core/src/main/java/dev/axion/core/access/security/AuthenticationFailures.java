@@ -1,7 +1,7 @@
 package dev.axion.core.access.security;
 
-import dev.axion.core.access.ApiKeyId;
 import dev.axion.core.access.AuthenticationResult;
+import dev.axion.core.shared.ApiKeyId;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Locale;

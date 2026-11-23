@@ -165,23 +165,40 @@ public class JdbcCharges {
     }
 
     /**
-     * Expires up to {@code limit} active charges of any tenant whose expiry is at or before {@code now},
-     * earliest first, skipping those a settlement holds locked (billing design, section 9). Runs as the
-     * expiry job's role, whose policies let it change active charges only, and only to expired.
-     * Returns how many it expired.
+     * The tenants with an active charge whose expiry is at or before {@code now}. Runs as the expiry
+     * job's role, which sees the charges of every tenant.
      */
-    public int expireDue(Instant now, int limit) {
+    public List<TenantId> tenantsWithDue(Instant now) {
+        return jdbc.sql("""
+                        SELECT DISTINCT tenant_id FROM billing.charges
+                         WHERE status = 'ACTIVE' AND expires_at <= :now
+                        """)
+                .param("now", now.atOffset(ZoneOffset.UTC))
+                .query((row, rowNumber) -> new TenantId(row.getObject("tenant_id", UUID.class)))
+                .list();
+    }
+
+    /**
+     * Expires up to {@code limit} active charges of the tenant whose expiry is at or before {@code
+     * now}, earliest first, skipping those a settlement holds locked (billing design, section 9). Runs
+     * as the expiry job's role, whose policies let it change active charges only, and only to expired.
+     * Returns the charges it expired.
+     */
+    public List<ChargeId> expireDue(TenantId tenant, Instant now, int limit) {
         return jdbc.sql("""
                         UPDATE billing.charges SET status = 'EXPIRED', updated_at = :now
                          WHERE id IN (SELECT id FROM billing.charges
-                                       WHERE status = 'ACTIVE' AND expires_at <= :now
+                                       WHERE tenant_id = :tenant AND status = 'ACTIVE' AND expires_at <= :now
                                        ORDER BY expires_at
                                        LIMIT :limit
                                        FOR UPDATE SKIP LOCKED)
+                        RETURNING id
                         """)
+                .param("tenant", tenant.value())
                 .param("now", now.atOffset(ZoneOffset.UTC))
                 .param("limit", limit)
-                .update();
+                .query((row, rowNumber) -> new ChargeId(row.getObject("id", UUID.class)))
+                .list();
     }
 
     /** A charge's row as it was locked, before its payments and refunds are read. */

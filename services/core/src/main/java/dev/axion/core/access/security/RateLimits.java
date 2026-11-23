@@ -3,7 +3,7 @@ package dev.axion.core.access.security;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.axion.core.access.ApiKeyCaller;
-import dev.axion.core.access.ApiKeyId;
+import dev.axion.core.shared.ApiKeyId;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.TenantId;
 import io.github.bucket4j.Bucket;

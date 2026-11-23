@@ -5,13 +5,13 @@ import static dev.axion.core.billing.BillingFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.axion.core.PostgresTestConfiguration;
+import dev.axion.core.TestCaller;
 import dev.axion.core.billing.BillingApi;
 import dev.axion.core.billing.BillingFixtures;
 import dev.axion.core.billing.ChargeRequest;
 import dev.axion.core.billing.ChargeStatus;
 import dev.axion.core.billing.ChargeView;
 import dev.axion.core.shared.Environment;
-import dev.axion.core.shared.TenantContext;
 import dev.axion.core.tenancy.NewOrganization;
 import dev.axion.core.tenancy.TenancyApi;
 import java.nio.charset.StandardCharsets;
@@ -73,7 +73,7 @@ class SettleThroughTheInboxTest {
     @Test
     void settlesTheChargeOfACreditTheRailsDelivered() throws InterruptedException {
         NewOrganization organization = tenancy.createOrganization("Acme", "subject-" + UUID.randomUUID());
-        ChargeView charge = TenantContext.call(
+        ChargeView charge = TestCaller.call(
                 organization.test(),
                 Environment.TEST,
                 () -> created(billing.createCharge(ChargeRequest.of(brl(10_000)))));
@@ -101,8 +101,7 @@ class SettleThroughTheInboxTest {
     private ChargeView awaitPaid(NewOrganization organization, ChargeView charge) throws InterruptedException {
         Instant deadline = Instant.now().plus(PATIENCE);
         while (true) {
-            ChargeView now = TenantContext.call(
-                            organization.test(), Environment.TEST, () -> billing.charge(charge.id()))
+            ChargeView now = TestCaller.call(organization.test(), Environment.TEST, () -> billing.charge(charge.id()))
                     .orElseThrow()
                     .charge();
             if (now.status() == ChargeStatus.PAID || Instant.now().isAfter(deadline)) {

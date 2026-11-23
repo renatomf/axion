@@ -1,5 +1,6 @@
 package dev.axion.core.shared;
 
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
@@ -16,6 +17,8 @@ import java.util.stream.IntStream;
  *
  * @param currency ISO 4217, with a minor unit
  */
+// Written as its two components only, so domain events read back: isZero() and its kind are not state.
+@JsonAutoDetect(isGetterVisibility = JsonAutoDetect.Visibility.NONE)
 public record Money(long minorUnits, Currency currency) {
 
     // A currency without a minor unit, such as gold (XAU), cannot be counted.

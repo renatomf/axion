@@ -19,7 +19,6 @@ import dev.axion.core.rails.PixCredit;
 import dev.axion.core.rails.PixCreditHandler;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.Money;
-import dev.axion.core.shared.TenantContext;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.tenancy.NewOrganization;
 import dev.axion.core.tenancy.Permission;
@@ -260,8 +259,7 @@ class TenantIsolationTest {
 
     private ChargeView created(TenantId tenant) {
         var request = ChargeRequest.of(Money.ofMinor(100, Currency.getInstance("BRL")));
-        return TenantContext.call(
-                tenant, Environment.TEST, () -> BillingFixtures.created(billing.createCharge(request)));
+        return TestCaller.call(tenant, Environment.TEST, () -> BillingFixtures.created(billing.createCharge(request)));
     }
 
     private ChargeId paidCharge(TenantId tenant) {

@@ -3,7 +3,9 @@ package dev.axion.core.access.application;
 import dev.axion.core.ModuleRoles;
 import dev.axion.core.access.AccessApi;
 import dev.axion.core.access.ApiKeyCaller;
-import dev.axion.core.access.ApiKeyId;
+import dev.axion.core.access.ApiKeyIssued;
+import dev.axion.core.access.ApiKeyRevoked;
+import dev.axion.core.access.ApiKeyRolled;
 import dev.axion.core.access.ApiKeyView;
 import dev.axion.core.access.AuthenticationResult;
 import dev.axion.core.access.AuthenticationResult.Reason;
@@ -13,6 +15,9 @@ import dev.axion.core.access.MemberCaller;
 import dev.axion.core.access.RollResult;
 import dev.axion.core.access.domain.ApiKeySecret;
 import dev.axion.core.access.persistence.JdbcApiKeys;
+import dev.axion.core.shared.ApiKeyId;
+import dev.axion.core.shared.EventHeader;
+import dev.axion.core.shared.EventId;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.shared.UuidV7Generator;
 import dev.axion.core.tenancy.Permission;
@@ -28,6 +33,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,14 +45,17 @@ public class AccessService implements AccessApi {
     private final JdbcApiKeys keys;
     private final TenancyApi tenancy;
     private final ModuleRoles roles;
+    private final ApplicationEventPublisher events;
     private final Clock clock;
     private final UuidV7Generator ids;
     private final SecureRandom random = new SecureRandom();
 
-    public AccessService(JdbcApiKeys keys, TenancyApi tenancy, ModuleRoles roles, Clock clock) {
+    public AccessService(
+            JdbcApiKeys keys, TenancyApi tenancy, ModuleRoles roles, ApplicationEventPublisher events, Clock clock) {
         this.keys = keys;
         this.tenancy = tenancy;
         this.roles = roles;
+        this.events = events;
         this.clock = clock;
         this.ids = new UuidV7Generator(clock);
     }
@@ -61,7 +70,13 @@ public class AccessService implements AccessApi {
         if (!missing.isEmpty()) {
             return new IssueResult.ScopesNotHeld(missing);
         }
-        return roles.call(ROLE, () -> issueWithinLimit(issuer, name, scopes));
+        IssueResult result = roles.call(ROLE, () -> issueWithinLimit(issuer, name, scopes));
+        if (result instanceof IssueResult.Issued(IssuedApiKey issued)) {
+            ApiKeyView key = roles.call(ROLE, () -> keys.find(issuer.tenant(), issued.id()))
+                    .orElseThrow();
+            events.publishEvent(new ApiKeyIssued(header(issued.createdAt()), key));
+        }
+        return result;
     }
 
     @Override
@@ -73,17 +88,32 @@ public class AccessService implements AccessApi {
     @Override
     @Transactional
     public Optional<ApiKeyView> revoke(MemberCaller revoker, ApiKeyId key) {
-        return roles.call(ROLE, () -> {
-            keys.revoke(revoker.tenant(), key, now());
-            return keys.find(revoker.tenant(), key);
-        });
+        Instant now = now();
+        boolean revoked = roles.call(ROLE, () -> keys.revoke(revoker.tenant(), key, now));
+        Optional<ApiKeyView> found = roles.call(ROLE, () -> keys.find(revoker.tenant(), key));
+        if (revoked) {
+            events.publishEvent(new ApiKeyRevoked(header(now), found.orElseThrow()));
+        }
+        return found;
     }
 
     @Override
     @Transactional
     public RollResult roll(MemberCaller roller, ApiKeyId key, Duration grace) {
         requireGrace(grace);
-        return roles.call(ROLE, () -> rollKey(roller, key, grace));
+        RollResult result = roles.call(ROLE, () -> rollKey(roller, key, grace));
+        if (result instanceof RollResult.Rolled(IssuedApiKey replacement, ApiKeyView rolled)) {
+            ApiKeyView issued = roles.call(ROLE, () -> keys.find(roller.tenant(), replacement.id()))
+                    .orElseThrow();
+            events.publishEvent(new ApiKeyRolled(header(replacement.createdAt()), issued, rolled));
+        }
+        return result;
+    }
+
+    // Published after the role switch returns: the registry is written with the login role (events
+    // and webhooks design, section 4.2).
+    private EventHeader header(Instant occurredAt) {
+        return EventHeader.ofCurrentWork(new EventId(ids.next()), occurredAt);
     }
 
     @Override

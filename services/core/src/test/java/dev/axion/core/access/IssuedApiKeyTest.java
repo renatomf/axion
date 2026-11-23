@@ -3,6 +3,7 @@ package dev.axion.core.access;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.axion.core.access.domain.ApiKeySecret;
+import dev.axion.core.shared.ApiKeyId;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.tenancy.Permission;
 import java.security.SecureRandom;

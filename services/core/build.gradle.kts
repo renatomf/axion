@@ -60,6 +60,9 @@ dependencies {
     implementation(libs.flyway.database.postgresql)
     // Module annotations; they only describe the structure and add no runtime behavior.
     implementation(libs.spring.modulith.api)
+    // Domain events through Spring Modulith's publication registry, a table written in the
+    // publishing transaction: the core's transactional outbox.
+    implementation(libs.spring.modulith.starter.jdbc)
     // Annotations that state, in the code, which references may be null.
     implementation(libs.jspecify)
     // Token buckets that limit the requests of each tenant and API key.
@@ -74,6 +77,7 @@ dependencies {
     testImplementation(libs.spring.boot.testcontainers)
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.spring.modulith.starter.test)
+    testImplementation(libs.spring.modulith.events.core)
     testImplementation(libs.archunit.junit5)
     testImplementation(libs.jqwik)
     testImplementation(libs.json.schema.validator) {

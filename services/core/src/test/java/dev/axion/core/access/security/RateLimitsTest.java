@@ -6,8 +6,8 @@ import static org.assertj.core.api.Assertions.tuple;
 
 import dev.axion.core.MutableClock;
 import dev.axion.core.access.ApiKeyCaller;
-import dev.axion.core.access.ApiKeyId;
 import dev.axion.core.access.security.RateLimits.Quota;
+import dev.axion.core.shared.ApiKeyId;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.tenancy.Permission;

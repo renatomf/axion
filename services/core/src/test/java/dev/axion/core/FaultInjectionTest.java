@@ -19,7 +19,6 @@ import dev.axion.core.ledger.application.BalanceVerifier;
 import dev.axion.core.ledger.application.LedgerVerification;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.Money;
-import dev.axion.core.shared.TenantContext;
 import dev.axion.core.tenancy.NewOrganization;
 import dev.axion.core.tenancy.TenancyApi;
 import java.time.Duration;
@@ -355,14 +354,14 @@ class FaultInjectionTest {
     }
 
     private ChargeView charge(long amount, Duration expiresIn) {
-        return TenantContext.call(
+        return TestCaller.call(
                 organization.test(),
                 Environment.TEST,
                 () -> created(billing.createCharge(new ChargeRequest(brl(amount), null, expiresIn, Map.of()))));
     }
 
     private ChargeDetail detail(ChargeView charge) {
-        return TenantContext.call(organization.test(), Environment.TEST, () -> billing.charge(charge.id()))
+        return TestCaller.call(organization.test(), Environment.TEST, () -> billing.charge(charge.id()))
                 .orElseThrow();
     }
 
@@ -384,7 +383,7 @@ class FaultInjectionTest {
                 brl(0).currency(),
                 false,
                 false);
-        return TenantContext.call(
+        return TestCaller.call(
                 organization.test(),
                 Environment.TEST,
                 () -> ledger.balanceOf(ledger.openAccount(account)).balance());

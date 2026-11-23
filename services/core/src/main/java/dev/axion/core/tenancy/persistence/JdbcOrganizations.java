@@ -1,8 +1,8 @@
 package dev.axion.core.tenancy.persistence;
 
 import dev.axion.core.shared.Environment;
+import dev.axion.core.shared.MemberId;
 import dev.axion.core.shared.TenantId;
-import dev.axion.core.tenancy.MemberId;
 import dev.axion.core.tenancy.OrganizationId;
 import dev.axion.core.tenancy.Role;
 import dev.axion.core.tenancy.TenantStatus;

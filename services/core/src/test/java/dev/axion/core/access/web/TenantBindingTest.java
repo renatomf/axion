@@ -10,6 +10,9 @@ import dev.axion.core.access.IssuedApiKey;
 import dev.axion.core.access.NoPermissionRequired;
 import dev.axion.core.access.RequiresPermission;
 import dev.axion.core.access.TenantBoundAccess;
+import dev.axion.core.observability.CorrelationIdFilter;
+import dev.axion.core.shared.Actor;
+import dev.axion.core.shared.ActorContext;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.TenantContext;
 import dev.axion.core.tenancy.NewOrganization;
@@ -39,6 +42,14 @@ class TenantBindingTest {
         @GetMapping("/v1/bound")
         String bound() {
             return describe();
+        }
+
+        @RequiresPermission(CHARGES_READ)
+        @GetMapping("/v1/bound/actor")
+        String actor() {
+            return ActorContext.current()
+                    .map(bound -> bound.actor() + " " + bound.correlationId())
+                    .orElse("none");
         }
 
         @NoPermissionRequired(reason = "Checks that an endpoint without a caller runs with no tenant")
@@ -74,6 +85,19 @@ class TenantBindingTest {
         get("/v1/bound", key)
                 .hasStatusOk()
                 .hasBodyTextEqualTo(organization.test().publicId() + " TEST");
+    }
+
+    @Test
+    void bindsTheKeyAsTheActorWithTheRequestsCorrelationId() {
+        IssuedApiKey key =
+                issued(tenancy.createOrganization("Acme", UUID.randomUUID().toString()));
+
+        assertThat(mvc.get()
+                        .uri("/v1/bound/actor")
+                        .header("Authorization", "Bearer " + key.secret())
+                        .header(CorrelationIdFilter.HEADER, "checkout-42"))
+                .hasStatusOk()
+                .hasBodyTextEqualTo(new Actor.ApiKey(key.id()) + " checkout-42");
     }
 
     @Test

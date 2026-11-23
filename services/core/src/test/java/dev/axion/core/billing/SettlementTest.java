@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.axion.core.DatabaseOwner;
 import dev.axion.core.MutableClock;
 import dev.axion.core.PostgresTestConfiguration;
+import dev.axion.core.TestCaller;
 import dev.axion.core.billing.application.ChargeExpiry;
 import dev.axion.core.billing.application.Settlement;
 import dev.axion.core.billing.domain.Charge;
@@ -20,7 +21,6 @@ import dev.axion.core.rails.PixCredit;
 import dev.axion.core.rails.PixCreditHandler;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.Money;
-import dev.axion.core.shared.TenantContext;
 import dev.axion.core.tenancy.NewOrganization;
 import dev.axion.core.tenancy.TenancyApi;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -114,7 +114,7 @@ class SettlementTest {
     @BeforeEach
     void createCharge() {
         organization = tenancy.createOrganization("Padaria São João", "subject-" + UUID.randomUUID());
-        charge = TenantContext.call(
+        charge = TestCaller.call(
                 organization.test(),
                 Environment.TEST,
                 () -> created(
@@ -283,7 +283,7 @@ class SettlementTest {
         settlement.handle(first);
         var partial = new RefundRequest(Optional.empty(), Optional.of(brl(2_500)), "req-refund");
         RefundResult refund =
-                TenantContext.call(organization.test(), Environment.TEST, () -> billing.refund(charge.id(), partial));
+                TestCaller.call(organization.test(), Environment.TEST, () -> billing.refund(charge.id(), partial));
         assertThat(refund).isInstanceOf(RefundResult.Refunded.class);
 
         assertThat(settlement.handle(second)).isEqualTo(CreditResult.RECORDED);
@@ -416,7 +416,7 @@ class SettlementTest {
     }
 
     private ChargeView createAnotherCharge(Duration expiresIn) {
-        return TenantContext.call(
+        return TestCaller.call(
                 organization.test(),
                 Environment.TEST,
                 () -> created(billing.createCharge(new ChargeRequest(brl(10_000), null, expiresIn, Map.of()))));
@@ -434,7 +434,7 @@ class SettlementTest {
     }
 
     private ChargeView read() {
-        return TenantContext.call(organization.test(), Environment.TEST, () -> billing.charge(charge.id()))
+        return TestCaller.call(organization.test(), Environment.TEST, () -> billing.charge(charge.id()))
                 .orElseThrow()
                 .charge();
     }
@@ -447,7 +447,7 @@ class SettlementTest {
                 Charge.CURRENCY,
                 false,
                 false);
-        return TenantContext.call(
+        return TestCaller.call(
                 organization.test(),
                 Environment.TEST,
                 () -> ledger.balanceOf(ledger.openAccount(account)).balance());

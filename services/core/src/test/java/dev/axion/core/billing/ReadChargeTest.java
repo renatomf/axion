@@ -7,10 +7,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
 import dev.axion.core.PostgresTestConfiguration;
+import dev.axion.core.TestCaller;
 import dev.axion.core.rails.PixCredit;
 import dev.axion.core.rails.PixCreditHandler;
 import dev.axion.core.shared.Environment;
-import dev.axion.core.shared.TenantContext;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.shared.UuidV7Generator;
 import dev.axion.core.tenancy.NewOrganization;
@@ -161,7 +161,7 @@ class ReadChargeTest {
     }
 
     private ChargeView create(TenantId tenant, Environment environment, ChargeRequest request) {
-        return TenantContext.call(tenant, environment, () -> created(billing.createCharge(request)));
+        return TestCaller.call(tenant, environment, () -> created(billing.createCharge(request)));
     }
 
     private Optional<ChargeView> read(TenantId tenant, Environment environment, ChargeId charge) {
@@ -169,13 +169,13 @@ class ReadChargeTest {
     }
 
     private Optional<ChargeDetail> detail(TenantId tenant, Environment environment, ChargeId charge) {
-        return TenantContext.call(tenant, environment, () -> billing.charge(charge));
+        return TestCaller.call(tenant, environment, () -> billing.charge(charge));
     }
 
     private RefundView refund(ChargeView charge, long minorUnits) {
         var request = new RefundRequest(Optional.empty(), Optional.of(brl(minorUnits)), "req-" + UUID.randomUUID());
         RefundResult result =
-                TenantContext.call(organization.test(), Environment.TEST, () -> billing.refund(charge.id(), request));
+                TestCaller.call(organization.test(), Environment.TEST, () -> billing.refund(charge.id(), request));
         return ((RefundResult.Refunded) result).refund();
     }
 

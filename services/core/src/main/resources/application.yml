@@ -36,6 +36,15 @@ spring:
     # Fail on a file in db/migration whose name Flyway cannot parse, instead
     # of silently skipping it.
     validate-migration-naming: true
+  modulith:
+    events:
+      jdbc:
+        # The publication registry lives in the events module's schema
+        # (V41__create_event_publication_table.sql). Flyway creates it, never
+        # Modulith, so the database has one source of migrations.
+        schema: events
+        schema-initialization:
+          enabled: false
 
 server:
   tomcat:

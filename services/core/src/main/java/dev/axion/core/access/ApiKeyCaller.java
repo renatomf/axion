@@ -1,5 +1,7 @@
 package dev.axion.core.access;
 
+import dev.axion.core.shared.Actor;
+import dev.axion.core.shared.ApiKeyId;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.tenancy.Permission;
@@ -11,5 +13,10 @@ public record ApiKeyCaller(TenantId tenant, Environment environment, ApiKeyId ke
 
     public ApiKeyCaller {
         permissions = Set.copyOf(permissions);
+    }
+
+    @Override
+    public Actor actor() {
+        return new Actor.ApiKey(key);
     }
 }

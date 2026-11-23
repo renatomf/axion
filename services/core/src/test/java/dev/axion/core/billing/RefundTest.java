@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.axion.core.DatabaseOwner;
 import dev.axion.core.MutableClock;
 import dev.axion.core.PostgresTestConfiguration;
+import dev.axion.core.TestCaller;
 import dev.axion.core.billing.application.Refunds;
 import dev.axion.core.billing.domain.Charge;
 import dev.axion.core.ledger.AccountId;
@@ -25,7 +26,6 @@ import dev.axion.core.rails.PixCreditHandler;
 import dev.axion.core.shared.BusinessCalendar;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.Money;
-import dev.axion.core.shared.TenantContext;
 import dev.axion.core.tenancy.NewOrganization;
 import dev.axion.core.tenancy.TenancyApi;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -113,7 +113,7 @@ class RefundTest {
     @BeforeEach
     void createCharge() {
         organization = tenancy.createOrganization("Padaria São João", "subject-" + UUID.randomUUID());
-        charge = TenantContext.call(
+        charge = TestCaller.call(
                 organization.test(),
                 Environment.TEST,
                 () -> created(
@@ -220,7 +220,7 @@ class RefundTest {
 
     @Test
     void refusesARefundOfAnUnknownCharge() {
-        assertThat(TenantContext.call(
+        assertThat(TestCaller.call(
                         organization.test(),
                         Environment.TEST,
                         () -> billing.refund(
@@ -233,7 +233,7 @@ class RefundTest {
         pay(10_000);
         NewOrganization other = tenancy.createOrganization("Mercado Bom Preço", "subject-" + UUID.randomUUID());
 
-        assertThat(TenantContext.call(
+        assertThat(TestCaller.call(
                         other.test(),
                         Environment.TEST,
                         () -> billing.refund(charge.id(), request(Optional.empty(), Optional.empty()))))
@@ -359,7 +359,7 @@ class RefundTest {
     }
 
     private RefundResult refund(Optional<PaymentId> payment, Optional<Money> amount, String correlationId) {
-        return TenantContext.call(
+        return TestCaller.call(
                 organization.test(),
                 Environment.TEST,
                 () -> billing.refund(charge.id(), new RefundRequest(payment, amount, correlationId)));
@@ -391,7 +391,7 @@ class RefundTest {
 
     /** Moves part of the tenant's available balance to another of its accounts, as a payout's hold will. */
     private void hold(Money amount) {
-        TenantContext.run(organization.test(), Environment.TEST, () -> {
+        TestCaller.run(organization.test(), Environment.TEST, () -> {
             AccountId available = ledger.openAccount(availableAccount());
             AccountId held = ledger.openAccount(new AccountRequest(
                     organization.test().value(),
@@ -411,7 +411,7 @@ class RefundTest {
     }
 
     private ChargeView read() {
-        return TenantContext.call(organization.test(), Environment.TEST, () -> billing.charge(charge.id()))
+        return TestCaller.call(organization.test(), Environment.TEST, () -> billing.charge(charge.id()))
                 .orElseThrow()
                 .charge();
     }
@@ -427,7 +427,7 @@ class RefundTest {
     }
 
     private Money available() {
-        return TenantContext.call(
+        return TestCaller.call(
                 organization.test(),
                 Environment.TEST,
                 () -> ledger.balanceOf(ledger.openAccount(availableAccount())).balance());

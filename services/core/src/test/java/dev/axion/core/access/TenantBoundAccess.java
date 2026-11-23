@@ -1,5 +1,8 @@
 package dev.axion.core.access;
 
+import dev.axion.core.TestCaller;
+import dev.axion.core.shared.ActorContext;
+import dev.axion.core.shared.ApiKeyId;
 import dev.axion.core.shared.TenantContext;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.tenancy.Permission;
@@ -11,7 +14,8 @@ import java.util.Set;
 
 /**
  * Calls {@link AccessApi} as a controller does: with the caller's tenant bound, so its transactions
- * act for that tenant under Row-Level Security. Authentication binds none, as on {@code /v1}.
+ * act for that tenant under Row-Level Security, and the caller as the actor of its events.
+ * Authentication binds none, as on {@code /v1}.
  */
 public final class TenantBoundAccess implements AccessApi {
 
@@ -25,7 +29,7 @@ public final class TenantBoundAccess implements AccessApi {
 
     @Override
     public IssueResult issue(MemberCaller issuer, String name, Set<Permission> scopes) {
-        return TenantContext.call(issuer.tenant(), issuer.environment(), () -> access.issue(issuer, name, scopes));
+        return bound(issuer, () -> access.issue(issuer, name, scopes));
     }
 
     @Override
@@ -36,16 +40,23 @@ public final class TenantBoundAccess implements AccessApi {
 
     @Override
     public Optional<ApiKeyView> revoke(MemberCaller revoker, ApiKeyId key) {
-        return TenantContext.call(revoker.tenant(), revoker.environment(), () -> access.revoke(revoker, key));
+        return bound(revoker, () -> access.revoke(revoker, key));
     }
 
     @Override
     public RollResult roll(MemberCaller roller, ApiKeyId key, Duration grace) {
-        return TenantContext.call(roller.tenant(), roller.environment(), () -> access.roll(roller, key, grace));
+        return bound(roller, () -> access.roll(roller, key, grace));
     }
 
     @Override
     public AuthenticationResult authenticate(String credential) {
         return access.authenticate(credential);
+    }
+
+    private static <T> T bound(MemberCaller caller, ScopedValue.CallableOp<T, RuntimeException> work) {
+        return TenantContext.call(
+                caller.tenant(),
+                caller.environment(),
+                () -> ActorContext.call(caller.actor(), TestCaller.CORRELATION_ID, work));
     }
 }

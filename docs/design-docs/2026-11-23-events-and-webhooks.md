@@ -83,6 +83,7 @@ The `events` module turns domain events into public ones (section 5.1). `webhook
 - Key, member and endpoint events are security events. They are audited, not sent to the tenant's integrations: a leaked key must not learn of the keys that replace it.
 - `webhook_endpoint.disabled` reaches the console's live stream, so the tenant sees why its deliveries stopped (section 8.6); sending it to the endpoint that failed would be pointless.
 - `ChargeCreated` is not audited: creating a charge moves no money and is already recorded with its idempotency key. `EntryPosted` (overview, section 6.7) is not published until a consumer needs it, with `reporting` in phase 3.
+- `MemberRolesChanged` is published by the operation that changes a member's roles. Phase 1 has none yet: an organization's first admin is created with it (tenancy design, section 3.3), so the event arrives with member management.
 
 ### 3.4 Refinements of the overview
 
@@ -99,22 +100,27 @@ The `events` module turns domain events into public ones (section 5.1). `webhook
 
 ### 4.1 Shape
 
-Every domain event implements `DomainEvent`, in `shared`:
+Every domain event implements `DomainEvent`, in `shared`. What every event carries is its `EventHeader`, a record the event holds beside its own facts, such as `ChargePaid(EventHeader header, ChargeDetail charge)`; `DomainEvent` reads each field of it:
 
 ```java
+public record EventHeader(
+    EventId id,                 // UUIDv7, generated when the event is created
+    TenantId tenant,            // the tenant whose data changed
+    Environment environment,
+    Actor actor,                // a member, an API key, or a job of the platform
+    String correlationId,       // the request's, or the job run's
+    Instant occurredAt) {}      // from the injected Clock, in the publishing transaction
+
 public interface DomainEvent {
-    EventId id();               // UUIDv7, generated when the event is created
-    TenantId tenant();          // the tenant whose data changed
-    Environment environment();
-    Actor actor();              // a member, an API key, or a job of the platform
-    String correlationId();     // the request's, or the job run's
-    Instant occurredAt();       // from the injected Clock, in the publishing transaction
+    EventHeader header();
+    default EventId id() { return header().id(); }   // and so on for each field
 }
 ```
 
 - An event carries what its consumers need to act without calling back: `ChargePaid` carries the `ChargeDetail` as it is after settlement, `ChargeRefunded` the `RefundView` and the `ChargeDetail`. Event-only modules are never called synchronously (overview, section 5.2, rule 5), so they cannot read the charge themselves.
 - An event carries no secret and no personal data. A charge's `metadata` is the tenant's own data, sent only to the tenant's own endpoints, and is never logged.
-- `Actor` is a sealed type: `Member(MemberId)`, `ApiKey(ApiKeyId)` or `System(String job)`, such as `System("charge-expiry")`. The audit trail records it; public events leave it out.
+- `Actor` is a sealed type: `Member(MemberId)`, `ApiKey(ApiKeyId)` or `Job(String name)`, such as `Job("charge-expiry")`; `Job`, because `System` would hide `java.lang.System`. The audit trail records it; public events leave it out. `MemberId` and `ApiKeyId` live in `shared` with it, since `shared` depends on no module.
+- The actor and the correlation ID come from `ActorContext`, a scoped value in `shared` like `TenantContext`: a request binds its caller with its correlation ID, and a job binds itself with its run's ID (`pix-settlement` uses the rails' message ID). `EventHeader.ofCurrentWork` reads both contexts and refuses to head an event when either is unbound.
 - The event ID is the public event's ID (section 5.1) and the key every consumer deduplicates by (section 4.4).
 
 ### 4.2 Publication registry
@@ -570,7 +576,7 @@ Logs carry the event's, endpoint's, delivery's and attempt's IDs and the correla
 
 | Suite | What it proves | PR |
 |---|---|---|
-| Event publication (Modulith `Scenario`) | Each change of the catalog publishes its event in its transaction; a rolled-back change publishes nothing; every event serializes and reads back | 1.44a |
+| Event publication (a listener of the tests and the registry's rows) | Each change of the catalog publishes its event in its transaction; a rolled-back change publishes nothing; every event serializes and reads back with the registry's serializer | 1.44a |
 | Registry recovery | An event whose listener fails is resubmitted with backoff and handled once it succeeds; one whose process stops after the commit is handled after the restart | 1.44b |
 | Idempotent consumers | The same event handed twice, also concurrently, has one effect | 1.44b |
 | Address policy (unit, jqwik) | Every address of each refused range, in every IPv4 and IPv6 form, is refused; addresses outside them are accepted | 1.45a |
@@ -631,8 +637,8 @@ Events and webhooks carry money's news out of the core and requests into other n
 
 | PR | Delivers | Sections |
 |---|---|---|
-| 1.44a | The `events` module and the registry's table; `DomainEvent` and `Actor`; billing's, access's and tenancy's events of section 3.3 published in their transactions | 3.3, 4.1–4.3 |
-| 1.44b | `IdempotentConsumer` and `consumed_events`; resubmission with backoff, dead publications and the operator command; the publications' cleanup | 4.4, 4.5 |
+| 1.44a | The `events` module and the registry's table; `DomainEvent`, `Actor` and `ActorContext`; billing's and access's events of section 3.3 published in their transactions | 3.3, 4.1, 4.2 |
+| 1.44b | The listeners' executor; `IdempotentConsumer` and `consumed_events`; resubmission with backoff, dead publications and the operator command; the publications' cleanup | 4.3–4.5 |
 | 1.45a | `PublicAddressPolicy` and the URL validation | 7.1 |
 | 1.45b | The `webhooks` module: endpoints and secrets, their tables, roles and policies; `/v1/webhook_endpoints` and its `/internal` mirror; the endpoint events | 6, 12.2 |
 | 1.46a | The catalog and its schemas in `v1.yaml`; the events and deliveries tables; the listener, the queue and the HTTP client with the check at connection | 5, 7.2, 8.1–8.3 |
@@ -643,7 +649,7 @@ Events and webhooks carry money's news out of the core and requests into other n
 | 1.48b | The audited events of section 3.3 | 9.4 |
 | 1.49 | The `notifications` module and the live stream | 10 |
 
-1.44a publishes events before any module consumes them: the slice prepares the ground for every consumer of the block, and its tests read the registry. 1.46a delivers unsigned requests for one slice, so that signing, a security boundary, is reviewed on its own in 1.46b; nothing is deployed in between.
+1.44a publishes events before any module consumes them: the slice prepares the ground for every consumer of the block, and its tests read the registry. How listeners run (section 4.3) arrives with 1.44b, which makes them idempotent; the first listener of the core follows it. 1.46a delivers unsigned requests for one slice, so that signing, a security boundary, is reviewed on its own in 1.46b; nothing is deployed in between.
 
 ## 17. Decisions from review
 

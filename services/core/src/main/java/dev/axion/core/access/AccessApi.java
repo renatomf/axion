@@ -1,5 +1,6 @@
 package dev.axion.core.access;
 
+import dev.axion.core.shared.ApiKeyId;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.tenancy.Permission;
 import java.time.Duration;
@@ -9,12 +10,14 @@ import java.util.Set;
 
 /**
  * The API keys of a tenant (tenancy design, sections 4.3 and 7). Calls run in the caller's
- * transaction when there is one.
+ * transaction when there is one. Issuing, revoking and rolling publish their events in it, with the
+ * tenant and actor of the current work bound.
  */
 public interface AccessApi {
 
     /**
-     * Issues a key for the issuer's tenant. Scopes must be permissions the issuer holds.
+     * Issues a key for the issuer's tenant, publishing {@link ApiKeyIssued}. Scopes must be
+     * permissions the issuer holds.
      *
      * @throws IllegalArgumentException for an invalid name or a scope that is not an API key scope
      */
@@ -24,7 +27,8 @@ public interface AccessApi {
     List<ApiKeyView> keys(TenantId tenant);
 
     /**
-     * Revokes one of the revoker's tenant's keys; revoking it again changes nothing.
+     * Revokes one of the revoker's tenant's keys, publishing {@link ApiKeyRevoked}; revoking it again
+     * changes nothing and publishes nothing.
      *
      * @return the key as it is now, or empty if the tenant has no such key
      */
@@ -32,7 +36,7 @@ public interface AccessApi {
 
     /**
      * Replaces a key without downtime: a new key with the same name and scopes, while the old one
-     * keeps working for the grace period.
+     * keeps working for the grace period. One {@link ApiKeyRolled} records both.
      *
      * @throws IllegalArgumentException if the grace period is outside zero to {@link #MAX_ROLL_GRACE}
      */

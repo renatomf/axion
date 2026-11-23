@@ -1,5 +1,6 @@
 package dev.axion.core.access;
 
+import dev.axion.core.shared.Actor;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.tenancy.Permission;
@@ -17,4 +18,7 @@ public sealed interface Caller permits ApiKeyCaller, MemberCaller {
     Environment environment();
 
     Set<Permission> permissions();
+
+    /** The caller as the events of its changes name it. */
+    Actor actor();
 }
