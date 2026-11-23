@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.PostgresTestConfiguration;
+import dev.finaxis.core.rails.application.CreditsReceived;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -64,6 +66,9 @@ class ReceivePixCreditTest {
     @Autowired
     private DatabaseOwner owner;
 
+    @Autowired
+    private MeterRegistry meters;
+
     private RailsClient rails;
 
     private final String endToEndId = "E99990011202611211430" + random(11);
@@ -106,11 +111,15 @@ class ReceivePixCreditTest {
     @Test
     void recordsADuplicatedNotificationOnce() {
         byte[] body = bytes(notification());
+        double news = received("new");
+        double duplicates = received("duplicate");
 
         assertThat(rails.post(PATH, body, clock.instant()).statusCode()).isEqualTo(202);
         assertThat(rails.post(PATH, body, clock.instant().plusSeconds(1)).statusCode())
                 .isEqualTo(202);
         assertThat(recorded()).hasSize(1);
+        assertThat(received("new")).isEqualTo(news + 1);
+        assertThat(received("duplicate")).isEqualTo(duplicates + 1);
     }
 
     @Test
@@ -158,12 +167,14 @@ class ReceivePixCreditTest {
     void refusesAMalformedNotificationAndRecordsNothing(String pointer, @Nullable String value) {
         ObjectNode notification = notification();
         set(notification, pointer, value);
+        double rejected = received("rejected");
 
         HttpResponse<String> response = rails.post(PATH, bytes(notification), clock.instant());
 
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(response.body()).contains("\"detail\":\"The credit notification is malformed.\"");
         assertThat(recorded()).isEmpty();
+        assertThat(received("rejected")).isEqualTo(rejected + 1);
     }
 
     // Amounts are decimal strings, never JSON numbers, so no binary fraction rounds a centavo.
@@ -196,11 +207,14 @@ class ReceivePixCreditTest {
 
     @Test
     void refusesAStaleNotificationAndRecordsNothing() {
+        double rejected = received("rejected");
+
         HttpResponse<String> response =
                 rails.post(PATH, bytes(notification()), clock.instant().minus(Duration.ofMinutes(6)));
 
         assertThat(response.statusCode()).isEqualTo(401);
         assertThat(recorded()).isEmpty();
+        assertThat(received("rejected")).isEqualTo(rejected + 1);
     }
 
     /** The credit notification of the rails simulator design, section 5.2, for this test's payment. */
@@ -232,6 +246,13 @@ class ReceivePixCreditTest {
                 .param(endToEndId)
                 .query()
                 .listOfRows();
+    }
+
+    private double received(String result) {
+        return meters.get(CreditsReceived.METRIC)
+                .tag("result", result)
+                .counter()
+                .count();
     }
 
     /** Sets the field at the pointer, or removes it for {@code null}. */

@@ -1,6 +1,7 @@
 package dev.finaxis.core.rails.web;
 
 import dev.finaxis.core.rails.application.CreditInbox;
+import dev.finaxis.core.rails.application.CreditsReceived;
 import dev.finaxis.core.rails.domain.ReceivedCredit;
 import dev.finaxis.core.rails.security.SignedMessage;
 import dev.finaxis.core.rails.web.CreditNotification.MalformedNotification;
@@ -34,12 +35,14 @@ class PixCreditsController {
     private static final Logger LOG = LoggerFactory.getLogger(PixCreditsController.class);
 
     private final CreditInbox inbox;
+    private final CreditsReceived received;
     private final RailsProperties rails;
     // The rails' contract asks receivers to ignore fields they do not know, so a message can grow.
     private final ObjectReader notifications;
 
-    PixCreditsController(CreditInbox inbox, RailsProperties rails, JsonMapper json) {
+    PixCreditsController(CreditInbox inbox, CreditsReceived received, RailsProperties rails, JsonMapper json) {
         this.inbox = inbox;
+        this.received = received;
         this.rails = rails;
         this.notifications =
                 json.readerFor(CreditNotification.class).without(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
@@ -67,7 +70,8 @@ class PixCreditsController {
     }
 
     // The field's name only: the message is the rails', and its values could forge log lines.
-    private static ErrorResponseException malformed(SignedMessage message, String field) {
+    private ErrorResponseException malformed(SignedMessage message, String field) {
+        received.count(CreditsReceived.Result.REJECTED);
         LOG.warn("Refused a credit notification signed by {}: {} is missing or malformed", message.keyId(), field);
         ProblemDetail problem =
                 ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "The credit notification is malformed.");

@@ -32,12 +32,19 @@ public class CreditInbox {
     private final ModuleRoles roles;
     private final TransactionTemplate transactions;
     private final Clock clock;
+    private final CreditsReceived received;
 
-    public CreditInbox(JdbcPixCredits credits, ModuleRoles roles, TransactionTemplate transactions, Clock clock) {
+    public CreditInbox(
+            JdbcPixCredits credits,
+            ModuleRoles roles,
+            TransactionTemplate transactions,
+            Clock clock,
+            CreditsReceived received) {
         this.credits = credits;
         this.roles = roles;
         this.transactions = transactions;
         this.clock = clock;
+        this.received = received;
     }
 
     /**
@@ -49,9 +56,11 @@ public class CreditInbox {
                 roles.call(ROLE, () -> credits.insertIfAbsent(credit, keyId, contentDigest, clock.instant()))));
         if (inserted) {
             LOG.info("Recorded Pix credit {} of message {}", credit.endToEndId(), credit.messageId());
+            received.count(CreditsReceived.Result.NEW);
             return Reception.NEW;
         }
         LOG.info("Pix credit {} of message {} was already recorded", credit.endToEndId(), credit.messageId());
+        received.count(CreditsReceived.Result.DUPLICATE);
         return Reception.DUPLICATE;
     }
 }

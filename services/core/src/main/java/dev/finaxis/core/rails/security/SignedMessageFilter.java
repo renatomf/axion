@@ -1,5 +1,6 @@
 package dev.finaxis.core.rails.security;
 
+import dev.finaxis.core.rails.application.CreditsReceived;
 import dev.finaxis.core.rails.security.SignatureVerifier.Verification;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -39,12 +40,18 @@ final class SignedMessageFilter extends OncePerRequestFilter {
 
     private final SignatureVerifier verifier;
     private final SigningKeyRateLimits limits;
+    private final CreditsReceived received;
     private final HandlerExceptionResolver resolver;
     private final SecurityContextHolderStrategy contexts = SecurityContextHolder.getContextHolderStrategy();
 
-    SignedMessageFilter(SignatureVerifier verifier, SigningKeyRateLimits limits, HandlerExceptionResolver resolver) {
+    SignedMessageFilter(
+            SignatureVerifier verifier,
+            SigningKeyRateLimits limits,
+            CreditsReceived received,
+            HandlerExceptionResolver resolver) {
         this.verifier = verifier;
         this.limits = limits;
+        this.received = received;
         this.resolver = resolver;
     }
 
@@ -92,7 +99,9 @@ final class SignedMessageFilter extends OncePerRequestFilter {
         resolver.resolveException(request, response, null, rejection);
     }
 
+    // Refused for good: the rails keep the message for an operator, so it counts as rejected.
     private void reject(HttpServletRequest request, HttpServletResponse response, HttpStatus status, String detail) {
+        received.count(CreditsReceived.Result.REJECTED);
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
         resolver.resolveException(request, response, null, new ErrorResponseException(status, problem, null));
     }

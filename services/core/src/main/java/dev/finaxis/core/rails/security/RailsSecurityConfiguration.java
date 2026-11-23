@@ -1,5 +1,6 @@
 package dev.finaxis.core.rails.security;
 
+import dev.finaxis.core.rails.application.CreditsReceived;
 import java.time.Clock;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -30,13 +31,15 @@ class RailsSecurityConfiguration {
             HttpSecurity http,
             @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver,
             SigningProperties signing,
+            CreditsReceived received,
             Clock clock) {
         http.securityMatcher("/rails/**");
         http.authorizeHttpRequests(requests -> requests.anyRequest().authenticated());
 
         var verifier = new SignatureVerifier(signing.publicKeys(), clock);
         var limits = new SigningKeyRateLimits(clock);
-        http.addFilterBefore(new SignedMessageFilter(verifier, limits, resolver), AnonymousAuthenticationFilter.class);
+        http.addFilterBefore(
+                new SignedMessageFilter(verifier, limits, received, resolver), AnonymousAuthenticationFilter.class);
 
         // The same headers as every other response of the core, which serves no HTML.
         http.headers(headers -> headers.contentSecurityPolicy(
