@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Approved |
 | **Date** | 2026-11-23 |
 | **Scope** | The `events`, `webhooks`, `audit` and `notifications` modules of the core: domain events and their publication registry, the public event catalog, webhook endpoints and their SSRF defenses, signed delivery with retries and replay, the hash-chained audit trail and the per-tenant live stream. Roadmap PRs 1.44–1.49. |
 | **Parent** | [Platform overview](2026-11-17-platform-overview.md), sections 3.2, 4.6, 4.7, 5.1, 5.2, 7.6 and 8 |
