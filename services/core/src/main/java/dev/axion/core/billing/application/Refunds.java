@@ -1,7 +1,9 @@
 package dev.axion.core.billing.application;
 
 import dev.axion.core.ModuleRoles;
+import dev.axion.core.billing.ChargeDetail;
 import dev.axion.core.billing.ChargeId;
+import dev.axion.core.billing.ChargeRefunded;
 import dev.axion.core.billing.RefundId;
 import dev.axion.core.billing.RefundRefusal;
 import dev.axion.core.billing.RefundRequest;
@@ -23,6 +25,8 @@ import dev.axion.core.ledger.LedgerApi;
 import dev.axion.core.ledger.PostResult;
 import dev.axion.core.ledger.PostingRequest;
 import dev.axion.core.shared.BusinessCalendar;
+import dev.axion.core.shared.EventHeader;
+import dev.axion.core.shared.EventId;
 import dev.axion.core.shared.TenantContext;
 import dev.axion.core.shared.UuidV7Generator;
 import dev.axion.core.tenancy.TenancyApi;
@@ -36,6 +40,7 @@ import java.util.List;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -58,10 +63,12 @@ public class Refunds {
     private final JdbcCharges charges;
     private final JdbcPayments payments;
     private final JdbcRefunds refunds;
+    private final ChargeDetails details;
     private final LedgerApi ledger;
     private final TenancyApi tenancy;
     private final PlatformAccounts platform;
     private final ModuleRoles roles;
+    private final ApplicationEventPublisher events;
     private final Clock clock;
     private final UuidV7Generator ids;
     private final Counter made;
@@ -70,19 +77,23 @@ public class Refunds {
             JdbcCharges charges,
             JdbcPayments payments,
             JdbcRefunds refunds,
+            ChargeDetails details,
             LedgerApi ledger,
             TenancyApi tenancy,
             PlatformAccounts platform,
             ModuleRoles roles,
+            ApplicationEventPublisher events,
             Clock clock,
             MeterRegistry meters) {
         this.charges = charges;
         this.payments = payments;
         this.refunds = refunds;
+        this.details = details;
         this.ledger = ledger;
         this.tenancy = tenancy;
         this.platform = platform;
         this.roles = roles;
+        this.events = events;
         this.clock = clock;
         this.ids = new UuidV7Generator(clock);
         // Registered at zero, so a rate is defined before the first refund.
@@ -129,9 +140,15 @@ public class Refunds {
             }
             return null;
         });
+        var view = new RefundView(
+                refund.id(), charge.id(), refund.payment(), refund.amount(), RefundStatus.SUCCEEDED, now);
+        // After the role switch returns: the registry is written with the login role.
+        ChargeDetail detail = roles.call(ROLE, () -> details.find(binding, charge.id()))
+                .orElseThrow(() -> new IllegalStateException(
+                        "Charge " + charge.id().publicId() + " vanished while it was refunded"));
+        events.publishEvent(new ChargeRefunded(EventHeader.ofCurrentWork(new EventId(ids.next()), now), view, detail));
         observeOnCommit(charge, refund, request.correlationId());
-        return new RefundResult.Refunded(new RefundView(
-                refund.id(), charge.id(), refund.payment(), refund.amount(), RefundStatus.SUCCEEDED, now));
+        return new RefundResult.Refunded(view);
     }
 
     // Logged and counted once the transaction commits: the caller's transaction, an idempotent

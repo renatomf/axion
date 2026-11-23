@@ -46,9 +46,10 @@ public interface BillingApi {
     /**
      * Refunds one payment of the tenant's charge, in full or in part, by a ledger entry that
      * reverses the payment's (billing design, section 10). Refunds of one charge are made one at a
-     * time, so two cannot both take what remains of a payment. A refused refund writes nothing.
+     * time, so two cannot both take what remains of a payment. A refused refund writes nothing; a
+     * refund made publishes {@link ChargeRefunded} in the same transaction.
      *
-     * @throws IllegalStateException if no tenant is bound, a bug in the caller
+     * @throws IllegalStateException if no tenant or actor is bound, a bug in the caller
      */
     RefundResult refund(ChargeId charge, RefundRequest request);
 }

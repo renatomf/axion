@@ -13,12 +13,14 @@ import dev.axion.core.rails.PixCreditHandler;
 import dev.axion.core.shared.Actor;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.EventHeader;
+import dev.axion.core.shared.Money;
 import dev.axion.core.tenancy.NewOrganization;
 import dev.axion.core.tenancy.TenancyApi;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -188,8 +190,48 @@ class ChargeEventsTest {
         assertThat(events.of(organization.test(), ChargePaid.class)).hasSize(1);
     }
 
+    @Test
+    void publishesARefundWithTheChargeItLeft() {
+        ChargeView charge = create(ChargeRequest.of(brl(10_000)));
+        settlement.handle(credit(charge, 10_000, clock.instant()));
+
+        RefundView refund = refund(charge, Optional.of(brl(4_000)));
+
+        assertThat(events.of(organization.test(), ChargeRefunded.class))
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.refund()).isEqualTo(refund);
+                    assertThat(event.charge()).isEqualTo(read(charge));
+                    assertThat(event.charge().charge().status()).isEqualTo(ChargeStatus.PARTIALLY_REFUNDED);
+                    assertHeadedByTheCaller(event.header());
+                });
+    }
+
+    @Test
+    void publishesNothingForARefusedRefund() {
+        ChargeView charge = create(ChargeRequest.of(brl(10_000)));
+
+        RefundResult result = TestCaller.call(
+                organization.test(),
+                Environment.TEST,
+                () -> billing.refund(
+                        charge.id(), new RefundRequest(Optional.empty(), Optional.empty(), TestCaller.CORRELATION_ID)));
+
+        assertThat(result).isInstanceOf(RefundResult.Refused.class);
+        assertThat(events.of(organization.test(), ChargeRefunded.class)).isEmpty();
+    }
+
     private ChargeView create(ChargeRequest request) {
         return TestCaller.call(organization.test(), Environment.TEST, () -> created(billing.createCharge(request)));
+    }
+
+    private RefundView refund(ChargeView charge, Optional<Money> amount) {
+        RefundResult result = TestCaller.call(
+                organization.test(),
+                Environment.TEST,
+                () -> billing.refund(
+                        charge.id(), new RefundRequest(Optional.empty(), amount, TestCaller.CORRELATION_ID)));
+        return ((RefundResult.Refunded) result).refund();
     }
 
     private ChargeDetail read(ChargeView charge) {
