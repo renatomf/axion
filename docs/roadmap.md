@@ -205,7 +205,7 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | 1.43 | Events and webhooks design doc | Event catalog, CloudEvents envelope, signing, retries, SSRF defenses ([#232](https://github.com/renatomf/axion/pull/232)) |
 | 1.44 | Domain events and outbox | Spring Modulith events with the publication registry; idempotent consumers |
 | ↳ 1.44a | Domain events | The `events` module; Spring Modulith events with the JDBC publication registry; billing's and API key events published through it, with the actor and correlation ID of the work ([#234](https://github.com/renatomf/axion/pull/234)) |
-| ↳ 1.44b | Idempotent consumers | Listeners on a bounded executor; each event handled once per consumer; failed publications resubmitted with backoff, then left for an operator |
+| ↳ 1.44b | Idempotent consumers | Listeners on a bounded executor; each event handled once per consumer; failed publications resubmitted with backoff, then left for an operator ([#236](https://github.com/renatomf/axion/pull/236)) |
 | 1.45 | Webhook endpoints | `/v1/webhook_endpoints` with SSRF validation and secret management |
 | ↳ 1.45a | SSRF validation | URLs to private, loopback and metadata addresses refused |
 | ↳ 1.45b | Webhook endpoints | Endpoints, their events and table; signing secrets, encrypted, and their rotation; `/v1/webhook_endpoints` and its `/internal` mirror |
