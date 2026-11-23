@@ -30,6 +30,10 @@ tags:
     description: >-
       The keys a tenant's systems authenticate with on the public API. A key's
       secret is shown once, when it is issued, and never again.
+  - name: Webhook endpoints
+    description: >-
+      The URLs a tenant's events are sent to, as the public API manages them,
+      for the console. Every change needs a recent authentication.
 paths:
   /internal/me:
     get:
@@ -241,6 +245,93 @@ paths:
           $ref: "components.yaml#/responses/TooManyRequests"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
+  /internal/tenants/{tenant_id}/webhook_endpoints:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      operationId: listTenantWebhookEndpoints
+      tags: [Webhook endpoints]
+      summary: The tenant's webhook endpoints
+      description: >-
+        The tenant's webhook endpoints, newest first, a page at a time,
+        never with their secrets, as `GET /v1/webhook_endpoints` lists them.
+        To read the next page, send the `id` of the last endpoint of this
+        one as `starting_after`, while `has_more` is `true`. Requires
+        `webhooks:manage`.
+      parameters:
+        - name: limit
+          in: query
+          description: How many endpoints a page holds, from 1 to 100.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: starting_after
+          in: query
+          description: >-
+            The `id` of the last endpoint of the previous page; the page
+            holds the endpoints created before it. Omitted, the page is the
+            first.
+          schema:
+            type: string
+            pattern: "^we_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+      responses:
+        "200":
+          description: A page of the tenant's webhook endpoints, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "v1.yaml#/components/schemas/WebhookEndpointList"
+        "400":
+          $ref: "components.yaml#/responses/BadRequest"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          $ref: "components.yaml#/responses/Forbidden"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "422":
+          description: >-
+            Some parameters are outside their rules (`validation_failed`,
+            with `errors` naming each one).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
+  /internal/tenants/{tenant_id}/webhook_endpoints/{endpoint_id}:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/WebhookEndpointId"
+    get:
+      operationId: getTenantWebhookEndpoint
+      tags: [Webhook endpoints]
+      summary: One of the tenant's webhook endpoints
+      description: >-
+        The endpoint as it is now, without its secret, which only its
+        creation and a roll return. Requires `webhooks:manage`.
+      responses:
+        "200":
+          description: The webhook endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: "v1.yaml#/components/schemas/WebhookEndpoint"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          $ref: "components.yaml#/responses/Forbidden"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
 components:
   parameters:
     KeyId:
@@ -253,6 +344,16 @@ components:
       schema:
         type: string
         pattern: "^key_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+    WebhookEndpointId:
+      name: endpoint_id
+      in: path
+      required: true
+      description: >-
+        One of the tenant's webhook endpoints. An endpoint of another tenant,
+        existing or not, answers `404`.
+      schema:
+        type: string
+        pattern: "^we_[0-7][0-9a-hjkmnp-tv-z]{25}$"
     TenantId:
       name: tenant_id
       in: path

@@ -101,7 +101,9 @@ class TenantIsolationTest {
             Map.entry("getWebhookEndpoint", this::getWebhookEndpointHidesAnotherTenantsEndpoint),
             Map.entry("updateWebhookEndpoint", this::updateWebhookEndpointLeavesAnotherTenantsEndpointAsItWas),
             Map.entry("deleteWebhookEndpoint", this::deleteWebhookEndpointLeavesAnotherTenantsEndpointInPlace),
-            Map.entry("rollWebhookEndpointSecret", this::rollWebhookEndpointSecretLeavesAnotherTenantsSecretInPlace));
+            Map.entry("rollWebhookEndpointSecret", this::rollWebhookEndpointSecretLeavesAnotherTenantsSecretInPlace),
+            Map.entry("listTenantWebhookEndpoints", this::listTenantWebhookEndpointsHidesAnotherTenantsEndpoints),
+            Map.entry("getTenantWebhookEndpoint", this::getTenantWebhookEndpointHidesAnotherTenantsEndpoint));
 
     @Autowired
     TenantIsolationTest(
@@ -358,6 +360,33 @@ class TenantIsolationTest {
 
         assertThat(request.sendWithKey(manager, "roll-2", "{}", own.publicId())).hasStatus(HttpStatus.OK);
         assertThat(secrets(own)).isEqualTo(2);
+    }
+
+    private void listTenantWebhookEndpointsHidesAnotherTenantsEndpoints(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookEndpointId own = endpoint(scene.caller().test());
+
+        assertNotFound(request.send(scene, null, scene.other().test().publicId()));
+
+        MvcTestResult result = request.send(scene, null, scene.caller().test().publicId());
+        assertThat(result).hasStatus(HttpStatus.OK);
+        assertThat(result)
+                .body()
+                .asString()
+                .contains(own.publicId().toString())
+                .doesNotContain(others.publicId().toString());
+    }
+
+    private void getTenantWebhookEndpointHidesAnotherTenantsEndpoint(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookEndpointId own = endpoint(scene.caller().test());
+
+        assertNotFound(request.send(scene, null, scene.other().test().publicId(), others.publicId()));
+        // The caller's own tenant in the path, with the other tenant's endpoint.
+        assertNotFound(request.send(scene, null, scene.caller().test().publicId(), others.publicId()));
+
+        assertThat(request.send(scene, null, scene.caller().test().publicId(), own.publicId()))
+                .hasStatus(HttpStatus.OK);
     }
 
     private long secrets(WebhookEndpointId endpoint) {
