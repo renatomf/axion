@@ -1,12 +1,14 @@
 package dev.axion.core.events;
 
+import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
 /**
- * The events module's own reads of the publication registry, as {@code axion_events}, which sees how
+ * The events module's own work on the publication registry, as {@code axion_events}, which sees how
  * far each publication has got and never the event it carries.
  */
 @Repository
@@ -47,5 +49,15 @@ class JdbcPublications {
                 .param(ResubmissionSchedule.ATTEMPTS)
                 .query(OffsetDateTime.class)
                 .optional();
+    }
+
+    /** Deletes up to {@code limit} publications completed before the cutoff, and returns how many. */
+    int deleteCompletedBefore(Instant cutoff, int limit) {
+        return jdbc.sql("""
+                        DELETE FROM events.event_publication
+                         WHERE id IN (SELECT id FROM events.event_publication
+                                       WHERE completion_date < ?
+                                       LIMIT ?)
+                        """).params(cutoff.atOffset(ZoneOffset.UTC), limit).update();
     }
 }
