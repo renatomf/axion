@@ -1,6 +1,5 @@
-package dev.axion.core.access;
+package dev.axion.core.shared;
 
-import dev.axion.core.shared.PublicId;
 import java.util.UUID;
 
 /** An API key's identifier; unlike its secret, it grants nothing. */

@@ -2,9 +2,9 @@ package dev.axion.core.tenancy.application;
 
 import dev.axion.core.ModuleRoles;
 import dev.axion.core.shared.Environment;
+import dev.axion.core.shared.MemberId;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.shared.UuidV7Generator;
-import dev.axion.core.tenancy.MemberId;
 import dev.axion.core.tenancy.Membership;
 import dev.axion.core.tenancy.NewOrganization;
 import dev.axion.core.tenancy.OrganizationId;

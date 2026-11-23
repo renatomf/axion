@@ -1,6 +1,7 @@
 package dev.axion.core.access;
 
 import dev.axion.core.access.domain.ApiKeySecret;
+import dev.axion.core.shared.ApiKeyId;
 import dev.axion.core.tenancy.Permission;
 import java.time.Instant;
 import java.util.Set;

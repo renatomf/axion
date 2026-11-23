@@ -1,4 +1,4 @@
-package dev.axion.core.tenancy;
+package dev.axion.core.shared;
 
 import java.util.UUID;
 

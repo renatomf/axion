@@ -1,5 +1,6 @@
 package dev.axion.core.access;
 
+import dev.axion.core.shared.ApiKeyId;
 import java.util.Optional;
 
 /** The outcome of {@link AccessApi#authenticate} (tenancy design, section 4.4). */

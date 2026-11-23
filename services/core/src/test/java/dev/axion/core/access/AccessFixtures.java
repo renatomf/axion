@@ -3,9 +3,9 @@ package dev.axion.core.access;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.axion.core.shared.Environment;
+import dev.axion.core.shared.MemberId;
 import dev.axion.core.shared.TenantContext;
 import dev.axion.core.shared.TenantId;
-import dev.axion.core.tenancy.MemberId;
 import dev.axion.core.tenancy.NewOrganization;
 import dev.axion.core.tenancy.Permission;
 import dev.axion.core.tenancy.Role;

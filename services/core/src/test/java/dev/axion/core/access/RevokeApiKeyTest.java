@@ -4,6 +4,7 @@ import static dev.axion.core.tenancy.Permission.CHARGES_READ;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.axion.core.PostgresTestConfiguration;
+import dev.axion.core.shared.ApiKeyId;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.tenancy.NewOrganization;
 import dev.axion.core.tenancy.TenancyApi;

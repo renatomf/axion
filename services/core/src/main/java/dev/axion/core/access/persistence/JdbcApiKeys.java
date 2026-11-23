@@ -1,9 +1,9 @@
 package dev.axion.core.access.persistence;
 
-import dev.axion.core.access.ApiKeyId;
 import dev.axion.core.access.ApiKeyView;
+import dev.axion.core.shared.ApiKeyId;
+import dev.axion.core.shared.MemberId;
 import dev.axion.core.shared.TenantId;
-import dev.axion.core.tenancy.MemberId;
 import dev.axion.core.tenancy.Permission;
 import java.sql.ResultSet;
 import java.sql.SQLException;

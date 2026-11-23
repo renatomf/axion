@@ -1,12 +1,12 @@
 package dev.axion.core.access.web;
 
 import dev.axion.core.access.AccessApi;
-import dev.axion.core.access.ApiKeyId;
 import dev.axion.core.access.IssueResult;
 import dev.axion.core.access.MemberCaller;
 import dev.axion.core.access.RequiresPermission;
 import dev.axion.core.access.RequiresStepUp;
 import dev.axion.core.access.RollResult;
+import dev.axion.core.shared.ApiKeyId;
 import dev.axion.core.shared.PublicId;
 import dev.axion.core.tenancy.Permission;
 import jakarta.validation.Valid;

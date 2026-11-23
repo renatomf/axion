@@ -1,8 +1,8 @@
 package dev.axion.core.access;
 
 import dev.axion.core.shared.Environment;
+import dev.axion.core.shared.MemberId;
 import dev.axion.core.shared.TenantId;
-import dev.axion.core.tenancy.MemberId;
 import dev.axion.core.tenancy.Permission;
 import java.util.Set;
 
