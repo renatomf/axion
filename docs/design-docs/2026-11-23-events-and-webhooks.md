@@ -238,7 +238,7 @@ Events are delivered at least once and in no guaranteed order. A retried `charge
 
 A secret is `whsec_` followed by 32 random bytes in base64, the format of Standard Webhooks. HMAC needs the secret itself to sign, so it cannot be hashed as API keys are: it is encrypted at rest with [Tink](https://developers.google.com/tink) AEAD (AES-256-GCM), with the endpoint's ID as associated data, so a ciphertext copied to another endpoint fails to decrypt. The key-encryption key comes from `AXION_WEBHOOK_SECRETS_KEY` and never reaches the database (overview, section 4.7).
 
-- A secret is shown once and never logged; `.gitleaks.toml` gains a rule for its format.
+- A secret is shown once and never logged; `.gitleaks.toml` gains a rule for its format. A repeat of the request that created it is answered without it: the response is stored for idempotency with `secret` null (idempotency design, section 15), so the secret is kept only encrypted. A tenant that lost the first response rolls the secret.
 - **Rolling** issues a new secret and keeps the old one signing for a grace period, from zero to 7 days (default 24 hours), so the tenant can deploy the new secret first. During the grace period each request carries two signatures (section 8.4), and the old secret is deleted when it ends. A secret is rolled again only after the previous grace period ends, so an endpoint never has more than two.
 
 ### 6.3 Operations
@@ -541,7 +541,7 @@ public interface EventCatalog {
 
 // webhooks: endpoints and the delivery log, for the controllers of /v1 and /internal
 public interface WebhooksApi {
-    CreateEndpointResult create(Caller caller, EndpointRequest request);   // Created, InvalidUrl or LimitReached
+    CreateEndpointResult create(EndpointRequest request);   // for the tenant bound; Created, InvalidUrl or LimitReached
     …
 }
 
@@ -649,7 +649,10 @@ Events and webhooks carry money's news out of the core and requests into other n
 | 1.44a | The `events` module and the registry's table; `DomainEvent`, `Actor` and `ActorContext`; billing's and access's events of section 3.3 published in their transactions | 3.3, 4.1, 4.2 |
 | 1.44b | The listeners' executor; `IdempotentConsumer` and `consumed_events`; resubmission with backoff, dead publications and the operator command; the publications' cleanup | 4.3–4.5 |
 | 1.45a | `PublicAddressPolicy` and the URL validation | 7.1 |
-| 1.45b | The `webhooks` module: endpoints and secrets, their tables, roles and policies; `/v1/webhook_endpoints` and its `/internal` mirror; the endpoint events | 6, 12.2 |
+| 1.45b | The `webhooks` module: endpoints and secrets, their tables, role and policies; secrets encrypted with Tink; registering, listing and reading endpoints on `/v1`; `WebhookEndpointCreated` | 6.1, 6.2, 12.2 |
+| 1.45c | Updating and deleting endpoints on `/v1`; `WebhookEndpointUpdated` and `WebhookEndpointDeleted` | 6.3 |
+| 1.45d | Rolling a secret with a grace period, and the removal of the old one; `WebhookSecretRolled` | 6.2 |
+| 1.45e | The `/internal` mirror of every endpoint operation, with step-up for changes | 12.2 |
 | 1.46a | The catalog and its schemas in `v1.yaml`; the events and deliveries tables; the listener, the queue and the HTTP client with the check at connection | 5, 7.2, 8.1–8.3 |
 | 1.46b | Signing, with two signatures during a grace period; the webhook guide | 8.4 |
 | 1.47a | Retries, `410`, disabling and its event; the fault-injection scenarios | 8.5, 8.6 |
@@ -658,7 +661,7 @@ Events and webhooks carry money's news out of the core and requests into other n
 | 1.48b | The audited events of section 3.3 | 9.4 |
 | 1.49 | The `notifications` module and the live stream | 10 |
 
-1.44a publishes events before any module consumes them: the slice prepares the ground for every consumer of the block, and its tests read the registry. How listeners run (section 4.3) arrives with 1.44b, which makes them idempotent; the first listener of the core follows it. 1.46a delivers unsigned requests for one slice, so that signing, a security boundary, is reviewed on its own in 1.46b; nothing is deployed in between.
+1.44a publishes events before any module consumes them: the slice prepares the ground for every consumer of the block, and its tests read the registry. How listeners run (section 4.3) arrives with 1.44b, which makes them idempotent; the first listener of the core follows it. 1.46a delivers unsigned requests for one slice, so that signing, a security boundary, is reviewed on its own in 1.46b; nothing is deployed in between. Endpoints arrive in four slices, each small enough to review with care: registration, with the encryption of secrets, a security boundary of its own; changes; rolling; and the console's mirror. Until the catalog arrives with 1.46a, the event types an endpoint may receive are listed in `webhooks`, and 1.46a checks them against it.
 
 ## 17. Decisions from review
 

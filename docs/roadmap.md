@@ -208,7 +208,10 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | ↳ 1.44b | Idempotent consumers | Listeners on a bounded executor; each event handled once per consumer; failed publications resubmitted with backoff, then left for an operator ([#236](https://github.com/renatomf/axion/pull/236)) |
 | 1.45 | Webhook endpoints | `/v1/webhook_endpoints` with SSRF validation and secret management |
 | ↳ 1.45a | SSRF validation | URLs to private, loopback and metadata addresses refused ([#238](https://github.com/renatomf/axion/pull/238)) |
-| ↳ 1.45b | Webhook endpoints | Endpoints, their events and table; signing secrets, encrypted, and their rotation; `/v1/webhook_endpoints` and its `/internal` mirror |
+| ↳ 1.45b | Webhook endpoint registration | Endpoints and secrets, their tables, role and policies; signing secrets encrypted with Tink and shown once; `POST` and `GET /v1/webhook_endpoints` and `GET …/{id}` |
+| ↳ 1.45c | Webhook endpoint changes | `PATCH` and `DELETE /v1/webhook_endpoints/{id}`, a new URL validated again; their events |
+| ↳ 1.45d | Webhook secret rolling | `POST …/{id}/secret/roll` with a grace period; the old secret removed when it ends |
+| ↳ 1.45e | Webhook endpoints in the console | The `/internal` mirror of every endpoint operation, with step-up for changes |
 | 1.46 | Webhook delivery | PostgreSQL queue (`SKIP LOCKED`), HMAC-SHA256 with timestamp |
 | ↳ 1.46a | Delivery queue | The public event catalog and its schemas in `v1.yaml`; PostgreSQL queue drained with `SKIP LOCKED`; HTTP delivery with timeouts and the SSRF check at connection |
 | ↳ 1.46b | Webhook signing | HMAC-SHA256 with timestamp (Standard Webhooks); the webhook guide |
