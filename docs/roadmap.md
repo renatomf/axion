@@ -192,7 +192,7 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | ↳ 1.37b | Risk before charging | The decision applied to charge creation ([#216](https://github.com/renatomf/finaxis/pull/216)) |
 | 1.38 | Rails anti-corruption layer | The `rails` module: the callback endpoint on its own filter chain, its signature verification (RFC 9421, Ed25519), and the inbox that deduplicates credits by `EndToEndId` ([#218](https://github.com/renatomf/finaxis/pull/218)) |
 | 1.39 | Settlement | The inbox processor and the `PixCreditHandler` port; one transaction: charge `PAID` + payment + ledger entry; flagged and unmatched payments; a charge's `payments` in `GET /v1/charges/{id}` ([#220](https://github.com/renatomf/finaxis/pull/220)) |
-| 1.40 | Late payments | The expiry job; a payment accepted after expiry credited and flagged; one accepted before it settles the expired charge |
+| 1.40 | Late payments | The expiry job; a payment accepted after expiry credited and flagged; one accepted before it settles the expired charge ([#222](https://github.com/renatomf/finaxis/pull/222)) |
 | 1.41 | Refunds | Reversal entries, partial and full refunds |
 | ↳ 1.41a | Refunds | Refunds of one payment and their table; reversal entries for full and partial refunds within the payment's amount |
 | ↳ 1.41b | Refund endpoint | `POST /v1/charges/{id}/refunds`, idempotent; a charge's `refunds` in `GET /v1/charges/{id}` |
