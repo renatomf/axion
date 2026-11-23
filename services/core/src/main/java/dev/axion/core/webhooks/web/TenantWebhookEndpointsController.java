@@ -1,14 +1,22 @@
 package dev.axion.core.webhooks.web;
 
+import dev.axion.core.access.MemberCaller;
 import dev.axion.core.access.RequiresPermission;
+import dev.axion.core.access.RequiresStepUp;
 import dev.axion.core.tenancy.Permission;
+import dev.axion.core.webhooks.CreateEndpointResult;
 import dev.axion.core.webhooks.WebhooksApi;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
+import java.net.URI;
 import org.jspecify.annotations.Nullable;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -25,6 +33,24 @@ class TenantWebhookEndpointsController {
 
     TenantWebhookEndpointsController(WebhooksApi webhooks) {
         this.webhooks = webhooks;
+    }
+
+    // No idempotency key, as on the rest of /internal: a retry registers a second endpoint.
+    @RequiresPermission(Permission.WEBHOOKS_MANAGE)
+    @RequiresStepUp
+    @PostMapping(PATH)
+    ResponseEntity<CreatedWebhookEndpointResponse> create(
+            MemberCaller caller, @Valid @RequestBody CreateWebhookEndpointRequest request) {
+        return switch (webhooks.create(request.toEndpointRequest())) {
+            case CreateEndpointResult.Created created -> {
+                CreatedWebhookEndpointResponse endpoint = CreatedWebhookEndpointResponse.of(created.endpoint());
+                URI location = URI.create(
+                        "/internal/tenants/" + caller.tenant().publicId() + "/webhook_endpoints/" + endpoint.id());
+                yield ResponseEntity.created(location).body(endpoint);
+            }
+            case CreateEndpointResult.InvalidUrl invalid -> throw WebhookProblems.invalidUrl(invalid.reason());
+            case CreateEndpointResult.LimitReached reached -> throw WebhookProblems.limitExceeded(reached.limit());
+        };
     }
 
     // No step-up: reading shows no secret and changes nothing.

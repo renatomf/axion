@@ -3,6 +3,7 @@ package dev.axion.core.webhooks.web;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 
+import com.jayway.jsonpath.JsonPath;
 import dev.axion.core.DatabaseOwner;
 import dev.axion.core.KeycloakTestConfiguration;
 import dev.axion.core.OpenApiContract;
@@ -20,9 +21,11 @@ import dev.axion.core.webhooks.WebhooksApi;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +34,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
@@ -46,6 +50,10 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 class TenantWebhookEndpointsControllerTest {
 
     private static final String PATH = "/internal/tenants/{tenant_id}/webhook_endpoints";
+
+    private static final String ENDPOINT = """
+            {"url": "https://orders.example.com/axion/webhooks", "enabled_events": ["charge.paid"]}
+            """;
 
     private static final Duration RECENT = Duration.ofMinutes(1);
 
@@ -150,6 +158,60 @@ class TenantWebhookEndpointsControllerTest {
                 .isEqualTo("insufficient_permission");
     }
 
+    @Test
+    void registersAnEndpointAndShowsItsSecretOnce() throws Exception {
+        MvcTestResult result = send(
+                HttpMethod.POST, PATH, RECENT, ENDPOINT, organization.test().publicId());
+
+        assertThat(result).hasStatus(HttpStatus.CREATED);
+        String id = JsonPath.read(result.getResponse().getContentAsString(), "$.id");
+        assertThat(result)
+                .headers()
+                .hasValue(
+                        "Location", "/internal/tenants/" + organization.test().publicId() + "/webhook_endpoints/" + id);
+        assertThat(result).bodyJson().extractingPath("$.secret").asString().startsWith("whsec_");
+        assertThat(send(HttpMethod.GET, PATH + "/" + id, RECENT, organization.test()))
+                .bodyJson()
+                .doesNotHavePath("$.secret");
+    }
+
+    @Test
+    void refusesAUrlThatNamesAnIpAddress() {
+        MvcTestResult result =
+                send(HttpMethod.POST, PATH, RECENT, """
+                {"url": "https://10.0.0.1/hooks", "enabled_events": ["charge.paid"]}
+                """, organization.test().publicId());
+
+        assertThat(result)
+                .hasStatus(HttpStatus.UNPROCESSABLE_CONTENT)
+                .bodyJson()
+                .extractingPath("$.errors[0].reason")
+                .isEqualTo("must_use_domain_name");
+    }
+
+    @Test
+    void requiresARecentAuthenticationToRegister() {
+        assertStepUpRequired(
+                send(HttpMethod.POST, PATH, OLD, ENDPOINT, organization.test().publicId()));
+        assertThat(webhooksOf(organization.test())).isZero();
+    }
+
+    private long webhooksOf(TenantId tenant) {
+        return Objects.requireNonNull(owner.sql("SELECT count(*) FROM webhooks.endpoints WHERE tenant_id = ?")
+                .param(tenant.value())
+                .query(Long.class)
+                .single());
+    }
+
+    private static void assertStepUpRequired(MvcTestResult result) {
+        assertThat(result)
+                .hasStatus(HttpStatus.FORBIDDEN)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("step_up_required");
+        assertThat(result).headers().containsHeader("WWW-Authenticate");
+    }
+
     private EndpointView create(TenantId tenant) {
         var request = new EndpointRequest(
                 "https://orders.example.com/axion/webhooks", Optional.empty(), Set.of("charge.paid"));
@@ -173,13 +235,21 @@ class TenantWebhookEndpointsControllerTest {
     }
 
     private MvcTestResult send(HttpMethod method, String path, Duration sinceAuthentication, Object... variables) {
-        MvcTestResult result = mvc.method(method)
+        return send(method, path, sinceAuthentication, null, variables);
+    }
+
+    private MvcTestResult send(
+            HttpMethod method, String path, Duration sinceAuthentication, @Nullable String body, Object... variables) {
+        var request = mvc.method(method)
                 .uri(path, variables)
                 .with(jwt().jwt(token -> token.subject(subject)
                         .claim(
                                 "auth_time",
-                                Instant.now().minus(sinceAuthentication).getEpochSecond())))
-                .exchange();
+                                Instant.now().minus(sinceAuthentication).getEpochSecond())));
+        if (body != null) {
+            request = request.contentType(MediaType.APPLICATION_JSON).content(body);
+        }
+        MvcTestResult result = request.exchange();
         OpenApiContract.internal().assertConforms(result);
         return result;
     }

@@ -304,6 +304,71 @@ paths:
           $ref: "components.yaml#/responses/TooManyRequests"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
+    post:
+      operationId: createTenantWebhookEndpoint
+      tags: [Webhook endpoints]
+      summary: Register a webhook endpoint
+      description: >-
+        Registers an HTTPS URL to receive the tenant's events of
+        `enabled_events`, as `POST /v1/webhook_endpoints` does, and returns
+        the secret that signs the requests sent to it. The secret is in this
+        response only: store it, or roll a new one if it is lost. The URL
+        must name a host on the public internet by a domain name, on port
+        443 or a port from 1024 to 65535, and every address the name
+        resolves to must be public. A tenant has at most 16 endpoints.
+        Requires `webhooks:manage` and an authentication in the last 5
+        minutes; otherwise the `403` has the code `step_up_required` and an
+        RFC 9470 `WWW-Authenticate` challenge.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "v1.yaml#/components/schemas/CreateWebhookEndpointRequest"
+      responses:
+        "201":
+          description: The endpoint was registered, with its secret.
+          headers:
+            Location:
+              description: >-
+                The endpoint's path,
+                `/internal/tenants/{tenant_id}/webhook_endpoints/{endpoint_id}`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "v1.yaml#/components/schemas/CreatedWebhookEndpoint"
+        "400":
+          $ref: "components.yaml#/responses/BadRequest"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The caller may not manage webhooks (`insufficient_permission`),
+            the tenant is not active (`tenant_inactive`), or the caller must
+            authenticate again (`step_up_required`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "422":
+          description: >-
+            The endpoint was not registered. Some fields are invalid or
+            unknown (`validation_failed`, with `errors`; a refused `url`
+            carries the rule it failed as `reason`, never the addresses its
+            name resolved to), or the tenant has 16 endpoints already
+            (`limit_exceeded`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
   /internal/tenants/{tenant_id}/webhook_endpoints/{endpoint_id}:
     parameters:
       - $ref: "#/components/parameters/TenantId"

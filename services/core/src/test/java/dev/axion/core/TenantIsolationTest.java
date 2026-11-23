@@ -103,7 +103,9 @@ class TenantIsolationTest {
             Map.entry("deleteWebhookEndpoint", this::deleteWebhookEndpointLeavesAnotherTenantsEndpointInPlace),
             Map.entry("rollWebhookEndpointSecret", this::rollWebhookEndpointSecretLeavesAnotherTenantsSecretInPlace),
             Map.entry("listTenantWebhookEndpoints", this::listTenantWebhookEndpointsHidesAnotherTenantsEndpoints),
-            Map.entry("getTenantWebhookEndpoint", this::getTenantWebhookEndpointHidesAnotherTenantsEndpoint));
+            Map.entry("getTenantWebhookEndpoint", this::getTenantWebhookEndpointHidesAnotherTenantsEndpoint),
+            Map.entry(
+                    "createTenantWebhookEndpoint", this::createTenantWebhookEndpointRegistersNothingForAnotherTenant));
 
     @Autowired
     TenantIsolationTest(
@@ -375,6 +377,18 @@ class TenantIsolationTest {
                 .asString()
                 .contains(own.publicId().toString())
                 .doesNotContain(others.publicId().toString());
+    }
+
+    private void createTenantWebhookEndpointRegistersNothingForAnotherTenant(Request request, Scene scene) {
+        String body = """
+                {"url": "https://orders.example.com/axion", "enabled_events": ["charge.paid"]}
+                """;
+
+        assertNotFound(request.send(scene, body, scene.other().test().publicId()));
+        assertThat(endpoints(scene.other().test())).isZero();
+
+        assertThat(request.send(scene, body, scene.caller().test().publicId())).hasStatus(HttpStatus.CREATED);
+        assertThat(endpoints(scene.caller().test())).isOne();
     }
 
     private void getTenantWebhookEndpointHidesAnotherTenantsEndpoint(Request request, Scene scene) {
