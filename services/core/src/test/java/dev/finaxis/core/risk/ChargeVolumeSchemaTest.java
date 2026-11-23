@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.finaxis.core.DatabaseOwner;
+import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
+import dev.finaxis.core.shared.TenantId;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.UUID;
@@ -18,7 +20,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
  * The risk counters table and the rules the database enforces on it (billing design, section 11),
- * checked against a real PostgreSQL. The owner arranges the rows; nothing is committed.
+ * checked against a real PostgreSQL. The owner arranges the rows, then the module's role reads and
+ * writes them; nothing is committed.
  */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
@@ -87,6 +90,35 @@ class ChargeVolumeSchemaTest {
                         .query(Long.class)
                         .single())
                 .isEqualTo(2);
+    }
+
+    @Test
+    void letsTheModuleRoleCreateAWindowAndAddAChargeToIt() {
+        DatabaseRole.RISK.actAs(jdbc, new TenantId(tenant));
+
+        insert(tenant, "DAILY_AMOUNT", HOUR, 0, 0);
+        jdbc.sql("""
+                        UPDATE risk.charge_volume SET total_minor = total_minor + 500, count = count + 1
+                         WHERE tenant_id = ? AND rule = 'DAILY_AMOUNT'
+                        """).param(tenant).update();
+
+        assertThat(jdbc.sql("SELECT total_minor FROM risk.charge_volume WHERE tenant_id = ?")
+                        .param(tenant)
+                        .query(Long.class)
+                        .single())
+                .isEqualTo(500);
+    }
+
+    @Test
+    void deniesTheModuleRoleDeletingAWindow() {
+        insert(tenant, "DAILY_AMOUNT", HOUR, 0, 0);
+        DatabaseRole.RISK.actAs(jdbc, new TenantId(tenant));
+
+        assertThatThrownBy(() -> jdbc.sql("DELETE FROM risk.charge_volume WHERE tenant_id = ?")
+                        .param(tenant)
+                        .update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
     }
 
     private void assertRejected(Runnable insert, String constraint) {
