@@ -24,6 +24,7 @@ class LoginRoleTest {
             "finaxis_idempotency",
             "finaxis_idempotency_jobs",
             "finaxis_billing",
+            "finaxis_billing_jobs",
             "finaxis_risk",
             "finaxis_risk_jobs",
             "finaxis_rails");

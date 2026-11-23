@@ -14,6 +14,7 @@ public enum DatabaseRole {
     IDEMPOTENCY,
     IDEMPOTENCY_JOBS,
     BILLING,
+    BILLING_JOBS,
     RISK,
     RISK_JOBS,
     RAILS;
