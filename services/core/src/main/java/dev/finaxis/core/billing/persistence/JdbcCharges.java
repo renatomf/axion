@@ -1,18 +1,41 @@
 package dev.finaxis.core.billing.persistence;
 
+import dev.finaxis.core.billing.ChargeId;
 import dev.finaxis.core.billing.ChargeRequest;
+import dev.finaxis.core.billing.ChargeStatus;
+import dev.finaxis.core.billing.ChargeView;
 import dev.finaxis.core.billing.domain.BrCode;
 import dev.finaxis.core.billing.domain.Charge;
 import dev.finaxis.core.billing.domain.TransactionId;
+import dev.finaxis.core.shared.Environment;
+import dev.finaxis.core.shared.Money;
+import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.shared.TenantId;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Types;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Currency;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
+import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
 @Repository
 public class JdbcCharges {
+
+    private static final TypeReference<Map<String, String>> METADATA = new TypeReference<>() {};
+
+    private static final String COLUMNS = """
+            id, status, amount_minor, currency, amount_refunded, description, metadata::text AS metadata,
+            transaction_id, br_code, expires_at, paid_at, created_at
+            """;
 
     private final JdbcClient jdbc;
     private final JsonMapper json;
@@ -51,5 +74,45 @@ public class JdbcCharges {
                 .param("createdAt", charge.createdAt().atOffset(ZoneOffset.UTC))
                 .update();
         return inserted == 1;
+    }
+
+    /**
+     * The charge, if the tenant's. Row-Level Security also hides the other tenants' charges, should a
+     * query forget its filter.
+     *
+     * @param tenant the bound tenant, with its environment, which the row does not store
+     */
+    public Optional<ChargeView> find(TenantContext.Binding tenant, ChargeId id) {
+        return jdbc.sql("SELECT " + COLUMNS + " FROM billing.charges WHERE tenant_id = :tenant AND id = :id")
+                .param("tenant", tenant.tenant().value())
+                .param("id", id.value())
+                .query((row, rowNumber) -> view(row, tenant.environment()))
+                .optional();
+    }
+
+    private ChargeView view(ResultSet row, Environment environment) throws SQLException {
+        Currency currency = Currency.getInstance(row.getString("currency"));
+        return new ChargeView(
+                new ChargeId(row.getObject("id", UUID.class)),
+                ChargeStatus.valueOf(row.getString("status")),
+                Money.ofMinor(row.getLong("amount_minor"), currency),
+                Money.ofMinor(row.getLong("amount_refunded"), currency),
+                row.getString("description"),
+                json.readValue(row.getString("metadata"), METADATA),
+                row.getString("transaction_id"),
+                row.getString("br_code"),
+                instant(row, "expires_at"),
+                nullableInstant(row, "paid_at"),
+                instant(row, "created_at"),
+                environment);
+    }
+
+    private static Instant instant(ResultSet row, String column) throws SQLException {
+        return row.getObject(column, OffsetDateTime.class).toInstant();
+    }
+
+    private static @Nullable Instant nullableInstant(ResultSet row, String column) throws SQLException {
+        OffsetDateTime value = row.getObject(column, OffsetDateTime.class);
+        return value == null ? null : value.toInstant();
     }
 }

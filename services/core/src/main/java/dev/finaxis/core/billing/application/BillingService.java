@@ -23,6 +23,7 @@ import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
@@ -90,8 +91,7 @@ public class BillingService implements BillingApi {
     @Override
     @Transactional
     public CreateChargeResult createCharge(ChargeRequest request) {
-        var binding = TenantContext.current()
-                .orElseThrow(() -> new IllegalStateException("Creating a charge needs a tenant bound"));
+        var binding = bound("Creating a charge");
         TenantView tenant = tenancy.tenant(binding.tenant())
                 .orElseThrow(() -> new IllegalStateException(
                         "Unknown tenant " + binding.tenant().value()));
@@ -102,6 +102,17 @@ public class BillingService implements BillingApi {
         CreateChargeResult result = roles.call(ROLE, () -> insert(tenant, charge, request));
         countOnCommit();
         return result;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<ChargeView> charge(ChargeId charge) {
+        var binding = bound("Reading a charge");
+        return roles.call(ROLE, () -> charges.find(binding, charge));
+    }
+
+    private static TenantContext.Binding bound(String work) {
+        return TenantContext.current().orElseThrow(() -> new IllegalStateException(work + " needs a tenant bound"));
     }
 
     // The caller's transaction may still roll back, as an idempotent request that fails later does;
