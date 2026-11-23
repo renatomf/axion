@@ -33,6 +33,10 @@ axion:
       keys:
         - id: test-key-ed25519
           public-key: MCowBQYDK2VwAyEAJrQLj5P/89iXES9+vFgrIy29clF9CC/oPPsw3c5D0bs=
+  webhooks:
+    # 32 zero bytes: encrypts the secrets of test endpoints only, and protects
+    # nothing.
+    secrets-key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 
 spring:
   modulith:
