@@ -63,6 +63,9 @@ class FaultInjectionTest {
     /** Long enough for a notification and its retries to reach the core and be settled. */
     private static final Duration PATIENCE = Duration.ofSeconds(30);
 
+    /** The shortest a charge lasts, then a pass of the expiry job, every 30 seconds, and a margin. */
+    private static final Duration EXPIRY = ChargeRequest.MIN_EXPIRES_IN.plusSeconds(45);
+
     @DynamicPropertySource
     static void rails(DynamicPropertyRegistry registry) {
         registry.add("server.port", () -> CORE_PORT);
@@ -188,6 +191,29 @@ class FaultInjectionTest {
         assertThat(available()).isEqualTo(brl(10_000));
     }
 
+    /**
+     * The payer pays a code whose charge expired. The expiry job may not have run yet, so the outcome
+     * cannot depend on it: the payment is flagged by its acceptance time either way.
+     */
+    @Test
+    void flagsLatePayment() throws InterruptedException {
+        ChargeView charge = charge(10_000, ChargeRequest.MIN_EXPIRES_IN);
+        sleepUntil(charge.expiresAt().plusSeconds(1));
+
+        String endToEndId = RAILS.pay(charge.brCode());
+
+        ChargeDetail flagged =
+                await(() -> detail(charge), detail -> detail.payments().size() == 1);
+        assertThat(flagged.payments()).singleElement().satisfies(payment -> {
+            assertThat(payment.endToEndId()).isEqualTo(endToEndId);
+            assertThat(payment.outcome()).isEqualTo(PaymentOutcome.FLAGGED);
+            assertThat(payment.reviewReason()).contains(ReviewReason.CHARGE_EXPIRED);
+        });
+        assertThat(flagged.charge().status()).isNotEqualTo(ChargeStatus.PAID);
+        await(EXPIRY, () -> detail(charge), detail -> detail.charge().status() == ChargeStatus.EXPIRED);
+        assertThat(available()).isEqualTo(brl(10_000));
+    }
+
     private ChargeView charge(long amount, Duration expiresIn) {
         return TenantContext.call(
                 organization.test(),
@@ -231,6 +257,13 @@ class FaultInjectionTest {
                 .param(endToEndId)
                 .query(Long.class)
                 .single();
+    }
+
+    private static void sleepUntil(Instant moment) throws InterruptedException {
+        Duration left = Duration.between(Instant.now(), moment);
+        if (left.isPositive()) {
+            Thread.sleep(left);
+        }
     }
 
     /** Polls until the value satisfies the condition, then returns it; fails after {@link #PATIENCE}. */
