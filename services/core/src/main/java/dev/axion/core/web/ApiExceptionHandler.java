@@ -27,6 +27,7 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 import tools.jackson.core.JacksonException;
+import tools.jackson.databind.exc.InvalidNullException;
 import tools.jackson.databind.exc.UnrecognizedPropertyException;
 
 /**
@@ -81,17 +82,23 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     // A field the request does not define is refused as invalid, not ignored, so a misspelled
-    // optional field is not silently dropped. The rest of an unreadable body stays a 400.
+    // optional field is not silently dropped; so is a null for a field that refuses one, such as a
+    // field a merge patch cannot remove. The rest of an unreadable body stays a 400.
     @Override
     protected @Nullable ResponseEntity<Object> handleHttpMessageNotReadable(
             HttpMessageNotReadableException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-        if (!(ex.getCause() instanceof UnrecognizedPropertyException unknown)) {
+        FieldProblem field;
+        if (ex.getCause() instanceof UnrecognizedPropertyException unknown) {
+            field = new FieldProblem(jsonPath(unknown.getPath()), "is not a known field");
+        } else if (ex.getCause() instanceof InvalidNullException refused) {
+            field = new FieldProblem(jsonPath(refused.getPath()), "must not be null");
+        } else {
             return super.handleHttpMessageNotReadable(ex, headers, status, request);
         }
         HttpStatus unprocessable = HttpStatus.UNPROCESSABLE_CONTENT;
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(unprocessable, "The request has invalid fields.");
         problem.setProperty(CODE, VALIDATION_FAILED);
-        problem.setProperty("errors", List.of(new FieldProblem(jsonPath(unknown.getPath()), "is not a known field")));
+        problem.setProperty("errors", List.of(field));
         return handleExceptionInternal(ex, problem, headers, unprocessable, request);
     }
 

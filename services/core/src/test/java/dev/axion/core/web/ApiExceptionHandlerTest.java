@@ -3,6 +3,8 @@ package dev.axion.core.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -26,6 +28,7 @@ import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.web.ErrorResponseException;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -178,6 +181,36 @@ class ApiExceptionHandlerTest {
     }
 
     @Test
+    void nullForAFieldThatRefusesOneIsAValidationProblemNamingIt() {
+        assertThat(mvc.patch()
+                        .uri("/test/patched")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"display_name": null}
+                                """))
+                .hasStatus(HttpStatus.UNPROCESSABLE_CONTENT)
+                .bodyJson()
+                .isLenientlyEqualTo("""
+                        {
+                          "status": 422,
+                          "code": "validation_failed",
+                          "errors": [{"field": "display_name", "detail": "must not be null"}]
+                        }
+                        """);
+    }
+
+    @Test
+    void fieldThatRefusesNullMayBeLeftOut() {
+        assertThat(mvc.patch()
+                        .uri("/test/patched")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .hasStatus(HttpStatus.OK)
+                .bodyText()
+                .isEqualTo("unchanged");
+    }
+
+    @Test
     void javaPathsBecomeSnakeCase() {
         assertThat(ApiExceptionHandler.jsonPath("name")).isEqualTo("name");
         assertThat(ApiExceptionHandler.jsonPath("tags[1]")).isEqualTo("tags[1]");
@@ -302,6 +335,22 @@ class ApiExceptionHandlerTest {
         @PostMapping("/test/validated")
         String validated(@Valid @RequestBody Form form) {
             return form.name();
+        }
+
+        @PatchMapping("/test/patched")
+        String patched(@RequestBody Patch patch) {
+            return patch.displayName == null ? "unchanged" : patch.displayName;
+        }
+    }
+
+    static final class Patch {
+
+        @Nullable
+        String displayName;
+
+        @JsonSetter(value = "display_name", nulls = Nulls.FAIL)
+        void setDisplayName(String value) {
+            displayName = value;
         }
     }
 
