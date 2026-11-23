@@ -1,8 +1,8 @@
 package dev.finaxis.core.rails.web;
 
+import dev.finaxis.core.rails.PixCredit;
 import dev.finaxis.core.rails.application.CreditInbox;
 import dev.finaxis.core.rails.application.CreditsReceived;
-import dev.finaxis.core.rails.domain.ReceivedCredit;
 import dev.finaxis.core.rails.security.SignedMessage;
 import dev.finaxis.core.rails.web.CreditNotification.MalformedNotification;
 import org.slf4j.Logger;
@@ -50,12 +50,12 @@ class PixCreditsController {
 
     @PostMapping(path = "/rails/pix/credits", consumes = MediaType.APPLICATION_JSON_VALUE)
     ResponseEntity<Void> receive(@RequestAttribute(SignedMessage.ATTRIBUTE) SignedMessage message) {
-        ReceivedCredit credit = read(message);
+        PixCredit credit = read(message);
         inbox.record(credit, message.keyId(), message.digest());
         return ResponseEntity.accepted().build();
     }
 
-    private ReceivedCredit read(SignedMessage message) {
+    private PixCredit read(SignedMessage message) {
         CreditNotification notification;
         try {
             notification = notifications.readValue(message.body());

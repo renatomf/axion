@@ -1,6 +1,6 @@
 package dev.finaxis.core.rails.persistence;
 
-import dev.finaxis.core.rails.domain.ReceivedCredit;
+import dev.finaxis.core.rails.PixCredit;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -20,7 +20,7 @@ public class JdbcPixCredits {
      * recorded; answers whether it did. Two copies arriving together are decided by the primary
      * key: one inserts, the other waits for it and skips.
      */
-    public boolean insertIfAbsent(ReceivedCredit credit, String keyId, byte[] contentDigest, Instant receivedAt) {
+    public boolean insertIfAbsent(PixCredit credit, String keyId, byte[] contentDigest, Instant receivedAt) {
         return jdbc.sql("""
                         INSERT INTO rails.pix_credits (end_to_end_id, message_id, transaction_id, amount_minor,
                                                        currency, accepted_at, debtor_ispb, key_id, content_digest,

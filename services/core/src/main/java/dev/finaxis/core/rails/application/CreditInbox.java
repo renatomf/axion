@@ -1,7 +1,7 @@
 package dev.finaxis.core.rails.application;
 
 import dev.finaxis.core.ModuleRoles;
-import dev.finaxis.core.rails.domain.ReceivedCredit;
+import dev.finaxis.core.rails.PixCredit;
 import dev.finaxis.core.rails.persistence.JdbcPixCredits;
 import java.time.Clock;
 import java.util.Objects;
@@ -51,7 +51,7 @@ public class CreditInbox {
      * Records the credit with the evidence of what was accepted: the key that verified its signature
      * and the SHA-256 of the exact bytes. Committed when this returns.
      */
-    public Reception record(ReceivedCredit credit, String keyId, byte[] contentDigest) {
+    public Reception record(PixCredit credit, String keyId, byte[] contentDigest) {
         boolean inserted = Objects.requireNonNull(transactions.execute(status ->
                 roles.call(ROLE, () -> credits.insertIfAbsent(credit, keyId, contentDigest, clock.instant()))));
         if (inserted) {
