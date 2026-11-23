@@ -158,16 +158,18 @@ public class Settlement implements PixCreditHandler {
             }
             return null;
         });
-        log(receipt, credit);
-        observeOnCommit(receipt.payment(), now);
+        observeOnCommit(receipt, credit, now);
         return CreditResult.RECORDED;
     }
 
-    // Counted once the transaction commits: a payment rolled back was never recorded.
-    private void observeOnCommit(Payment payment, Instant settledAt) {
+    // Logged and counted once the transaction commits: a payment rolled back was never recorded,
+    // and the check of the ledger's balances at commit can still roll it back.
+    private void observeOnCommit(Receipt receipt, PixCredit credit, Instant settledAt) {
+        Payment payment = receipt.payment();
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
+                log(receipt, credit);
                 Objects.requireNonNull(recorded.get(
                                 tags(payment.outcome(), payment.reviewReason().orElse(null))))
                         .increment();
