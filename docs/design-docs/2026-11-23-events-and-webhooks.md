@@ -155,3 +155,51 @@ Where a consumer's own table already has the event ID as a unique key, as `webho
 A listener that throws leaves its publication incomplete. A job of `events` resubmits incomplete publications every minute, with a backoff by attempt: 1, 5 and 30 minutes, then every 2 hours, up to 10 attempts. Modulith also resubmits them when the core starts, so a publication interrupted by a restart is handled within seconds of the next start.
 
 After the tenth attempt a publication is left alone: it is a dead letter. It is counted (`axion_events_publications_failed`), alerted on, and kept until an operator resubmits it, with a command that names the listener and the publication, once the cause is fixed. A consumer that keeps failing never blocks the others: each listener has its own publication of the event.
+
+## 5. Public events
+
+### 5.1 Envelope
+
+A public event is a [CloudEvent 1.0](https://github.com/cloudevents/spec) in structured JSON mode:
+
+```json
+{
+  "specversion": "1.0",
+  "id": "evt_01jdr3b6f7g8h9j0k1m2n3p4q5",
+  "source": "urn:axion:test",
+  "type": "charge.paid",
+  "subject": "ch_01jdq8k3m4n5p6q7r8s9t0v1w2",
+  "time": "2026-11-23T14:03:11.482Z",
+  "datacontenttype": "application/json",
+  "dataschema": "https://github.com/renatomf/axion/blob/main/services/core/openapi/v1.yaml#charge.paid.v1",
+  "data": {
+    "object": { "id": "ch_01jdq8k3m4n5p6q7r8s9t0v1w2", "object": "charge", "status": "paid", "…": "…" }
+  }
+}
+```
+
+| Attribute | Value |
+|---|---|
+| `id` | The domain event's ID as a public ID with the prefix `evt_`. The same for every delivery and replay of the event, so receivers deduplicate by it |
+| `source` | `urn:axion:test` or `urn:axion:live`: the environment, so a receiver can tell a test event from a live one without a lookup |
+| `type` | The public type of section 3.3 |
+| `subject` | The public ID of the resource the event is about |
+| `time` | The domain event's `occurredAt`, in UTC with milliseconds |
+| `dataschema` | The schema of `data` and its version (section 5.2) |
+| `data.object` | The resource as `GET` returns it at the event's time: the charge with its payments and refunds; for `payment.flagged`, the payment with its `charge`; for `charge.refunded`, the charge, with the refund named by `data.refund` |
+
+- `data` is rendered once, when `webhooks` records the event (section 8.1), and stored as bytes: every attempt and every replay sends exactly the bytes first sent, so a signature verified once stays valid evidence.
+- The resource is a snapshot, not a pointer: a receiver can act without calling the API. A receiver that needs the current state, because a later event may have changed it, reads the resource by `subject`.
+- `EventCatalog.render(DomainEvent)`, in `events`, is the only place a public event is built. It is a pure function of the event and the clock, with no database access, so `webhooks` and `notifications` can call it without depending on anything slow.
+
+### 5.2 Versioning
+
+Each public type has a schema in the `webhooks` section of `v1.yaml`, one entry per type and version (`charge.paid.v1`), referencing the same component schemas as the API: a charge in a webhook is the charge of `GET /v1/charges/{id}`.
+
+- **Additive changes** keep the version: a new optional field, a new value of a field the reference documents as open, a new event type. Receivers must ignore fields they do not know; the reference says so.
+- **Breaking changes** add a version: a removed or renamed field, a changed meaning, a new required field. During a deprecation period of at least six months both versions are sent, as types `charge.paid` and `charge.paid.v2`, and an endpoint chooses which it subscribes to; afterwards the old one stops.
+- The contract tests render every type and validate it against its schema, strictly, as they do for responses (section 13).
+
+### 5.3 Ordering and duplicates
+
+Events are delivered at least once and in no guaranteed order. A retried `charge.created` can arrive after the `charge.paid` of the same charge; a delivery whose response was lost is sent again. The reference tells receivers to deduplicate by `id`, to compare `time` or the resource's state before overwriting newer data, and to answer quickly and process later. Ordering per resource would hold every later delivery of a charge behind a failing one; no Pix integration needs it, because the snapshot carries the state.
