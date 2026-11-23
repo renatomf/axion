@@ -10,11 +10,17 @@ import dev.finaxis.core.shared.BusinessCalendar;
 import dev.finaxis.core.shared.Money;
 import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.shared.TenantId;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Currency;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
@@ -26,6 +32,8 @@ import org.springframework.transaction.interceptor.TransactionAspectSupport;
 @EnableConfigurationProperties(RiskProperties.class)
 public class RiskService implements RiskApi {
 
+    public static final String DENIALS = "finaxis.risk.denials";
+
     private static final String ROLE = "finaxis_risk";
 
     private static final Currency BRL = Currency.getInstance("BRL");
@@ -34,18 +42,37 @@ public class RiskService implements RiskApi {
     private final ModuleRoles roles;
     private final RiskProperties properties;
     private final Clock clock;
+    private final Map<RiskRule, Counter> denials = new EnumMap<>(RiskRule.class);
 
-    public RiskService(JdbcChargeVolume volume, ModuleRoles roles, RiskProperties properties, Clock clock) {
+    // Registered at zero, so a rate is defined before the first denial by each rule.
+    public RiskService(
+            JdbcChargeVolume volume, ModuleRoles roles, RiskProperties properties, Clock clock, MeterRegistry meters) {
         this.volume = volume;
         this.roles = roles;
         this.properties = properties;
         this.clock = clock;
+        for (RiskRule rule : RiskRule.values()) {
+            denials.put(
+                    rule,
+                    Counter.builder(DENIALS)
+                            .description("Charges the risk rules denied, by the rule that denied them")
+                            .tag("rule", rule.name().toLowerCase(Locale.ROOT))
+                            .register(meters));
+        }
     }
 
     // MANDATORY: what the decision counts must commit or roll back with the charge it allowed.
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public ChargeDecision assessCharge(TenantId tenant, Money amount) {
+        var decision = decide(tenant, amount);
+        if (decision instanceof ChargeDecision.Denied(RiskRule rule)) {
+            Objects.requireNonNull(denials.get(rule)).increment();
+        }
+        return decision;
+    }
+
+    private ChargeDecision decide(TenantId tenant, Money amount) {
         if (!amount.currency().equals(BRL) || !amount.isPositive()) {
             throw new IllegalArgumentException("A charge's amount must be positive, in BRL: " + amount);
         }

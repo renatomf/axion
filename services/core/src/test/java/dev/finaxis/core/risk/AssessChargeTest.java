@@ -6,11 +6,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.MutableClock;
 import dev.finaxis.core.PostgresTestConfiguration;
+import dev.finaxis.core.risk.application.RiskService;
 import dev.finaxis.core.shared.BusinessCalendar;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.Money;
 import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.shared.TenantId;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -67,15 +69,21 @@ class AssessChargeTest {
     private final TransactionTemplate transaction;
     private final JdbcClient owner;
     private final MutableClock clock;
+    private final MeterRegistry meters;
     private final TenantId tenant = new TenantId(UUID.randomUUID());
 
     @Autowired
     AssessChargeTest(
-            RiskApi risk, PlatformTransactionManager transactions, DatabaseOwner databaseOwner, MutableClock clock) {
+            RiskApi risk,
+            PlatformTransactionManager transactions,
+            DatabaseOwner databaseOwner,
+            MutableClock clock,
+            MeterRegistry meters) {
         this.risk = risk;
         this.transaction = new TransactionTemplate(transactions);
         this.owner = databaseOwner.jdbc();
         this.clock = clock;
+        this.meters = meters;
     }
 
     @Test
@@ -201,6 +209,22 @@ class AssessChargeTest {
         assertThat(total(RiskRule.DAILY_AMOUNT)).isEqualTo(50 * 100);
     }
 
+    @Test
+    void countsEachDenialByItsRule() {
+        double amountBefore = denials("amount");
+        double hourlyBefore = denials("hourly_count");
+        assess(Environment.TEST, TEST_AMOUNT_LIMIT + 1);
+        assessTimes(TEST_HOURLY_LIMIT + 2, 1);
+
+        assertThat(denials("amount")).isEqualTo(amountBefore + 1);
+        assertThat(denials("hourly_count")).isEqualTo(hourlyBefore + 2);
+    }
+
+    @Test
+    void registersADenialCounterForEveryRuleAtStartup() {
+        assertThat(meters.get(RiskService.DENIALS).counters()).hasSize(RiskRule.values().length);
+    }
+
     @ParameterizedTest
     @ValueSource(longs = {0, -100})
     void refusesAnAmountThatIsNotPositive(long amount) {
@@ -252,6 +276,10 @@ class AssessChargeTest {
                 tenant,
                 environment,
                 () -> transaction.execute(status -> risk.assessCharge(tenant, Money.ofMinor(amount, BRL))));
+    }
+
+    private double denials(String rule) {
+        return meters.get(RiskService.DENIALS).tag("rule", rule).counter().count();
     }
 
     private void assessTimes(int times, long amount) {
