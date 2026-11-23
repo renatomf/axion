@@ -10,6 +10,7 @@ import dev.axion.core.observability.CorrelationIdFilter;
 import dev.axion.core.shared.TenantContext;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.web.HandlerStep;
+import dev.axion.core.web.ReplayBody;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -31,6 +32,7 @@ import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.util.ContentCachingResponseWrapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Runs every {@code POST} under {@code /v1} once per {@code Idempotency-Key} of the caller's tenant
@@ -41,6 +43,9 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  *
  * <p>It runs after the permission check, so a replay is given only to a caller who could make the
  * request now, and inside the tenant binding, so the key's row is under Row-Level Security.
+ *
+ * <p>An operation whose response shows a secret once sets a {@link ReplayBody} without it, which is
+ * stored instead of the bytes it wrote, so no secret is kept in plaintext with the key.
  */
 @Component
 final class IdempotencyStep implements HandlerStep {
@@ -55,12 +60,16 @@ final class IdempotencyStep implements HandlerStep {
 
     private final IdempotencyApi idempotency;
     private final HandlerExceptionResolver exceptionResolver;
+    private final JsonMapper json;
 
+    // The JsonMapper MVC writes responses with, so a replay body is serialized as a response is.
     IdempotencyStep(
             IdempotencyApi idempotency,
-            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver exceptionResolver) {
+            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver exceptionResolver,
+            JsonMapper json) {
         this.idempotency = idempotency;
         this.exceptionResolver = exceptionResolver;
+        this.json = json;
     }
 
     @Override
@@ -213,11 +222,10 @@ final class IdempotencyStep implements HandlerStep {
             if (contentType == null) {
                 throw new IllegalStateException("A /v1 write must answer with a body and its content type");
             }
+            byte[] stored =
+                    ReplayBody.of(request).map(json::writeValueAsBytes).orElseGet(response::getContentAsByteArray);
             return new CapturedResponse(
-                    response.getStatus(),
-                    contentType,
-                    response.getHeader(HttpHeaders.LOCATION),
-                    response.getContentAsByteArray());
+                    response.getStatus(), contentType, response.getHeader(HttpHeaders.LOCATION), stored);
         }
     }
 
