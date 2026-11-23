@@ -1,6 +1,6 @@
 # Engineering standards
 
-The standards Finaxis is built to. The goal is code that is **simple, highly modular and deliberate**, not complex. This document expands section 19 of the [platform overview](../design-docs/2026-11-17-platform-overview.md#19-engineering-standards); when they disagree, the design doc wins and the conflict is fixed in a pull request.
+The standards Axion is built to. The goal is code that is **simple, highly modular and deliberate**, not complex. This document expands section 19 of the [platform overview](../design-docs/2026-11-17-platform-overview.md#19-engineering-standards); when they disagree, the design doc wins and the conflict is fixed in a pull request.
 
 A standard that is only written down is a suggestion, so each one states how it is enforced:
 

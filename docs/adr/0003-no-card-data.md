@@ -9,7 +9,7 @@
 
 ## Context
 
-Finaxis is a billing and receivables platform on Brazilian payment rails. Its value lies in Pix, Pix Automático and boleto, plus the ledger, reconciliation and fraud controls around them.
+Axion is a billing and receivables platform on Brazilian payment rails. Its value lies in Pix, Pix Automático and boleto, plus the ledger, reconciliation and fraud controls around them.
 
 Any system that stores, processes or transmits payment card data falls within the scope of PCI DSS. Meeting it requires controls such as network segmentation, key management, strict access control, audit logging and regular assessments, applied to every component that touches card data or can affect its security.
 
@@ -21,13 +21,13 @@ We will **not process, store or transmit payment card data** anywhere in the pla
 
 - Supported payment methods are Pix, Pix Automático and boleto only.
 - Card processing is listed as a non-goal in the platform overview.
-- If cards are ever needed, they will be introduced through a new ADR, using a third-party provider so that card data never reaches Finaxis systems.
+- If cards are ever needed, they will be introduced through a new ADR, using a third-party provider so that card data never reaches Axion systems.
 
 ## Alternatives considered
 
 ### Card processing through a third-party tokenization provider
 
-Card data is captured by the provider (e.g. hosted fields) and Finaxis only sees tokens. Rejected for now: it adds an external dependency and cost, and parts of the platform could still fall within PCI DSS scope, while cards add little to what the project sets out to demonstrate.
+Card data is captured by the provider (e.g. hosted fields) and Axion only sees tokens. Rejected for now: it adds an external dependency and cost, and parts of the platform could still fall within PCI DSS scope, while cards add little to what the project sets out to demonstrate.
 
 ### Direct card processing
 

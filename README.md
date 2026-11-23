@@ -1,11 +1,11 @@
-# Finaxis
+# Axion
 
 **An open-source, API-first billing and receivables platform built on Brazilian payment rails** (Pix, Pix Automático, boleto), with a double-entry ledger, reconciliation and fraud controls at its core.
 
 Stripe-quality developer experience and Mercury-quality product experience, on Brazilian rails.
 
 > [!IMPORTANT]
-> Finaxis is a demonstration project. All money, payment rails and data are simulated. It is not a financial service and holds no real customer data.
+> Axion is a demonstration project. All money, payment rails and data are simulated. It is not a financial service and holds no real customer data.
 
 ## Status
 

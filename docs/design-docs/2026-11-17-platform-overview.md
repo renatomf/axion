@@ -1,17 +1,17 @@
-# Finaxis — Platform Overview Design
+# Axion — Platform Overview Design
 
 | | |
 |---|---|
 | **Status** | Approved |
 | **Date** | 2026-11-17 |
 | **Scope** | Whole platform (vision, architecture, cross-cutting decisions). Each phase gets its own design doc and implementation plan. |
-| **Name** | "Finaxis" is a working name. Brand identity (name, logo, palette) will be defined later and applied through design tokens. |
+| **Name** | "Axion" is a working name. Brand identity (name, logo, palette) will be defined later and applied through design tokens. |
 
 ---
 
 ## 1. Context and goals
 
-Finaxis is an **open-source, API-first billing and receivables platform built on Brazilian payment rails** (Pix, Pix Automático, boleto), with a double-entry ledger, reconciliation and fraud controls at its core.
+Axion is an **open-source, API-first billing and receivables platform built on Brazilian payment rails** (Pix, Pix Automático, boleto), with a double-entry ledger, reconciliation and fraud controls at its core.
 
 It is a **demonstration project**: all money, rails and data are simulated. It is engineered as if it were a production financial system, so that every decision can be defended in a senior engineering interview at a bank, acquirer or global fintech.
 
@@ -42,7 +42,7 @@ It is a **demonstration project**: all money, rails and data are simulated. It i
 
 ### 1.4 Disclaimer (README)
 
-> Finaxis is a demonstration project. All money, payment rails and data are simulated. It is not a financial service and holds no real customer data. It was built with AI assistance; every change was reviewed by the author.
+> Axion is a demonstration project. All money, payment rails and data are simulated. It is not a financial service and holds no real customer data. It was built with AI assistance; every change was reviewed by the author.
 
 ---
 

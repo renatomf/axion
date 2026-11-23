@@ -1,6 +1,6 @@
 # Idempotency
 
-A request over the network can fail without saying whether it worked: the connection may drop after Finaxis created a charge and before the response reached you. The safe reaction is to send the request again, and the `Idempotency-Key` header makes that safe: every retry of one operation has the effect of a single request.
+A request over the network can fail without saying whether it worked: the connection may drop after Axion created a charge and before the response reached you. The safe reaction is to send the request again, and the `Idempotency-Key` header makes that safe: every retry of one operation has the effect of a single request.
 
 This guide is for developers of systems that call the public `/v1` API. The contract, [`v1.yaml`](../../services/core/openapi/v1.yaml), is the reference; the design behind it is in the [idempotency design](../design-docs/2026-11-21-idempotency.md).
 

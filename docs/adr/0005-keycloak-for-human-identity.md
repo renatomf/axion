@@ -24,7 +24,7 @@ The platform overview chose Keycloak and deferred the record of that decision to
 
 We will use Keycloak as the identity provider for people. It authenticates them; the core authorizes them, with roles stored in the `tenancy` module (design, section 4.1).
 
-- One realm, `finaxis`, defined as a JSON export in `infra/keycloak/` and imported at startup. It holds no secrets: client secrets come from the environment.
+- One realm, `axion`, defined as a JSON export in `infra/keycloak/` and imported at startup. It holds no secrets: client secrets come from the environment.
 - Keycloak runs in Docker Compose with its own database and database role on the project's PostgreSQL server, never in a module's schema.
 - Integration tests start the same realm in a Keycloak Testcontainer.
 - The version is the latest stable release when PR 1.18 adds it, upgraded through Dependabot like every other image.
