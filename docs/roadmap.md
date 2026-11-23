@@ -195,7 +195,7 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | 1.40 | Late payments | The expiry job; a payment accepted after expiry credited and flagged; one accepted before it settles the expired charge ([#222](https://github.com/renatomf/finaxis/pull/222)) |
 | 1.41 | Refunds | Reversal entries, partial and full refunds |
 | ↳ 1.41a | Refunds | Refunds of one payment and their table; reversal entries for full and partial refunds within the payment's amount ([#224](https://github.com/renatomf/finaxis/pull/224)) |
-| ↳ 1.41b | Refund endpoint | `POST /v1/charges/{id}/refunds`, idempotent; a charge's `refunds` in `GET /v1/charges/{id}` |
+| ↳ 1.41b | Refund endpoint | `POST /v1/charges/{id}/refunds`, idempotent; a charge's `refunds` in `GET /v1/charges/{id}` ([#226](https://github.com/renatomf/finaxis/pull/226)) |
 | 1.42 | Fault-injection suite | Timeouts, duplicates, out-of-order and late callbacks, mid-settlement failure |
 
 ### 4.7 Block G — Events, webhooks, audit and notifications
