@@ -63,6 +63,11 @@ finaxis:
     # The platform's city, which a payer's app shows before the payer
     # confirms. Finaxis is the receiving participant.
     merchant-city: SAO PAULO
+    expiry:
+      # Expires the active charges whose expiry has passed, every 30 seconds
+      # (billing design, section 9). Off only where something else runs the
+      # job, as the tests do.
+      enabled: true
   rails:
     processor:
       # Hands the credits of the rails' inbox to billing, a batch every 500 ms

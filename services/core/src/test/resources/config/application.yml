@@ -8,6 +8,12 @@ finaxis:
     # The core contacts the realm only when a request carries a bearer
     # token; tests that send one start a real Keycloak and override this.
     issuer: http://keycloak.invalid/realms/finaxis
+  billing:
+    expiry:
+      # Tests expire charges themselves: the database is shared, and a job on
+      # the real clock would expire the charges other tests create at fixed
+      # times. The test of the schedule turns it back on.
+      enabled: false
   rails:
     processor:
       # Tests hand the inbox's credits to billing themselves, so a credit a
