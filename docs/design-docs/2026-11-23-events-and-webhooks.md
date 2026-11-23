@@ -203,3 +203,46 @@ Each public type has a schema in the `webhooks` section of `v1.yaml`, one entry 
 ### 5.3 Ordering and duplicates
 
 Events are delivered at least once and in no guaranteed order. A retried `charge.created` can arrive after the `charge.paid` of the same charge; a delivery whose response was lost is sent again. The reference tells receivers to deduplicate by `id`, to compare `time` or the resource's state before overwriting newer data, and to answer quickly and process later. Ordering per resource would hold every later delivery of a charge behind a failing one; no Pix integration needs it, because the snapshot carries the state.
+
+## 6. Webhook endpoints
+
+### 6.1 Resource
+
+```json
+{
+  "id": "we_01jdr2m4n5p6q7r8s9t0v1w2x3",
+  "object": "webhook_endpoint",
+  "url": "https://example.com/axion/webhooks",
+  "description": "Order service",
+  "enabled_events": ["charge.paid", "charge.refunded"],
+  "status": "enabled",
+  "disabled_reason": null,
+  "secret": "whsec_…",
+  "created_at": "2026-11-23T13:58:02Z"
+}
+```
+
+- `url`: HTTPS only, at most 2,048 characters, validated as section 7.1 describes.
+- `enabled_events`: one to 20 public types of the catalog, or `["*"]` for every type, including those added later. An unknown type is refused, so a typo does not silently subscribe to nothing.
+- `status`: `enabled` or `disabled`; `disabled_reason` is `failing` (section 8.6) or `by_tenant`.
+- `secret` appears only in the responses that create it: creating the endpoint and rolling its secret (section 6.2).
+- At most 16 endpoints per tenant. Endpoints belong to a tenant, so to one environment: a test key manages test endpoints, which receive test events only (tenancy design, section 3.2).
+
+### 6.2 Signing secrets
+
+A secret is `whsec_` followed by 32 random bytes in base64, the format of Standard Webhooks. HMAC needs the secret itself to sign, so it cannot be hashed as API keys are: it is encrypted at rest with [Tink](https://developers.google.com/tink) AEAD (AES-256-GCM), with the endpoint's ID as associated data, so a ciphertext copied to another endpoint fails to decrypt. The key-encryption key comes from `AXION_WEBHOOK_SECRETS_KEY` and never reaches the database (overview, section 4.7).
+
+- A secret is shown once and never logged; `.gitleaks.toml` gains a rule for its format.
+- **Rolling** issues a new secret and keeps the old one signing for a grace period, from zero to 7 days (default 24 hours), so the tenant can deploy the new secret first. During the grace period each request carries two signatures (section 8.4), and the old secret is deleted when it ends. A secret is rolled again only after the previous grace period ends, so an endpoint never has more than two.
+
+### 6.3 Operations
+
+| Operation | Rule |
+|---|---|
+| Create | URL validated (section 7.1); secret generated and returned once; at most 16 endpoints |
+| Read and list | Never the secret |
+| Update | `url`, `description`, `enabled_events` and `status`; a new URL is validated again. Setting `status` to `enabled` clears `disabled_reason` and starts the endpoint afresh: deliveries that died while it was disabled are not resent; the tenant replays the ones it wants (section 8.7) |
+| Delete | The endpoint stops receiving at once; its pending deliveries are canceled; its delivery log stays readable until its retention ends (section 8.8) |
+| Roll secret | Section 6.2 |
+
+Each operation publishes its event of section 3.3 for the audit trail. On `/internal`, every change needs step-up, as the overview requires for changing webhook URLs (section 4.3).
