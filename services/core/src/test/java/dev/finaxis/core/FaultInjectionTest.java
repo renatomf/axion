@@ -163,6 +163,31 @@ class FaultInjectionTest {
         assertThat(available()).isEqualTo(brl(20_000));
     }
 
+    @Test
+    void settlesThroughRetries() throws InterruptedException {
+        ChargeView charge = charge(10_000, ChargeRequest.DEFAULT_EXPIRES_IN);
+        RAILS.addRule("""
+                {"fault": "fail", "match": {"transactionId": "%s"}, "times": 3}""".formatted(charge.transactionId()));
+        RAILS.addRule("""
+                {"fault": "latency", "min": "PT1S", "max": "PT3S", "match": {"transactionId": "%s"}, "times": 4}""".formatted(charge.transactionId()));
+
+        String endToEndId = RAILS.pay(charge.brCode());
+
+        ChargeDetail paid =
+                await(() -> detail(charge), detail -> detail.charge().status() == ChargeStatus.PAID);
+        assertThat(paid.payments()).hasSize(1);
+        await(() -> deliveries(endToEndId), delivered(1));
+        String payment = RAILS.payment(endToEndId);
+        List<String> errors = JsonPath.read(payment, "$.deliveries[0].attempts[*].error");
+        assertThat(errors).containsExactly("not_sent", "not_sent", "not_sent");
+        List<String> outcomes = JsonPath.read(payment, "$.deliveries[0].attempts[*].outcome");
+        assertThat(outcomes).containsExactly("retried", "retried", "retried", "delivered");
+        List<String> faults = JsonPath.read(payment, "$.deliveries[0].faults[*].fault");
+        assertThat(faults).filteredOn("latency"::equals).hasSize(4);
+        assertThat(entriesOf(endToEndId)).isOne();
+        assertThat(available()).isEqualTo(brl(10_000));
+    }
+
     private ChargeView charge(long amount, Duration expiresIn) {
         return TenantContext.call(
                 organization.test(),
