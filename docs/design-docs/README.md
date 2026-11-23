@@ -14,3 +14,4 @@ One design doc per significant feature, written and approved before implementati
 | [Idempotency](2026-11-21-idempotency.md) | Approved |
 | [Rails simulator](2026-11-21-rails-simulator.md) | Approved |
 | [Billing](2026-11-22-billing.md) | Approved |
+| [Events and webhooks](2026-11-23-events-and-webhooks.md) | Approved |
