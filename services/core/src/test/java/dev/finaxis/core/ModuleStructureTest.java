@@ -29,6 +29,7 @@ class ModuleStructureTest {
                         "tenancy",
                         "idempotency",
                         "billing",
-                        "risk");
+                        "risk",
+                        "rails");
     }
 }
