@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import dev.axion.core.DatabaseOwner;
+import dev.axion.core.DatabaseRole;
 import dev.axion.core.MutableClock;
 import dev.axion.core.PostgresTestConfiguration;
 import dev.axion.core.events.Probes.Probe;
@@ -11,6 +12,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -28,7 +30,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * Publications whose listener failed, or whose process stopped, handed to the listener again as the
  * events and webhooks design, section 4.5, plans. A stopped process is played by a row left as it
- * would leave it. The clock stands still until a test moves it; the registry reads it too.
+ * would leave it, and an operator by the command of V44. The clock stands still until a test moves
+ * it; the registry reads it too.
  */
 @SpringBootTest
 @Import({PostgresTestConfiguration.class, Probes.class, RegistryRecoveryTest.Configuration.class})
@@ -56,6 +59,9 @@ class RegistryRecoveryTest {
     private final StalenessProperties staleness;
     private final MutableClock clock;
     private final JdbcClient owner;
+    private final JdbcClient jdbc;
+
+    private @Nullable String listenerId;
 
     @Autowired
     RegistryRecoveryTest(
@@ -67,7 +73,8 @@ class RegistryRecoveryTest {
             EventPublicationRegistry registry,
             StalenessProperties staleness,
             MutableClock clock,
-            DatabaseOwner owner) {
+            DatabaseOwner owner,
+            JdbcClient jdbc) {
         this.events = events;
         this.transaction = new TransactionTemplate(transactions);
         this.probes = probes;
@@ -77,6 +84,7 @@ class RegistryRecoveryTest {
         this.staleness = staleness;
         this.clock = clock;
         this.owner = owner.jdbc();
+        this.jdbc = jdbc;
     }
 
     @Test
@@ -161,6 +169,48 @@ class RegistryRecoveryTest {
         assertThat(probes.handlings(probe)).hasSize(1);
     }
 
+    @Test
+    void handsADeadPublicationBackOnAnOperatorsCommand() {
+        var probe = Probe.next();
+        var now = clock.instant();
+        UUID dead = strand(probe, "FAILED", now.minus(Duration.ofDays(1)), now.minus(Duration.ofHours(2)), 10);
+
+        assertThat(resubmitAsOperator(dead, listenerId())).isTrue();
+        assertThat(row(probe)).isEqualTo(new Row("FAILED", 1));
+        resubmission.resubmitDue();
+
+        awaitRow(probe, new Row("COMPLETED", 2));
+        assertThat(probes.handlings(probe)).hasSize(1);
+    }
+
+    @Test
+    void refusesTheOperatorsCommandForAPublicationNotDeadOrOfAnotherListener() {
+        var now = clock.instant();
+        var retried = Probe.next();
+        var dead = Probe.next();
+        UUID stillRetried =
+                strand(retried, "FAILED", now.minus(Duration.ofHours(1)), now.minus(Duration.ofMinutes(30)), 3);
+        UUID deadOne = strand(dead, "FAILED", now.minus(Duration.ofDays(1)), now.minus(Duration.ofHours(2)), 10);
+
+        assertThat(resubmitAsOperator(stillRetried, listenerId())).isFalse();
+        assertThat(resubmitAsOperator(deadOne, "another.listener(java.lang.Object)"))
+                .isFalse();
+        assertThat(resubmitAsOperator(UUID.randomUUID(), listenerId())).isFalse();
+
+        assertThat(row(retried)).isEqualTo(new Row("FAILED", 3));
+        assertThat(row(dead)).isEqualTo(new Row("FAILED", 10));
+    }
+
+    private boolean resubmitAsOperator(UUID publication, String listener) {
+        return Boolean.TRUE.equals(transaction.execute(status -> {
+            DatabaseRole.EVENTS.actAs(jdbc);
+            return jdbc.sql("SELECT events.resubmit_dead_publication(?, ?)")
+                    .params(publication, listener)
+                    .query(Boolean.class)
+                    .single();
+        }));
+    }
+
     private void publish(Probe probe) {
         transaction.executeWithoutResult(status -> events.publishEvent(probe));
     }
@@ -171,7 +221,8 @@ class RegistryRecoveryTest {
     }
 
     /** Leaves a probe's publication in the registry as a stopped process would. */
-    private void strand(Probe probe, String status, Instant published, Instant lastAttempt, int attempts) {
+    private UUID strand(Probe probe, String status, Instant published, Instant lastAttempt, int attempts) {
+        UUID id = UUID.randomUUID();
         owner.sql("""
                         INSERT INTO events.event_publication
                                (id, listener_id, event_type, serialized_event, publication_date, status,
@@ -179,7 +230,7 @@ class RegistryRecoveryTest {
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """)
                 .params(
-                        UUID.randomUUID(),
+                        id,
                         listenerId(),
                         Probe.class.getName(),
                         "{\"id\":\"" + probe.id() + "\"}",
@@ -188,18 +239,24 @@ class RegistryRecoveryTest {
                         attempts,
                         lastAttempt.atOffset(ZoneOffset.UTC))
                 .update();
+        return id;
     }
 
     // The registry names a listener by its method; a probe published through it shows the name.
     private String listenerId() {
+        if (listenerId != null) {
+            return listenerId;
+        }
         var probe = Probe.next();
         publish(probe);
         await().atMost(Duration.ofSeconds(5))
                 .until(() -> !probes.handlings(probe).isEmpty());
-        return owner.sql("SELECT listener_id FROM events.event_publication WHERE serialized_event::jsonb ->> 'id' = ?")
+        listenerId = owner.sql(
+                        "SELECT listener_id FROM events.event_publication WHERE serialized_event::jsonb ->> 'id' = ?")
                 .param(probe.id().toString())
                 .query(String.class)
                 .single();
+        return listenerId;
     }
 
     private Row row(Probe probe) {
