@@ -229,6 +229,88 @@ paths:
           $ref: "components.yaml#/responses/TooManyRequests"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
+  /v1/charges/{id}/refunds:
+    parameters:
+      - $ref: "#/components/parameters/ChargeId"
+    post:
+      operationId: createRefund
+      tags: [Charges]
+      summary: Refund a payment
+      description: >-
+        Gives money back to the payer of one of the charge's payments, in
+        full or in part, from the tenant's available balance. A payment can
+        be refunded in several parts, never beyond its amount, for 90 days
+        after the Pix rails accepted it; a charge has at most 50 refunds.
+        Refunding the payment that paid the charge moves the charge to
+        `partially_refunded` or `refunded`; refunding a flagged payment
+        leaves the charge as it is. Requires `refunds:write`.
+      parameters:
+        - $ref: "components.yaml#/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRefundRequest"
+      responses:
+        "201":
+          description: >-
+            The payment was refunded. The refund is read with its charge, in
+            the charge's `refunds`, so the response has no `Location`.
+          headers:
+            Idempotent-Replayed:
+              $ref: "components.yaml#/headers/Idempotent-Replayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Refund"
+        "400":
+          description: >-
+            The body cannot be read, such as invalid JSON or a value of the
+            wrong type (`bad_request`), or the `Idempotency-Key` is missing
+            (`idempotency_key_required`) or malformed
+            (`invalid_idempotency_key`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The key lacks `refunds:write` (`insufficient_permission`), or
+            its tenant is not active (`tenant_inactive`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "409":
+          $ref: "components.yaml#/responses/RequestInProgress"
+        "413":
+          $ref: "components.yaml#/responses/ContentTooLarge"
+        "422":
+          description: >-
+            The refund was refused, and nothing was refunded. Some fields
+            are invalid or unknown, or `payment` is not one of the charge's
+            (`validation_failed`, with `errors`); the charge has received no
+            payment (`charge_not_paid`); it has several and the request
+            names none (`payment_required`); the amount is more than remains
+            of the payment (`amount_exceeds_refundable`); the rails accepted
+            the payment more than 90 days ago (`refund_window_closed`); the
+            charge has 50 refunds already (`refund_limit_reached`); the
+            tenant's available balance is less than the amount
+            (`insufficient_balance`); or the `Idempotency-Key` was used for
+            another request (`idempotency_key_reused`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
 components:
   schemas:
     CreateChargeRequest:
@@ -551,6 +633,74 @@ components:
             the settled payment.
           type: [string, "null"]
           enum: [charge_already_paid, charge_expired, amount_mismatch, null]
+    CreateRefundRequest:
+      description: >-
+        A refund to make of one of the charge's payments. Send `{}` to
+        refund all that remains of a charge's only payment. A field not
+        listed here is refused.
+      type: object
+      additionalProperties: false
+      properties:
+        amount:
+          description: >-
+            In centavos, at most what remains of the payment; all of it when
+            omitted. An integer: `100.0` is refused.
+          type: integer
+          format: int64
+          minimum: 1
+        payment:
+          description: >-
+            The `id` of the payment to refund, one of the charge's
+            `payments`. Optional when the charge has received one payment,
+            required when it has received several, so a refund never
+            guesses which payer gets money back.
+          type: string
+          pattern: "^pmt_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+      examples:
+        - amount: 5000
+          payment: pmt_01jdq9a2b3c4d5e6f7g8h9j0k1
+    Refund:
+      description: Money given back to the payer of one of a charge's payments.
+      type: object
+      required: [id, object, charge, payment, amount, status, created_at]
+      properties:
+        id:
+          description: The refund's ID.
+          type: string
+          pattern: "^re_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        object:
+          description: The kind of object, always `refund`.
+          type: string
+          const: refund
+        charge:
+          description: The `id` of the refunded charge.
+          type: string
+          pattern: "^ch_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        payment:
+          description: The `id` of the refunded payment.
+          type: string
+          pattern: "^pmt_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        amount:
+          description: In centavos, what the refund gave back.
+          type: integer
+          format: int64
+        status:
+          description: >-
+            `succeeded` once the money left the tenant's available balance.
+            Every refund succeeds when it is made.
+          type: string
+          enum: [succeeded]
+        created_at:
+          type: string
+          format: date-time
+      examples:
+        - id: re_01jdqb7c8d9e0f1g2h3j4k5m6n
+          object: refund
+          charge: ch_01jdq8k3m4n5p6q7r8s9t0v1w2
+          payment: pmt_01jdq9a2b3c4d5e6f7g8h9j0k1
+          amount: 5000
+          status: succeeded
+          created_at: "2026-11-22T16:10:00Z"
   parameters:
     ChargeId:
       name: id
