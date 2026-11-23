@@ -136,7 +136,7 @@ The core uses Spring Modulith's JDBC registry (`spring-modulith-starter-jdbc`). 
 
 A consumer is a method annotated `@ApplicationModuleListener`: it runs after the publishing transaction commits, on another thread, in a new transaction of its own. Before it touches the database, it binds the event's tenant with `TenantContext.run(event.tenant(), event.environment(), …)` (tenancy design, section 5.3), so Row-Level Security applies to the consumer as it does to a request.
 
-- Listeners run on a bounded executor of virtual threads, 32 at a time; a burst of events waits in the executor's queue, never in a request thread.
+- Listeners run on a bounded executor of virtual threads, 32 at a time; a burst of events waits in the executor's queue, never in a request thread. On shutdown, running listeners get 10 seconds to finish; what is left stays incomplete in the registry (section 4.5).
 - A listener does one thing in one transaction: record an audit record, create deliveries, push to streams. A listener that has to call something slow, such as a tenant's endpoint, records the work and leaves it to a job (section 8).
 - A listener never publishes into the transaction of the module whose event it handles, and no listener sits on the money path: settlement commits whether or not any listener exists.
 
@@ -154,13 +154,13 @@ Delivery is at least once: a listener may be handed the same event again after a
 
 `IdempotentConsumer`, in `shared`, inserts the row with `ON CONFLICT DO NOTHING` and runs the effect only when the row was inserted; a duplicate commits nothing else and returns. The effect and the row commit together, so an event is handled once even if the duplicate arrives while the first is still running: the second insert waits for the first transaction's key and then finds it.
 
-Where a consumer's own table already has the event ID as a unique key, as `webhooks.events` does (section 8.1), that key is its record and no `consumed_events` row is needed. Rows older than 30 days are deleted; a registry that resubmits a 30-day-old event has a problem an operator must see first (section 4.5).
+Where a consumer's own table already has the event ID as a unique key, as `webhooks.events` does (section 8.1), that key is its record and no `consumed_events` row is needed. Rows older than 30 days are deleted by a job of the consuming module, which arrives with its table; a registry that resubmits a 30-day-old event has a problem an operator must see first (section 4.5).
 
 ### 4.5 Failed publications
 
-A listener that throws leaves its publication incomplete. A job of `events` resubmits incomplete publications every minute, with a backoff by attempt: 1, 5 and 30 minutes, then every 2 hours, up to 10 attempts. Modulith also resubmits them when the core starts, so a publication interrupted by a restart is handled within seconds of the next start.
+A listener that throws leaves its publication failed. A job of `events` resubmits failed publications every minute, with a backoff by attempt: 1, 5 and 30 minutes after the first three attempts, then every 2 hours, for 10 attempts in all, about 13 hours. When the core is ready, `events` also resubmits every publication left incomplete before it started, dead ones excepted, so a publication interrupted by a restart is handled within seconds of the next start. A publication still waiting, running or resubmitted after 10 minutes is taken as lost and marked failed by Modulith's staleness monitor, so one interrupted during its own resubmission returns to the job; if it was only slow, its consumer is idempotent.
 
-After the tenth attempt a publication is left alone: it is a dead letter. It is counted (`axion_events_publications_failed`), alerted on, and kept until an operator resubmits it, with a command that names the listener and the publication, once the cause is fixed. A consumer that keeps failing never blocks the others: each listener has its own publication of the event.
+After the tenth attempt a publication is left alone: it is a dead letter. It is counted (`axion_events_publications_failed`), alerted on, and kept until an operator resubmits it once the cause is fixed: acting as `axion_events`, the operator calls `events.resubmit_dead_publication(publication, listener)`, which starts the publication's attempts over only if it is dead, and the job hands it back within a minute. The [runbook](../operations/runbooks/dead-event-publications.md) describes the procedure. A consumer that keeps failing never blocks the others: each listener has its own publication of the event.
 
 ## 5. Public events
 
@@ -517,7 +517,7 @@ audit.chain_heads
 
 - `unique (endpoint_id, event_id)` repeats the rule that an event is delivered once to each endpoint, whatever the listener's retries.
 - Deleted endpoints keep their row, with `deleted_at`, until their deliveries' retention ends; they receive nothing and are never listed.
-- Roles: `axion_events` owns the publications job; `axion_webhooks` manages endpoints, secrets, events and deliveries for the tenant bound; `axion_webhooks_jobs` drains the queue, disables endpoints and removes old rows (section 8.2); `axion_audit` appends (section 9.2); `axion_audit_checks` reads every chain. No role may update or delete an attempt or an audit record.
+- Roles: `axion_events` reads how far each publication has got, never `serialized_event`, removes completed publications and runs the operator's command; `axion_webhooks` manages endpoints, secrets, events and deliveries for the tenant bound; `axion_webhooks_jobs` drains the queue, disables endpoints and removes old rows (section 8.2); `axion_audit` appends (section 9.2); `axion_audit_checks` reads every chain. No role may update or delete an attempt or an audit record.
 
 ## 12. API
 
@@ -568,7 +568,7 @@ Public IDs: `evt_` for events, `we_` for webhook endpoints, `whd_` for deliverie
 
 ### 12.3 Observability
 
-Metrics: `axion_events_publications_incomplete`, `axion_events_publication_oldest_incomplete_seconds`, `axion_events_publications_failed`, `axion_webhooks_attempts_total{result}`, `axion_webhooks_attempt_duration_seconds`, `axion_webhooks_queue_oldest_due_seconds`, `axion_webhooks_endpoints_disabled_total`, `axion_audit_chain_verified{chain}`, `axion_notifications_streams`. Alerts: any failed publication; the oldest due delivery older than 5 minutes; a chain that fails verification.
+Metrics: `axion_events_publications_incomplete`, `axion_events_publication_oldest_incomplete_seconds`, `axion_events_publications_failed`, `axion_webhooks_attempts_total{result}`, `axion_webhooks_attempt_duration_seconds`, `axion_webhooks_queue_oldest_due_seconds`, `axion_webhooks_endpoints_disabled_total`, `axion_audit_chain_verified{chain}`, `axion_notifications_streams`. Alerts: any failed publication; the oldest due delivery older than 5 minutes; a chain that fails verification. The oldest incomplete publication's age leaves dead ones out, which `axion_events_publications_failed` counts, so it keeps measuring the publications still retried.
 
 Logs carry the event's, endpoint's, delivery's and attempt's IDs and the correlation ID of the event; never a URL's path or query, which may hold a tenant's token, never a secret, never a body.
 
