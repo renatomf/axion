@@ -1,4 +1,4 @@
-package dev.axion.core.billing.web;
+package dev.axion.core.web;
 
 import jakarta.validation.Constraint;
 import jakarta.validation.Payload;
@@ -9,15 +9,15 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * A length in code points, as {@link dev.axion.core.billing.ChargeRequest}, PostgreSQL's {@code
- * char_length} and JSON Schema's {@code maxLength} count it. {@code Size} counts UTF-16 units, so
- * it would refuse 140 emoji that the charge accepts.
+ * A length in code points, as PostgreSQL's {@code char_length} and JSON Schema's {@code maxLength}
+ * count it. {@code Size} counts UTF-16 units, so it would refuse 140 emoji that a column of 140
+ * characters accepts.
  */
 @Documented
 @Constraint(validatedBy = CodePointLengthValidator.class)
 @Target({ElementType.FIELD, ElementType.PARAMETER, ElementType.RECORD_COMPONENT, ElementType.TYPE_USE})
 @Retention(RetentionPolicy.RUNTIME)
-@interface CodePointLength {
+public @interface CodePointLength {
 
     int min() default 0;
 

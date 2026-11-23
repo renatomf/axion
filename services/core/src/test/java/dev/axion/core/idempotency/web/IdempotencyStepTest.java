@@ -4,6 +4,7 @@ import static dev.axion.core.tenancy.Permission.CHARGES_READ;
 import static dev.axion.core.tenancy.Permission.CHARGES_WRITE;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jayway.jsonpath.JsonPath;
 import dev.axion.core.DatabaseOwner;
 import dev.axion.core.PostgresTestConfiguration;
 import dev.axion.core.access.AccessApi;
@@ -21,10 +22,14 @@ import dev.axion.core.shared.TenantId;
 import dev.axion.core.tenancy.NewOrganization;
 import dev.axion.core.tenancy.Permission;
 import dev.axion.core.tenancy.TenancyApi;
+import dev.axion.core.web.ReplayBody;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
+import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.util.Currency;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -95,6 +100,19 @@ class IdempotencyStepTest {
             }
             return ResponseEntity.created(URI.create(PATH + "/" + code))
                     .body(Map.of("code", code, "amount", request.amount()));
+        }
+
+        /** Shows a new secret once: a repeat is answered with the same code and no secret. */
+        @RequiresPermission(CHARGES_WRITE)
+        @PostMapping(PATH + "/secrets")
+        ResponseEntity<Map<String, Object>> secret(HttpServletRequest request) {
+            String code = "test:" + UUID.randomUUID();
+            Map<String, Object> withoutSecret = new HashMap<>();
+            withoutSecret.put("code", code);
+            withoutSecret.put("secret", null);
+            ReplayBody.set(request, withoutSecret);
+            return ResponseEntity.status(HttpStatus.CREATED)
+                    .body(Map.of("code", code, "secret", "s3cr3t-" + UUID.randomUUID()));
         }
 
         /** Answers with the length of the body it received. */
@@ -239,6 +257,32 @@ class IdempotencyStepTest {
     }
 
     @Test
+    void storesAndReplaysTheReplayBodyInsteadOfASecretShownOnce() throws UnsupportedEncodingException {
+        MvcTestResult first = writeSecret("secret-1");
+        String secret = JsonPath.read(first.getResponse().getContentAsString(), "$.secret");
+
+        MvcTestResult repeat = writeSecret("secret-1");
+
+        assertThat(first).hasStatus(HttpStatus.CREATED).doesNotContainHeader(IdempotencyStep.REPLAYED_HEADER);
+        assertThat(secret).startsWith("s3cr3t-");
+        assertThat(repeat)
+                .hasStatus(HttpStatus.CREATED)
+                .hasContentType(MediaType.APPLICATION_JSON)
+                .hasHeader(IdempotencyStep.REPLAYED_HEADER, "true")
+                .bodyJson()
+                .isStrictlyEqualTo(
+                        """
+                        {"code": "%s", "secret": null}
+                        """.formatted(JsonPath.<String>read(first.getResponse().getContentAsString(), "$.code")));
+        assertThat(owner.jdbc()
+                        .sql("SELECT convert_from(response_body, 'UTF8') FROM idempotency.keys WHERE tenant_id = ?")
+                        .param(organization.test().value())
+                        .query(String.class)
+                        .single())
+                .doesNotContain(secret);
+    }
+
+    @Test
     void replaysToAnotherKeyOfTheTenantWithTheScope() {
         write(key, "order-1", BODY);
 
@@ -339,6 +383,16 @@ class IdempotencyStepTest {
                 .header(IdempotencyStep.HEADER, idempotencyKey)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body)
+                .exchange();
+    }
+
+    private MvcTestResult writeSecret(String idempotencyKey) {
+        return mvc.post()
+                .uri(PATH + "/secrets")
+                .header("Authorization", "Bearer " + key.secret())
+                .header(IdempotencyStep.HEADER, idempotencyKey)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}")
                 .exchange();
     }
 

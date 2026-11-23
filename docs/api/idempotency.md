@@ -27,7 +27,7 @@ Content-Type: application/json
 | Situation | Response |
 |---|---|
 | First request with the key | The operation's response |
-| A retry after the first request completed | The first response again, byte for byte, with `Idempotent-Replayed: true`; the operation does not run again |
+| A retry after the first request completed | The first response again, byte for byte except a secret shown once, with `Idempotent-Replayed: true`; the operation does not run again |
 | A retry while the first request is still running | `409` with code `request_in_progress` and `Retry-After: 1`; retry after it |
 | The key with another path or body | `422` with code `idempotency_key_reused` |
 | No `Idempotency-Key` | `400` with code `idempotency_key_required` |
@@ -35,6 +35,8 @@ Content-Type: application/json
 | A body over 64 KiB | `413` with code `content_too_large` |
 
 A replay repeats the first response's status, `Content-Type`, `Location` and body. The headers about the request you just sent are its own: `X-Correlation-Id`, `RateLimit-Policy` and `RateLimit`.
+
+A secret is shown once, so it is not part of a replay: a repeat of `POST /v1/webhook_endpoints` gets the same endpoint with `secret` set to `null`, and the rest of the first response. Axion keeps the secret only encrypted. If the first response was lost, roll the endpoint's secret.
 
 A replay is answered only to a caller who could make the request now: it is authenticated, rate-limited and checked for the scope first. A revoked API key gets `401`, and a key without the scope `403`, not the stored response.
 

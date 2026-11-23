@@ -119,6 +119,13 @@ axion:
         amount: 1000000         # R$ 10,000.00 per charge
         daily-amount: 20000000  # R$ 200,000.00 per business date
         hourly-count: 1000      # charges per clock hour
+  webhooks:
+    # The key that encrypts the endpoints' signing secrets at rest (events
+    # and webhooks design, section 6.2): 32 random bytes in base64. No
+    # default: each environment sets AXION_WEBHOOK_SECRETS_KEY, and the core
+    # does not start without it. It never reaches the database; losing it
+    # makes every endpoint's secret unreadable.
+    secrets-key: ${AXION_WEBHOOK_SECRETS_KEY}
 
 logging:
   structured:

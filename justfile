@@ -9,7 +9,7 @@ default:
     @just --list
 
 # Start a profile of local infrastructure (core, auth or rails) and wait until it is healthy
-up profile="core": _env _signing-key
+up profile="core": _env _signing-key _webhook-secrets-key
     {{ compose }} --profile {{ profile }} up --detach --wait
     {{ compose }} --profile {{ profile }} run --rm core-database
 
@@ -51,6 +51,17 @@ _signing-key:
         echo "RAILS_SIMULATOR_SIGNING_PUBLIC_KEY=$public"
     } >> "$env"
     echo "Added a rails simulator signing key pair to $env"
+
+# Add the key that encrypts webhook signing secrets to infra/compose/.env, unless it has one
+_webhook-secrets-key:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    env=infra/compose/.env
+    # A key per machine, never in the repository (events and webhooks design,
+    # section 6.2). Replacing it makes the local endpoints' secrets unreadable.
+    grep -q '^AXION_WEBHOOK_SECRETS_KEY=.' "$env" && exit 0
+    echo "AXION_WEBHOOK_SECRETS_KEY=$(openssl rand -base64 32)" >> "$env"
+    echo "Added a webhook secrets key to $env"
 
 # List the dead publications of the local core: failed after their last attempt
 dead-publications:

@@ -70,6 +70,20 @@ schemas:
       detail:
         description: What is wrong with the field, for humans; may change.
         type: string
+      reason:
+        description: >-
+          Why the field was refused, as a stable code clients can branch on.
+          Present only for the `url` of a webhook endpoint: `malformed`,
+          `must_be_https`, `must_use_domain_name`, `port_not_allowed`,
+          `must_be_public` or `must_resolve`.
+        type: string
+        enum:
+          - malformed
+          - must_be_https
+          - must_use_domain_name
+          - port_not_allowed
+          - must_be_public
+          - must_resolve
 parameters:
   IdempotencyKey:
     name: Idempotency-Key

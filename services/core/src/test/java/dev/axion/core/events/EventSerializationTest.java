@@ -33,6 +33,11 @@ import dev.axion.core.shared.MemberId;
 import dev.axion.core.shared.Money;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.tenancy.Permission;
+import dev.axion.core.webhooks.DisabledReason;
+import dev.axion.core.webhooks.EndpointStatus;
+import dev.axion.core.webhooks.EndpointView;
+import dev.axion.core.webhooks.WebhookEndpointCreated;
+import dev.axion.core.webhooks.WebhookEndpointId;
 import java.time.Instant;
 import java.util.Currency;
 import java.util.List;
@@ -100,7 +105,8 @@ class EventSerializationTest {
                 new ChargeRefunded(header(new Actor.Member(new MemberId(UUID.randomUUID()))), refund, charge),
                 new ApiKeyIssued(header(new Actor.Member(new MemberId(UUID.randomUUID()))), key),
                 new ApiKeyRolled(header(new Actor.Member(new MemberId(UUID.randomUUID()))), key, key),
-                new ApiKeyRevoked(header(new Actor.Member(new MemberId(UUID.randomUUID()))), key));
+                new ApiKeyRevoked(header(new Actor.Member(new MemberId(UUID.randomUUID()))), key),
+                new WebhookEndpointCreated(header(new Actor.ApiKey(new ApiKeyId(UUID.randomUUID()))), endpoint()));
     }
 
     private static EventHeader header(Actor actor) {
@@ -129,6 +135,17 @@ class EventSerializationTest {
                 NOW.minusSeconds(60),
                 Environment.TEST);
         return new ChargeDetail(view, List.of(), List.of());
+    }
+
+    private static EndpointView endpoint() {
+        return new EndpointView(
+                new WebhookEndpointId(UUID.randomUUID()),
+                "https://example.com/axion/webhooks",
+                Optional.of("Order service"),
+                Set.of("charge.paid", "charge.refunded"),
+                EndpointStatus.DISABLED,
+                Optional.of(DisabledReason.BY_TENANT),
+                NOW);
     }
 
     private static ApiKeyView key() {

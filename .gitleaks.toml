@@ -20,6 +20,15 @@ description = "Axion API key"
 regex = '''\bsk_(?:live|test)_[0-9A-Za-z]{36}\b'''
 keywords = ["sk_live_", "sk_test_"]
 
+# Webhook signing secrets (events and webhooks design, section 6.2): whsec_
+# and 32 random bytes in base64, the format of Standard Webhooks. Tests
+# generate their secrets at run time instead of writing them down.
+[[rules]]
+id = "axion-webhook-secret"
+description = "Axion webhook signing secret"
+regex = '''\bwhsec_[0-9A-Za-z+/]{43}='''
+keywords = ["whsec_"]
+
 # The Ed25519 test key of RFC 9421 (appendix B.1.4), published in the RFC so
 # that implementations can reproduce its signatures. The simulator's signer
 # test does; the key signs nothing else. The path accepts any package root, as

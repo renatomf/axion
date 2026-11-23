@@ -69,6 +69,8 @@ dependencies {
     implementation(libs.bucket4j.core)
     // A bounded cache, so the buckets of idle tenants and keys are dropped.
     implementation(libs.caffeine)
+    // Encrypts webhook signing secrets at rest (AES-256-GCM AEAD).
+    implementation(libs.tink)
 
     // Test-only libraries: on the test classpath, never in the packaged JAR.
     testImplementation(libs.spring.boot.starter.test)
