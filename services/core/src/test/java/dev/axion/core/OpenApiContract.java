@@ -28,7 +28,7 @@ import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.dataformat.yaml.YAMLMapper;
 
 /**
- * Checks that a response is one its OpenAPI contract allows. The console's client is generated
+ * Checks that a response, or an event sent to a webhook, is one its OpenAPI contract allows. The console's client is generated
  * from the contracts, so a drifting response breaks it even when every other test passes.
  *
  * <p>Strict: an object may carry only the properties its schema lists. The contract stays open to
@@ -96,6 +96,28 @@ public final class OpenApiContract {
             }
         }
         return List.copyOf(operations);
+    }
+
+    /** The events the contract's {@code webhooks} section documents, by type. */
+    public List<String> events() {
+        return List.copyOf(document(file).path("webhooks").propertyNames());
+    }
+
+    /** Checks that the body of an event is one its {@code webhooks} entry allows. */
+    public void assertEventConforms(String type, String body) {
+        String event = "event " + type;
+        Located schema = new Located(file, "/webhooks", document(file).path("webhooks"))
+                .require(type, event)
+                .require("post", event)
+                .require("requestBody", event)
+                .require("content", event)
+                .require("application/cloudevents+json", event)
+                .require("schema", event);
+
+        List<Error> errors = SCHEMAS.getSchema(SchemaLocation.of(schema.iri())).validate(body, InputFormat.JSON);
+        assertThat(errors)
+                .as("%s: the body does not match %s", event, schema.iri())
+                .isEmpty();
     }
 
     public void assertConforms(MvcTestResult result) {
