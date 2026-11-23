@@ -7,7 +7,7 @@ package dev.finaxis.core.rails.security;
  */
 public final class SignedMessage {
 
-    public static final String ATTRIBUTE = SignedMessage.class.getName();
+    public static final String ATTRIBUTE = "dev.finaxis.core.rails.security.SignedMessage";
 
     private final String keyId;
     private final byte[] body;

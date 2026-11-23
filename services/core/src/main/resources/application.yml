@@ -58,6 +58,11 @@ finaxis:
     # confirms. Finaxis is the receiving participant.
     merchant-city: SAO PAULO
   rails:
+    # Finaxis's ISPB on the rails, the receiving participant every credit
+    # must name. Fictitious, as the rails simulator's (its application.yml,
+    # simulator.participants.receiver). Quoted: an ISPB is a code, not a
+    # number.
+    ispb: "99990001"
     signing:
       # The public keys the Pix rails sign their messages with, by key ID
       # (rails simulator design, sections 6.3 and 6.4): X.509 DER in base64.

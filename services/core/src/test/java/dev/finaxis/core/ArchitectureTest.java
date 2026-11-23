@@ -42,10 +42,19 @@ class ArchitectureTest {
     @ArchTest
     static final ArchRule timeComesFromAClock = noClasses().should().callMethodWhere(readsTheSystemClock());
 
-    /** Every endpoint declares exactly one of {@link RequiresPermission} and {@link NoPermissionRequired}. */
+    /**
+     * Every endpoint declares exactly one of {@link RequiresPermission} and {@link NoPermissionRequired}.
+     * The rails module's are the exception: their caller is the Pix rails, authenticated by its
+     * signature, which acts for no tenant and holds no permission.
+     */
     @ArchTest
-    static final ArchRule everyEndpointDeclaresItsPermission =
-            methods().that().areMetaAnnotatedWith(RequestMapping.class).should(declareExactlyOnePermission());
+    static final ArchRule everyEndpointDeclaresItsPermission = methods()
+            .that()
+            .areMetaAnnotatedWith(RequestMapping.class)
+            .and()
+            .areDeclaredInClassesThat()
+            .resideOutsideOfPackage("dev.finaxis.core.rails..")
+            .should(declareExactlyOnePermission());
 
     /** Step-up is checked with the permission, so {@link RequiresStepUp} alone would be ignored. */
     @ArchTest
