@@ -26,6 +26,12 @@ spring:
       # Refuse "100" for a number and 1 for a boolean or a string: a value of
       # the wrong JSON type is a client's bug to report, not to guess at.
       allow-coercion-of-scalars: false
+  task:
+    scheduling:
+      pool:
+        # Enough threads that the rails' processor, every 500 ms, never waits
+        # behind the balance verifier or a cleanup job.
+        size: 4
   flyway:
     # Fail on a file in db/migration whose name Flyway cannot parse, instead
     # of silently skipping it.
