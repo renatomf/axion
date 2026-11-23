@@ -1,6 +1,7 @@
 package dev.finaxis.core.risk.persistence;
 
 import dev.finaxis.core.shared.TenantId;
+import java.time.Instant;
 import java.time.ZoneOffset;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -47,5 +48,22 @@ public class JdbcChargeVolume {
                 .param("maxCount", window.maxCount())
                 .update();
         return added == 1;
+    }
+
+    /**
+     * Deletes up to {@code limit} windows that started before {@code cutoff}, of every tenant; the
+     * removal job's policies let it see windows older than 7 days only. Returns how many it deleted.
+     */
+    public int deleteStartedBefore(Instant cutoff, int limit) {
+        return jdbc.sql("""
+                        DELETE FROM risk.charge_volume
+                         WHERE (tenant_id, rule, window_start) IN (SELECT tenant_id, rule, window_start
+                                                                     FROM risk.charge_volume
+                                                                    WHERE window_start < :cutoff
+                                                                    LIMIT :limit)
+                        """)
+                .param("cutoff", cutoff.atOffset(ZoneOffset.UTC))
+                .param("limit", limit)
+                .update();
     }
 }
