@@ -4,7 +4,7 @@
 # layer reads it from here. Lint it with `just lint-api`.
 openapi: 3.1.1
 info:
-  title: Finaxis Simulated Rails Messages
+  title: Axion Simulated Rails Messages
   version: 0.1.0
   summary: The messages the simulated Pix rails send to the core.
   description: |
@@ -27,7 +27,7 @@ info:
     name: Apache 2.0
     identifier: Apache-2.0
   contact:
-    url: https://github.com/renatomf/finaxis
+    url: https://github.com/renatomf/axion
 servers:
   - url: http://localhost:8080
     description: The core, the receiver of every message, in local development
@@ -37,7 +37,7 @@ webhooks:
       operationId: notifyPixCredit
       summary: Notify a settled Pix credit
       description: >-
-        The SPI has settled a Pix payment to Finaxis: the money is already in
+        The SPI has settled a Pix payment to Axion: the money is already in
         its settlement account. The receiver cannot refuse the credit, only
         record it; it answers once the message is durably recorded, before it
         acts on it. Sent to `POST /rails/pix/credits` on the core.

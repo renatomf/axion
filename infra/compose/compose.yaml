@@ -6,7 +6,7 @@
 #   auth  PostgreSQL and Keycloak, for the console and authentication tests
 #   rails PostgreSQL and the rails simulator, the core's counterpart for payments
 #   jobs  one-shot setup jobs, run by `just up`
-name: finaxis
+name: axion
 
 services:
   postgres:
@@ -15,23 +15,23 @@ services:
     # Dependabot bumps the tag and the digest together.
     image: postgres:17.12-bookworm@sha256:40865bc877a289da75963d97d72b59633f639fc5af7a4e856bfa3714cae5b536
     environment:
-      POSTGRES_DB: finaxis
-      POSTGRES_USER: finaxis
+      POSTGRES_DB: axion
+      POSTGRES_USER: axion
       # Read from infra/compose/.env (git-ignored); see .env.example.
-      POSTGRES_PASSWORD: ${FINAXIS_DB_PASSWORD:?set FINAXIS_DB_PASSWORD in infra/compose/.env}
+      POSTGRES_PASSWORD: ${AXION_DB_PASSWORD:?set AXION_DB_PASSWORD in infra/compose/.env}
     ports:
       # Bound to localhost only: the database is not reachable from the network.
-      # FINAXIS_DB_PORT changes the host port if 5432 is already taken.
-      - "127.0.0.1:${FINAXIS_DB_PORT:-5432}:5432"
+      # AXION_DB_PORT changes the host port if 5432 is already taken.
+      - "127.0.0.1:${AXION_DB_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready --username=finaxis --dbname=finaxis"]
+      test: ["CMD-SHELL", "pg_isready --username=axion --dbname=axion"]
       interval: 5s
       timeout: 5s
       retries: 10
 
-  # One-shot job: gives finaxis_app, the role the core service logs in as, its
+  # One-shot job: gives axion_app, the role the core service logs in as, its
   # login and password, then exits. Idempotent; `just up` runs it on every
   # start with `compose run`, since `up --wait` counts a job that exits as failed.
   core-database:
@@ -39,10 +39,10 @@ services:
     image: postgres:17.12-bookworm@sha256:40865bc877a289da75963d97d72b59633f639fc5af7a4e856bfa3714cae5b536
     environment:
       PGHOST: postgres
-      PGUSER: finaxis
-      PGDATABASE: finaxis
-      PGPASSWORD: ${FINAXIS_DB_PASSWORD:?set FINAXIS_DB_PASSWORD in infra/compose/.env}
-      FINAXIS_APP_DB_PASSWORD: ${FINAXIS_APP_DB_PASSWORD:?set FINAXIS_APP_DB_PASSWORD in infra/compose/.env}
+      PGUSER: axion
+      PGDATABASE: axion
+      PGPASSWORD: ${AXION_DB_PASSWORD:?set AXION_DB_PASSWORD in infra/compose/.env}
+      AXION_APP_DB_PASSWORD: ${AXION_APP_DB_PASSWORD:?set AXION_APP_DB_PASSWORD in infra/compose/.env}
     command: [psql, --no-psqlrc, --set=ON_ERROR_STOP=1, --file=/scripts/create-login-role.sql]
     volumes:
       - ../postgres/create-login-role.sql:/scripts/create-login-role.sql:ro
@@ -58,9 +58,9 @@ services:
     image: postgres:17.12-bookworm@sha256:40865bc877a289da75963d97d72b59633f639fc5af7a4e856bfa3714cae5b536
     environment:
       PGHOST: postgres
-      PGUSER: finaxis
-      PGDATABASE: finaxis
-      PGPASSWORD: ${FINAXIS_DB_PASSWORD:?set FINAXIS_DB_PASSWORD in infra/compose/.env}
+      PGUSER: axion
+      PGDATABASE: axion
+      PGPASSWORD: ${AXION_DB_PASSWORD:?set AXION_DB_PASSWORD in infra/compose/.env}
       KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD in infra/compose/.env}
     command:
       - bash
@@ -96,8 +96,8 @@ services:
       # Temporary administrator of the master realm, created on the first start.
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD in infra/compose/.env}
-      # Replaces the ${FINAXIS_CONSOLE_CLIENT_SECRET} placeholder in the realm file.
-      FINAXIS_CONSOLE_CLIENT_SECRET: ${FINAXIS_CONSOLE_CLIENT_SECRET:?set FINAXIS_CONSOLE_CLIENT_SECRET in infra/compose/.env}
+      # Replaces the ${AXION_CONSOLE_CLIENT_SECRET} placeholder in the realm file.
+      AXION_CONSOLE_CLIENT_SECRET: ${AXION_CONSOLE_CLIENT_SECRET:?set AXION_CONSOLE_CLIENT_SECRET in infra/compose/.env}
     ports:
       # KEYCLOAK_PORT changes the host port if 8180 is already taken.
       - "127.0.0.1:${KEYCLOAK_PORT:-8180}:8080"
@@ -127,9 +127,9 @@ services:
     image: postgres:17.12-bookworm@sha256:40865bc877a289da75963d97d72b59633f639fc5af7a4e856bfa3714cae5b536
     environment:
       PGHOST: postgres
-      PGUSER: finaxis
-      PGDATABASE: finaxis
-      PGPASSWORD: ${FINAXIS_DB_PASSWORD:?set FINAXIS_DB_PASSWORD in infra/compose/.env}
+      PGUSER: axion
+      PGDATABASE: axion
+      PGPASSWORD: ${AXION_DB_PASSWORD:?set AXION_DB_PASSWORD in infra/compose/.env}
       RAILS_SIMULATOR_DB_PASSWORD: ${RAILS_SIMULATOR_DB_PASSWORD:?set RAILS_SIMULATOR_DB_PASSWORD in infra/compose/.env}
     command: [psql, --no-psqlrc, --set=ON_ERROR_STOP=1, --file=/scripts/create-database.sql]
     volumes:

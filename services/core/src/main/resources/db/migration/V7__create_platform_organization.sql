@@ -7,7 +7,7 @@
 -- valid UUIDv7 values (version 7, variant 10) with a zero timestamp, which no
 -- generated ID will ever have.
 INSERT INTO tenancy.organizations (id, name, is_platform)
-VALUES ('00000000-0000-7000-8000-000000000001', 'Finaxis platform', true);
+VALUES ('00000000-0000-7000-8000-000000000001', 'Axion platform', true);
 
 INSERT INTO tenancy.tenants (id, organization_id, environment, status)
 VALUES ('00000000-0000-7000-8000-000000000002', '00000000-0000-7000-8000-000000000001', 'TEST', 'ACTIVE'),

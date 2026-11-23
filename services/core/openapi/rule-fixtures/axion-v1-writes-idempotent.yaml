@@ -1,0 +1,29 @@
+# Breaks axion-v1-writes-idempotent once, at /v1/without_key; the other
+# operations follow it. scripts/test-api-rules.sh checks that the rule
+# reports exactly the broken operation.
+openapi: 3.1.1
+info:
+  title: Fixture of axion-v1-writes-idempotent
+  version: 0.0.1
+paths:
+  /v1/with_key:
+    post:
+      parameters:
+        - $ref: "../components.yaml#/parameters/IdempotencyKey"
+      responses:
+        "201":
+          description: Created.
+  /v1/without_key:
+    post:
+      responses:
+        "201":
+          description: Created.
+    get:
+      responses:
+        "200":
+          description: A read takes no key.
+  /internal/without_key:
+    post:
+      responses:
+        "201":
+          description: The /internal API takes no key.

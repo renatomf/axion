@@ -11,7 +11,7 @@
 
 ## 1. Problem
 
-Money reaches Finaxis through the Pix rails: a payer's bank sends the payment through the Central Bank's instant payment system (SPI), and the receiving institution learns of it from a message. Finaxis connects to none of the real systems, so something must play their part, or settlement can only be tested by calling the core's own code.
+Money reaches Axion through the Pix rails: a payer's bank sends the payment through the Central Bank's instant payment system (SPI), and the receiving institution learns of it from a message. Axion connects to none of the real systems, so something must play their part, or settlement can only be tested by calling the core's own code.
 
 That stand-in decides what the core is tested against. An in-process stub returns the answer the test expects, on time, once. The rails do not: a message arrives late, twice, out of order, or not at all while the network is down, and a timeout says nothing about whether the money moved. The settlement, deduplication and late-payment rules of the overview (sections 7.2 and 7.6) exist for those cases, so they need a counterpart that produces them on demand, over a real network.
 
@@ -45,9 +45,9 @@ The simulator plays three parties of a real payment, none of which the core may 
 |---|---|---|
 | **Payer** | A person paying from a banking app | A request to the simulator's payer API with a BR Code (section 4.2) |
 | **Payer's institution** | The payer's bank, a Pix participant | Debits the payer, generates the `EndToEndId` and sends the payment, inside the simulator |
-| **SPI** | The Central Bank's settlement system | Settles between the participants and notifies the receiver, Finaxis, with a credit notification (section 5.2) |
+| **SPI** | The Central Bank's settlement system | Settles between the participants and notifies the receiver, Axion, with a credit notification (section 5.2) |
 
-The core is the receiving participant: an institution with its own settlement account at the Central Bank, which the ledger holds as `platform:settlement` (overview, section 6.3). The tenants' money is the core's liability to them; the rails see only Finaxis.
+The core is the receiving participant: an institution with its own settlement account at the Central Bank, which the ledger holds as `platform:settlement` (overview, section 6.3). The tenants' money is the core's liability to them; the rails see only Axion.
 
 ### 3.2 Participants
 
@@ -55,7 +55,7 @@ Each participant is identified by its ISPB, the eight-digit code the Central Ban
 
 | Participant | ISPB | Role |
 |---|---|---|
-| Finaxis | `99990001` | The receiving participant; the only one the simulator delivers to |
+| Axion | `99990001` | The receiving participant; the only one the simulator delivers to |
 | Banco Simulado A, B, C | `99990011`, `99990012`, `99990013` | Payers' institutions |
 
 PR 1.30a checks the codes against the Central Bank's published list of Pix participants and changes any that a real institution uses.
@@ -351,7 +351,7 @@ The references are the Central Bank's *Regulamento Pix* (BCB Resolution No. 1 of
 | Acceptance by the receiver | The SPI asks the receiver to accept or reject the credit (`pacs.002`) before it settles, within time limits | The payment settles in the simulator; the core is notified once it has, and cannot reject | Billing's rule already credits every payment that arrives, late ones included (overview, section 7.6) |
 | Dynamic BR Code | Tag `26` carries a location URL; the payer's institution fetches the charge as a signed JWS | The amount (`54`) and the transaction ID (`62-05`) are read from the code (section 4.2) | The core issues the codes it is tested with; serving the location is an extension |
 | Expiry | The payer's institution reads the charge's status and expiry from the location | Not checked: an expired code can be paid | It is how late payments are produced on purpose |
-| DICT | The payer's institution resolves a Pix key to an account | Not simulated: every payment is credited to Finaxis | Phase 1 has no outgoing payments; payouts add the lookups |
+| DICT | The payer's institution resolves a Pix key to an account | Not simulated: every payment is credited to Axion | Phase 1 has no outgoing payments; payouts add the lookups |
 | Settlement accounts | Each participant's balance at the Central Bank, and its statement | Not kept | Reconciliation (phase 4) adds the statements |
 | Time limits | The Pix time limits for each step | None; the `latency` and `delay` faults produce slowness on demand | Tests need slowness on demand, not a schedule |
 | Participants | Registered institutions and their ISPBs | Four fictitious ISPBs (section 3.2) | No real institution is named or implied |

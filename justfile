@@ -20,7 +20,7 @@ down:
 # Drop Keycloak's database so the realm is imported again (removes its users)
 keycloak-reset: _env
     {{ compose }} --profile auth stop keycloak
-    {{ compose }} --profile auth exec --no-TTY postgres dropdb --username=finaxis --if-exists --force keycloak
+    {{ compose }} --profile auth exec --no-TTY postgres dropdb --username=axion --if-exists --force keycloak
     {{ compose }} --profile auth up --detach --wait
 
 # Create infra/compose/.env from the example, or add the settings it lacks
@@ -59,7 +59,7 @@ lint-api:
 
 # Build the container image of a service (core or rails-simulator)
 image service="core":
-    docker build --tag finaxis-{{ service }}:dev services/{{ service }}
+    docker build --tag axion-{{ service }}:dev services/{{ service }}
 
 # Run the core's fault-injection suite against a fresh image of the rails simulator
 fault-injection: (image "rails-simulator")

@@ -101,9 +101,9 @@ tasks.withType<JavaCompile>().configureEach {
     options.errorprone {
         // A possible null dereference is a compile error, not a warning.
         check("NullAway", CheckSeverity.ERROR)
-        // Check every class under dev.finaxis, even in a package that forgot
+        // Check every class under dev.axion, even in a package that forgot
         // its @NullMarked package-info.
-        option("NullAway:AnnotatedPackages", "dev.finaxis")
+        option("NullAway:AnnotatedPackages", "dev.axion")
         // Follow the JSpecify specification, including generics such as
         // List<@Nullable String>.
         option("NullAway:JSpecifyMode", "true")
@@ -150,8 +150,8 @@ pitest {
     // (docs/design-docs/2026-11-18-ledger.md, section 8).
     pitestVersion = libs.versions.pit.core.get()
     junit5PluginVersion = libs.versions.pit.junit5.plugin.get()
-    targetClasses = listOf("dev.finaxis.core.ledger.*")
-    targetTests = listOf("dev.finaxis.core.ledger.*")
+    targetClasses = listOf("dev.axion.core.ledger.*")
+    targetTests = listOf("dev.axion.core.ledger.*")
     // Fail the task when fewer than 90% of the mutants are killed. The score
     // was 96% when the threshold was set; the margin absorbs equivalent
     // mutants. Raise it as the score holds higher; never lower it silently.

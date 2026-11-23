@@ -2,11 +2,11 @@
 # Lint it with `just lint-api`; see CONTRIBUTING.md, "API contracts".
 openapi: 3.1.1
 info:
-  title: Finaxis API
+  title: Axion API
   version: 0.0.1
   summary: Public API that tenants' systems call to bill and receive payments.
   description: |
-    Finaxis is a demonstration platform on simulated Brazilian payment rails;
+    Axion is a demonstration platform on simulated Brazilian payment rails;
     no real money moves.
 
     Conventions:
@@ -22,7 +22,7 @@ info:
     name: Apache 2.0
     identifier: Apache-2.0
   contact:
-    url: https://github.com/renatomf/finaxis
+    url: https://github.com/renatomf/axion
 servers:
   - url: http://localhost:8080
     description: Local development
@@ -584,7 +584,7 @@ components:
       description: >-
         The tenant's own keys and values, such as its order ID: up to 20
         keys of 1 to 40 characters, each with text of up to 500. Stored and
-        returned, never read by Finaxis. It must hold no personal data, such
+        returned, never read by Axion. It must hold no personal data, such
         as a name, a CPF or an email address.
       type: object
       maxProperties: 20
@@ -631,7 +631,7 @@ components:
           description: >-
             When the Pix rails accepted the payment. A payment of the
             charge's amount accepted before its `expires_at` pays the charge,
-            however late Finaxis hears of it, so an `expired` charge can
+            however late Axion hears of it, so an `expired` charge can
             still become `paid`.
           type: string
           format: date-time

@@ -150,7 +150,7 @@ access.api_keys
 
 Keycloak authenticates people ([ADR 0005](../adr/0005-keycloak-for-human-identity.md)); the core authorizes them. The console's BFF runs the OpenID Connect login, keeps the tokens server-side and calls `/internal` with the member's access token (overview, section 3.3).
 
-**Keycloak realm (PR 1.18).** One realm, `finaxis`, kept as code in `infra/keycloak/` and imported at startup, with no secrets in it:
+**Keycloak realm (PR 1.18).** One realm, `axion`, kept as code in `infra/keycloak/` and imported at startup, with no secrets in it:
 
 | Setting | Value |
 |---|---|
@@ -158,12 +158,12 @@ Keycloak authenticates people ([ADR 0005](../adr/0005-keycloak-for-human-identit
 | Passwords | At least 12 characters, not the username; brute-force detection locks an account after repeated failures |
 | Access token | 5 minutes |
 | Session | 30 minutes idle, 10 hours maximum |
-| Clients | `finaxis-console` (the BFF, confidential, authorization code with PKCE); the core is an audience, not a client that logs users in |
+| Clients | `axion-console` (the BFF, confidential, authorization code with PKCE); the core is an audience, not a client that logs users in |
 
 **Token validation (PR 1.19).** The core is an OAuth 2.0 resource server. It accepts an access token only if all of these hold:
 
 - the signature verifies against the realm's published keys (JWKS), with an allowed algorithm (`RS256`); `none` and symmetric algorithms are rejected;
-- `iss` is the realm, `aud` contains `finaxis-core` and `azp` is an allowed client;
+- `iss` is the realm, `aud` contains `axion-core` and `azp` is an allowed client;
 - `exp` and `nbf` hold, with 30 seconds of clock skew.
 
 The core reads only `sub` and `auth_time` from the token. Roles are not in the token: they are looked up in `tenancy` on every request, so removing a role takes effect on the next request instead of when the token expires.
@@ -207,7 +207,7 @@ No real-looking key appears in this repository, so that the secret scanners stay
 
 The limit counts working keys, not unrevoked ones, so the keys a tenant has rolled stop counting once their grace period ends. It is counted under a per-tenant advisory lock held until the transaction ends, so concurrent requests are counted one after another and cannot pass the limit together.
 
-A key is never updated otherwise and never deleted: its row is the record of what it could do and who issued it. The database enforces this: the `finaxis_access` role may update only `expires_at`, `revoked_at` and `last_used_at`, through a column privilege, and may not delete. `last_used_at` is updated at most once an hour per key, with a conditional update, so busy keys add no write per request.
+A key is never updated otherwise and never deleted: its row is the record of what it could do and who issued it. The database enforces this: the `axion_access` role may update only `expires_at`, `revoked_at` and `last_used_at`, through a column privilege, and may not delete. `last_used_at` is updated at most once an hour per key, with a conditional update, so busy keys add no write per request.
 
 ### 4.4 Authentication failures
 
@@ -219,7 +219,7 @@ A key is never updated otherwise and never deleted: its row is the record of wha
 | Recent authentication required | `403` | `step_up_required` |
 | Resource of another tenant, or a tenant the member does not belong to | `404` | `not_found` |
 
-Every `401` looks the same, so a caller cannot learn whether a key exists, expired or was revoked; logs and the metric `finaxis_authentication_failures_total{reason}` record the reason, with the key's ID when there is one and never the secret.
+Every `401` looks the same, so a caller cannot learn whether a key exists, expired or was revoked; logs and the metric `axion_authentication_failures_total{reason}` record the reason, with the key's ID when there is one and never the secret.
 
 ## 5. Authorization and tenant context
 
@@ -254,7 +254,7 @@ Every controller method declares exactly one permission, with `@RequiresPermissi
 The tenant of the request reaches the database through two independent paths, so that a mistake in one is caught by the other:
 
 1. **Explicitly, in every query.** The controller passes the caller's `TenantId` to the application service, and every query filters by it (overview, section 4.3, layer ②).
-2. **Implicitly, to Row-Level Security.** Once the caller is established (section 5.2), the controller method runs inside a Java `ScopedValue` holding the caller's tenant (`TenantContext`, in `shared`). A member's tenant is known only after the permission interceptor has checked the membership, and an interceptor cannot wrap the call, so the binding sits in Spring MVC's handler adapter rather than in a servlet filter: one point binds API keys and members alike, and only a tenant already checked. At the start of every transaction, a Spring `TransactionExecutionListener` reads it and binds it to the transaction with `set_config('finaxis.tenant_id', …, true)`. The `true` makes the setting transaction-local: it disappears at commit or rollback, so a pooled connection never carries one request's tenant into the next.
+2. **Implicitly, to Row-Level Security.** Once the caller is established (section 5.2), the controller method runs inside a Java `ScopedValue` holding the caller's tenant (`TenantContext`, in `shared`). A member's tenant is known only after the permission interceptor has checked the membership, and an interceptor cannot wrap the call, so the binding sits in Spring MVC's handler adapter rather than in a servlet filter: one point binds API keys and members alike, and only a tenant already checked. At the start of every transaction, a Spring `TransactionExecutionListener` reads it and binds it to the transaction with `set_config('axion.tenant_id', …, true)`. The `true` makes the setting transaction-local: it disappears at commit or rollback, so a pooled connection never carries one request's tenant into the next.
 
 A `ScopedValue` (final in Java 25) is bound for the duration of a call and cannot be changed or leak afterwards, unlike a `ThreadLocal`, which must be cleared by hand. Work outside a request, such as an event listener, binds the tenant from the event with `TenantContext.run(tenant, environment, …)`; work with no tenant binds none. The tenant's environment is bound with it, from the caller (section 5.1), so the listener finds the platform tenant beside it (section 5.5) without a query.
 
@@ -273,18 +273,18 @@ CREATE POLICY tenant_isolation ON access.api_keys
     WITH CHECK (tenant_id = shared.current_tenant());
 ```
 
-- `shared.current_tenant()` returns `nullif(current_setting('finaxis.tenant_id', true), '')::uuid`. After a transaction-local setting ends, PostgreSQL returns an empty string rather than null, and casting it would fail; `nullif` turns it into null.
+- `shared.current_tenant()` returns `nullif(current_setting('axion.tenant_id', true), '')::uuid`. After a transaction-local setting ends, PostgreSQL returns an empty string rather than null, and casting it would fail; `nullif` turns it into null.
 - With no tenant bound, the function returns null, `tenant_id = null` is never true, and the policy shows no rows and accepts no inserts: Row-Level Security fails closed.
 - `FORCE` applies the policies to the table owner too. The service never connects as the owner, but a migration or a manual session that does is not exempt by accident.
 - `USING` filters what a statement can read, update or delete; `WITH CHECK` rejects a row written for another tenant.
 
-The `tenancy` tables are the directory that defines tenants, read by authentication before any tenant is known; they are reached only through `TenancyApi` and have no tenant policy. Authentication looks up an API key by its hash before the tenant is known, and records its use in the same transaction, through two `SECURITY DEFINER` functions: `access.find_api_key(hash)` returns the single key with that hash and nothing else, and `access.record_api_key_use(hash, …)` sets that key's `last_used_at` and nothing else. Neither can list keys; both act only on a secret the caller already holds. They are owned by `finaxis_access_lookup`, a role that cannot log in, with policies written for it alone: a function owned by the table's owner would run under the forced tenant policy and find nothing.
+The `tenancy` tables are the directory that defines tenants, read by authentication before any tenant is known; they are reached only through `TenancyApi` and have no tenant policy. Authentication looks up an API key by its hash before the tenant is known, and records its use in the same transaction, through two `SECURITY DEFINER` functions: `access.find_api_key(hash)` returns the single key with that hash and nothing else, and `access.record_api_key_use(hash, …)` sets that key's `last_used_at` and nothing else. Neither can list keys; both act only on a secret the caller already holds. They are owned by `axion_access_lookup`, a role that cannot log in, with policies written for it alone: a function owned by the table's owner would run under the forced tenant policy and find nothing.
 
-**Jobs that span tenants**, such as the ledger verifier and hot-account folding, connect through their own role (`finaxis_ledger_jobs`) with read-only policies written for that role (`FOR SELECT TO finaxis_ledger_jobs USING (true)`). No role has `BYPASSRLS`, which would exempt it from every policy on every table.
+**Jobs that span tenants**, such as the ledger verifier and hot-account folding, connect through their own role (`axion_ledger_jobs`) with read-only policies written for that role (`FOR SELECT TO axion_ledger_jobs USING (true)`). No role has `BYPASSRLS`, which would exempt it from every policy on every table.
 
 ### 5.5 Row-Level Security in the ledger
 
-A settlement runs in the context of the tenant who is paid, but posts to the platform's accounts too (ledger design, section 3.3). So the ledger's policies admit the platform tenant of the same environment, which the binding listener sets as `finaxis.platform_tenant_id` beside the tenant, from the environment bound with it (section 5.3):
+A settlement runs in the context of the tenant who is paid, but posts to the platform's accounts too (ledger design, section 3.3). So the ledger's policies admit the platform tenant of the same environment, which the binding listener sets as `axion.platform_tenant_id` beside the tenant, from the environment bound with it (section 5.3):
 
 | Table | A tenant reads | A tenant writes |
 |---|---|---|
@@ -297,9 +297,9 @@ A tenant therefore sees the fee leg of its own settlement, which tells it nothin
 
 ### 5.6 Database roles
 
-The service logs in as `finaxis_app`, a role with `NOINHERIT` and no privileges of its own. It is a member of every module role (`finaxis_ledger`, `finaxis_tenancy`, `finaxis_access`, …), and each module's API entry point switches the transaction to its module's role with `SET LOCAL ROLE`, restoring the caller's role when it returns. A module's statements thus run with only its own privileges, even inside another module's transaction, as settlement requires.
+The service logs in as `axion_app`, a role with `NOINHERIT` and no privileges of its own. It is a member of every module role (`axion_ledger`, `axion_tenancy`, `axion_access`, …), and each module's API entry point switches the transaction to its module's role with `SET LOCAL ROLE`, restoring the caller's role when it returns. A module's statements thus run with only its own privileges, even inside another module's transaction, as settlement requires.
 
-Checks deferred to commit, such as the ledger's balance triggers (ledger design, section 4), fire after the module's API has returned and the caller's role is back. Their functions are therefore `SECURITY DEFINER`, owned by a role that cannot log in and may only read what the check reads (`finaxis_ledger_checks`), as the key lookup is. Owned by the module's role, they could be dropped by the module's own statements, and the triggers with them.
+Checks deferred to commit, such as the ledger's balance triggers (ledger design, section 4), fire after the module's API has returned and the caller's role is back. Their functions are therefore `SECURITY DEFINER`, owned by a role that cannot log in and may only read what the check reads (`axion_ledger_checks`), as the key lookup is. Owned by the module's role, they could be dropped by the module's own statements, and the triggers with them.
 
 This guards against mistakes, such as a query reaching into another module's schema; it does not stop an attacker who can run arbitrary SQL in the service's session, who could switch roles too. Against tenant data, the barriers are the tenant derived from the credential and Row-Level Security; against SQL injection, parameterized statements only, checked by Semgrep.
 

@@ -1,4 +1,4 @@
-# Finaxis — Roadmap
+# Axion — Roadmap
 
 | | |
 |---|---|
@@ -44,7 +44,7 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | # | Step | Result |
 |---|---|---|
 | S1 | WSL2 and Ubuntu; Git; JDK 25 (via SDKMAN); Docker Desktop with WSL integration; Node LTS with pnpm (Corepack); uv; just; GitHub CLI | A verified toolchain, checked by a script added in PR 0.01 |
-| S2 | GitHub repository `finaxis` (public); `gh auth login`; SSH commit-signing key; Git identity; `main` ruleset; signed initial commit | Signed commits and PRs opened from the CLI |
+| S2 | GitHub repository `axion` (public); `gh auth login`; SSH commit-signing key; Git identity; `main` ruleset; signed initial commit | Signed commits and PRs opened from the CLI |
 | S3 | VS Code WSL extension; Claude Code inside Ubuntu; global instructions copied to `~/.claude` | Work continues natively inside Ubuntu |
 
 ### 3.2 Pull requests
@@ -109,93 +109,93 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 |---|---|---|
 | 1.16 | Tenancy and access design doc | Tenant model, roles, API keys, RLS, threat model |
 | 1.17 | Tenancy domain and schema | Tenants, environments (test/live), members and roles |
-| ↳ 1.17a | Tenancy schema | Organizations, tenants and members; the platform organization; the tenancy database role; opened as PR 1.17 ([#85](https://github.com/renatomf/finaxis/pull/85)) |
-| ↳ 1.17b | Roles and permissions | The role matrix and the permissions each role grants ([#91](https://github.com/renatomf/finaxis/pull/91)) |
-| ↳ 1.17c | Tenancy API and organization creation | `TenancyApi`; an organization created with both tenants and its first admin ([#93](https://github.com/renatomf/finaxis/pull/93)) |
+| ↳ 1.17a | Tenancy schema | Organizations, tenants and members; the platform organization; the tenancy database role; opened as PR 1.17 ([#85](https://github.com/renatomf/axion/pull/85)) |
+| ↳ 1.17b | Roles and permissions | The role matrix and the permissions each role grants ([#91](https://github.com/renatomf/axion/pull/91)) |
+| ↳ 1.17c | Tenancy API and organization creation | `TenancyApi`; an organization created with both tenants and its first admin ([#93](https://github.com/renatomf/axion/pull/93)) |
 | 1.18 | Keycloak | Keycloak in Compose, realm as code, MFA policy |
 | 1.19 | Human authentication | Spring Security OAuth2 resource server on `/internal`; Keycloak in Testcontainers |
-| ↳ 1.19a | Member token validation | Access tokens from Keycloak validated on `/internal` ([#89](https://github.com/renatomf/finaxis/pull/89)) |
-| ↳ 1.19b | Member identity and `/internal/me` | The caller's organizations and tenants ([#95](https://github.com/renatomf/finaxis/pull/95)) |
-| ↳ 1.19c | Tenant resolution and permissions | Tenant from the path through the member's memberships; `@RequiresPermission` ([#97](https://github.com/renatomf/finaxis/pull/97)) |
-| ↳ 1.19d | Step-up on recent authentication | `@RequiresStepUp` and the RFC 9470 challenge ([#99](https://github.com/renatomf/finaxis/pull/99)) |
+| ↳ 1.19a | Member token validation | Access tokens from Keycloak validated on `/internal` ([#89](https://github.com/renatomf/axion/pull/89)) |
+| ↳ 1.19b | Member identity and `/internal/me` | The caller's organizations and tenants ([#95](https://github.com/renatomf/axion/pull/95)) |
+| ↳ 1.19c | Tenant resolution and permissions | Tenant from the path through the member's memberships; `@RequiresPermission` ([#97](https://github.com/renatomf/axion/pull/97)) |
+| ↳ 1.19d | Step-up on recent authentication | `@RequiresStepUp` and the RFC 9470 challenge ([#99](https://github.com/renatomf/axion/pull/99)) |
 | 1.20 | API key issuance | Generation, hashing, prefixes, scopes, rotation, revocation |
-| ↳ 1.20a | API key format | Prefix, random part and CRC32 checksum ([#101](https://github.com/renatomf/finaxis/pull/101)) |
-| ↳ 1.20b | API key schema | The keys table and the access database role ([#103](https://github.com/renatomf/finaxis/pull/103)) |
-| ↳ 1.20c | API key issuance | `AccessApi.issue`: scopes within the issuer's permissions, limit of 10 working keys ([#105](https://github.com/renatomf/finaxis/pull/105)) |
-| ↳ 1.20d | API key listing and revocation | `AccessApi.keys` and `AccessApi.revoke` ([#107](https://github.com/renatomf/finaxis/pull/107)) |
-| ↳ 1.20e | API key rolling | `AccessApi.roll` with a grace period ([#109](https://github.com/renatomf/finaxis/pull/109)) |
-| ↳ 1.20f | API key listing endpoint | `GET /internal/tenants/{tenant_id}/api_keys` ([#111](https://github.com/renatomf/finaxis/pull/111)) |
-| ↳ 1.20g | Request validation | `422 validation_failed` with the offending fields, for every request body ([#113](https://github.com/renatomf/finaxis/pull/113)) |
-| ↳ 1.20h | API key issuance endpoint | `POST …/api_keys`, the secret returned once ([#115](https://github.com/renatomf/finaxis/pull/115)) |
-| ↳ 1.20i | API key revocation endpoint | `POST …/api_keys/{key_id}/revoke` ([#117](https://github.com/renatomf/finaxis/pull/117)) |
-| ↳ 1.20j | API key rolling endpoint | `POST …/api_keys/{key_id}/roll` ([#119](https://github.com/renatomf/finaxis/pull/119)) |
+| ↳ 1.20a | API key format | Prefix, random part and CRC32 checksum ([#101](https://github.com/renatomf/axion/pull/101)) |
+| ↳ 1.20b | API key schema | The keys table and the access database role ([#103](https://github.com/renatomf/axion/pull/103)) |
+| ↳ 1.20c | API key issuance | `AccessApi.issue`: scopes within the issuer's permissions, limit of 10 working keys ([#105](https://github.com/renatomf/axion/pull/105)) |
+| ↳ 1.20d | API key listing and revocation | `AccessApi.keys` and `AccessApi.revoke` ([#107](https://github.com/renatomf/axion/pull/107)) |
+| ↳ 1.20e | API key rolling | `AccessApi.roll` with a grace period ([#109](https://github.com/renatomf/axion/pull/109)) |
+| ↳ 1.20f | API key listing endpoint | `GET /internal/tenants/{tenant_id}/api_keys` ([#111](https://github.com/renatomf/axion/pull/111)) |
+| ↳ 1.20g | Request validation | `422 validation_failed` with the offending fields, for every request body ([#113](https://github.com/renatomf/axion/pull/113)) |
+| ↳ 1.20h | API key issuance endpoint | `POST …/api_keys`, the secret returned once ([#115](https://github.com/renatomf/axion/pull/115)) |
+| ↳ 1.20i | API key revocation endpoint | `POST …/api_keys/{key_id}/revoke` ([#117](https://github.com/renatomf/axion/pull/117)) |
+| ↳ 1.20j | API key rolling endpoint | `POST …/api_keys/{key_id}/roll` ([#119](https://github.com/renatomf/axion/pull/119)) |
 | 1.21 | API key authentication | Filter for `/v1`; tenant context derived from the credential |
-| ↳ 1.21a | API key authentication | `AccessApi.authenticate` and its outcomes, in the access module ([#121](https://github.com/renatomf/finaxis/pull/121)) |
-| ↳ 1.21b | API key authentication on `/v1` | The `/v1` filter chain; one `401` for every rejected key, `403 tenant_inactive` ([#123](https://github.com/renatomf/finaxis/pull/123)) |
-| ↳ 1.21c | API key scopes on `/v1` endpoints | `@RequiresPermission` checked against the key's scopes; the endpoint receives the `ApiKeyCaller` ([#127](https://github.com/renatomf/finaxis/pull/127)) |
-| ↳ 1.21d | Key last use | `last_used_at`, updated at most once an hour per key by a conditional update ([#129](https://github.com/renatomf/finaxis/pull/129)) |
-| ↳ 1.21e | Authentication failure signals | Failure logs with the reason and key ID, never the secret; `finaxis_authentication_failures_total{reason}` ([#131](https://github.com/renatomf/finaxis/pull/131)) |
+| ↳ 1.21a | API key authentication | `AccessApi.authenticate` and its outcomes, in the access module ([#121](https://github.com/renatomf/axion/pull/121)) |
+| ↳ 1.21b | API key authentication on `/v1` | The `/v1` filter chain; one `401` for every rejected key, `403 tenant_inactive` ([#123](https://github.com/renatomf/axion/pull/123)) |
+| ↳ 1.21c | API key scopes on `/v1` endpoints | `@RequiresPermission` checked against the key's scopes; the endpoint receives the `ApiKeyCaller` ([#127](https://github.com/renatomf/axion/pull/127)) |
+| ↳ 1.21d | Key last use | `last_used_at`, updated at most once an hour per key by a conditional update ([#129](https://github.com/renatomf/axion/pull/129)) |
+| ↳ 1.21e | Authentication failure signals | Failure logs with the reason and key ID, never the secret; `axion_authentication_failures_total{reason}` ([#131](https://github.com/renatomf/axion/pull/131)) |
 | 1.22 | Row-Level Security | The tenant and platform tenant bound to every transaction; RLS policies on tenant data; the login role and per-module DB roles |
-| ↳ 1.22a | Tenant context | `TenantContext` (`ScopedValue`) bound around the controller method once the caller is established; a transaction listener sets `finaxis.tenant_id` ([#149](https://github.com/renatomf/finaxis/pull/149)) |
-| ↳ 1.22b | Tenant policies | `shared.current_tenant()`; RLS on `access.api_keys`; the key lookup and last use through `SECURITY DEFINER` functions owned by `finaxis_access_lookup` ([#151](https://github.com/renatomf/finaxis/pull/151)) |
-| ↳ 1.22c | Module roles | Each module's API entry point switches the transaction to its role with `SET LOCAL ROLE`, restoring the caller's on return ([#153](https://github.com/renatomf/finaxis/pull/153)) |
-| ↳ 1.22d | Login role | `finaxis_app` with `NOINHERIT`, a member of every module role; migrations run as the owner with credentials of their own; the ledger's commit-time checks run as `finaxis_ledger_checks` ([#155](https://github.com/renatomf/finaxis/pull/155)) |
-| ↳ 1.22e | Ledger jobs role | The balance verifier runs as `finaxis_ledger_jobs`, which may only read the ledger ([#157](https://github.com/renatomf/finaxis/pull/157)) |
-| ↳ 1.22f | Platform tenant binding | `TenantContext` carries the tenant's environment; the transaction listener sets `finaxis.platform_tenant_id`, the platform tenant of that environment, beside the tenant ([#159](https://github.com/renatomf/finaxis/pull/159)) |
-| ↳ 1.22g | Ledger tests bind their tenant | The ledger's tests call it as its callers will, with the tenant bound, so Row-Level Security can be forced on its tables ([#161](https://github.com/renatomf/finaxis/pull/161)) |
-| ↳ 1.22h | Ledger policies | `shared.current_platform_tenant()`; the read and write policies of the ledger tables, and read-only ones for `finaxis_ledger_jobs` and `finaxis_ledger_checks`; a source posted by another tenant, whose entry the policies hide, is still reported as such ([#163](https://github.com/renatomf/finaxis/pull/163)) |
+| ↳ 1.22a | Tenant context | `TenantContext` (`ScopedValue`) bound around the controller method once the caller is established; a transaction listener sets `axion.tenant_id` ([#149](https://github.com/renatomf/axion/pull/149)) |
+| ↳ 1.22b | Tenant policies | `shared.current_tenant()`; RLS on `access.api_keys`; the key lookup and last use through `SECURITY DEFINER` functions owned by `axion_access_lookup` ([#151](https://github.com/renatomf/axion/pull/151)) |
+| ↳ 1.22c | Module roles | Each module's API entry point switches the transaction to its role with `SET LOCAL ROLE`, restoring the caller's on return ([#153](https://github.com/renatomf/axion/pull/153)) |
+| ↳ 1.22d | Login role | `axion_app` with `NOINHERIT`, a member of every module role; migrations run as the owner with credentials of their own; the ledger's commit-time checks run as `axion_ledger_checks` ([#155](https://github.com/renatomf/axion/pull/155)) |
+| ↳ 1.22e | Ledger jobs role | The balance verifier runs as `axion_ledger_jobs`, which may only read the ledger ([#157](https://github.com/renatomf/axion/pull/157)) |
+| ↳ 1.22f | Platform tenant binding | `TenantContext` carries the tenant's environment; the transaction listener sets `axion.platform_tenant_id`, the platform tenant of that environment, beside the tenant ([#159](https://github.com/renatomf/axion/pull/159)) |
+| ↳ 1.22g | Ledger tests bind their tenant | The ledger's tests call it as its callers will, with the tenant bound, so Row-Level Security can be forced on its tables ([#161](https://github.com/renatomf/axion/pull/161)) |
+| ↳ 1.22h | Ledger policies | `shared.current_platform_tenant()`; the read and write policies of the ledger tables, and read-only ones for `axion_ledger_jobs` and `axion_ledger_checks`; a source posted by another tenant, whose entry the policies hide, is still reported as such ([#163](https://github.com/renatomf/axion/pull/163)) |
 | 1.23 | Tenant isolation harness | A test that walks every OpenAPI operation attempting cross-tenant access |
-| ↳ 1.23a | Cross-tenant isolation | Operations read from the OpenAPI contracts, each with a fixture or the suite fails; tenant A's credential on tenant B's resources gets `404`, and lists never include them ([#169](https://github.com/renatomf/finaxis/pull/169)) |
-| ↳ 1.23b | Environment isolation | A test key never reaches live data ([#171](https://github.com/renatomf/finaxis/pull/171)) |
+| ↳ 1.23a | Cross-tenant isolation | Operations read from the OpenAPI contracts, each with a fixture or the suite fails; tenant A's credential on tenant B's resources gets `404`, and lists never include them ([#169](https://github.com/renatomf/axion/pull/169)) |
+| ↳ 1.23b | Environment isolation | A test key never reaches live data ([#171](https://github.com/renatomf/axion/pull/171)) |
 | 1.24 | Rate limiting | Per-tenant and per-key limits, `429` with `Retry-After` |
-| ↳ 1.24a | API key rate limits | Bucket4j buckets per tenant and per key, in a bounded cache, applied after authentication; `429 rate_limited` with `Retry-After` ([#173](https://github.com/renatomf/finaxis/pull/173)) |
-| ↳ 1.24b | Member limits and headers | Per-member buckets on `/internal`; `RateLimit-Policy` and `RateLimit` headers ([#175](https://github.com/renatomf/finaxis/pull/175)) |
+| ↳ 1.24a | API key rate limits | Bucket4j buckets per tenant and per key, in a bounded cache, applied after authentication; `429 rate_limited` with `Retry-After` ([#173](https://github.com/renatomf/axion/pull/173)) |
+| ↳ 1.24b | Member limits and headers | Per-member buckets on `/internal`; `RateLimit-Policy` and `RateLimit` headers ([#175](https://github.com/renatomf/axion/pull/175)) |
 
-**Cleanup before 1.22.** The existing code was brought to the [comment standard](architecture/engineering-standards.md#comments-and-documentation) ([#133](https://github.com/renatomf/finaxis/pull/133)), one module per PR: `access` ([#135](https://github.com/renatomf/finaxis/pull/135), [#137](https://github.com/renatomf/finaxis/pull/137)), `tenancy` ([#139](https://github.com/renatomf/finaxis/pull/139)), `ledger` ([#141](https://github.com/renatomf/finaxis/pull/141)), then `shared`, `web` and `observability` ([#143](https://github.com/renatomf/finaxis/pull/143)). Duplicated test helpers and production code were removed ([#145](https://github.com/renatomf/finaxis/pull/145)), and `CONTRIBUTING.md` was trimmed to commands and rules ([#147](https://github.com/renatomf/finaxis/pull/147)). These PRs changed no behavior and take no roadmap number.
+**Cleanup before 1.22.** The existing code was brought to the [comment standard](architecture/engineering-standards.md#comments-and-documentation) ([#133](https://github.com/renatomf/axion/pull/133)), one module per PR: `access` ([#135](https://github.com/renatomf/axion/pull/135), [#137](https://github.com/renatomf/axion/pull/137)), `tenancy` ([#139](https://github.com/renatomf/axion/pull/139)), `ledger` ([#141](https://github.com/renatomf/axion/pull/141)), then `shared`, `web` and `observability` ([#143](https://github.com/renatomf/axion/pull/143)). Duplicated test helpers and production code were removed ([#145](https://github.com/renatomf/axion/pull/145)), and `CONTRIBUTING.md` was trimmed to commands and rules ([#147](https://github.com/renatomf/axion/pull/147)). These PRs changed no behavior and take no roadmap number.
 
 ### 4.4 Block D — Idempotency
 
 | PR | Title | Delivers |
 |---|---|---|
-| 1.25 | Idempotency design doc | Claim mechanics, conflict semantics, retention ([#177](https://github.com/renatomf/finaxis/pull/177)) |
+| 1.25 | Idempotency design doc | Claim mechanics, conflict semantics, retention ([#177](https://github.com/renatomf/axion/pull/177)) |
 | 1.26 | Idempotency keys | Table, interceptor, stored responses, `409` and `422` semantics |
-| ↳ 1.26a | Idempotency store | The `idempotency` module: the keys table, its constraints and database roles; a key claimed under a transaction-scoped lock and stored with its response in the operation's transaction; scheduled removal of expired keys ([#179](https://github.com/renatomf/finaxis/pull/179)) |
-| ↳ 1.26b | Idempotency interceptor | `Idempotency-Key` required on `/v1` writes; a repeat replays the stored response; `409` for a request still in progress, `422` for a key reused with another body ([#181](https://github.com/renatomf/finaxis/pull/181)) |
-| 1.27 | Idempotency proof | 50 parallel repeats yield one effect ([#183](https://github.com/renatomf/finaxis/pull/183)) |
+| ↳ 1.26a | Idempotency store | The `idempotency` module: the keys table, its constraints and database roles; a key claimed under a transaction-scoped lock and stored with its response in the operation's transaction; scheduled removal of expired keys ([#179](https://github.com/renatomf/axion/pull/179)) |
+| ↳ 1.26b | Idempotency interceptor | `Idempotency-Key` required on `/v1` writes; a repeat replays the stored response; `409` for a request still in progress, `422` for a key reused with another body ([#181](https://github.com/renatomf/axion/pull/181)) |
+| 1.27 | Idempotency proof | 50 parallel repeats yield one effect ([#183](https://github.com/renatomf/axion/pull/183)) |
 
 ### 4.5 Block E — Rails simulator
 
 | PR | Title | Delivers |
 |---|---|---|
-| 1.28 | Simulator design doc | Scope, simulated messages, deviations from official specs, chaos controls ([#185](https://github.com/renatomf/finaxis/pull/185)) |
-| 1.29 | Simulator skeleton | `services/rails-simulator` Gradle project and Spring Boot skeleton, Compose service, CI build and image ([#187](https://github.com/renatomf/finaxis/pull/187)) |
+| 1.28 | Simulator design doc | Scope, simulated messages, deviations from official specs, chaos controls ([#185](https://github.com/renatomf/axion/pull/185)) |
+| 1.29 | Simulator skeleton | `services/rails-simulator` Gradle project and Spring Boot skeleton, Compose service, CI build and image ([#187](https://github.com/renatomf/axion/pull/187)) |
 | 1.30 | Pix payment simulation | Simulated payer, `EndToEndId`, signed callbacks to the core |
-| ↳ 1.30a | Simulated payer | The payer API, which reads the amount and the transaction ID from a BR Code; `EndToEndId` generation; the simulator's database and its payments; the operator token ([#194](https://github.com/renatomf/finaxis/pull/194)) |
-| ↳ 1.30b | Signed callbacks | Credit notifications to the core, delivered at least once from the simulator's database, retried with backoff, signed with Ed25519 under RFC 9421; the payer and the message the payer API accepts, which only the notification carries, and each payment's delivery state ([#196](https://github.com/renatomf/finaxis/pull/196)) |
+| ↳ 1.30a | Simulated payer | The payer API, which reads the amount and the transaction ID from a BR Code; `EndToEndId` generation; the simulator's database and its payments; the operator token ([#194](https://github.com/renatomf/axion/pull/194)) |
+| ↳ 1.30b | Signed callbacks | Credit notifications to the core, delivered at least once from the simulator's database, retried with backoff, signed with Ed25519 under RFC 9421; the payer and the message the payer API accepts, which only the notification carries, and each payment's delivery state ([#196](https://github.com/renatomf/axion/pull/196)) |
 | 1.31 | Chaos API | Fault rules for latency, failures, lost responses, duplicates, reordering and delays, applied to the next matching deliveries; an outage switch |
-| ↳ 1.31a | Fault rules | The chaos rules API, rules held in memory and applied to the next matching attempts: latency, failures and lost responses; the faults applied, recorded on each delivery and counted ([#198](https://github.com/renatomf/finaxis/pull/198)) |
-| ↳ 1.31b | Delivery faults and outage | Delays, duplicates and reordering, applied when a delivery is created; the outage switch; manual redelivery of a refused or failed delivery ([#200](https://github.com/renatomf/finaxis/pull/200)) |
+| ↳ 1.31a | Fault rules | The chaos rules API, rules held in memory and applied to the next matching attempts: latency, failures and lost responses; the faults applied, recorded on each delivery and counted ([#198](https://github.com/renatomf/axion/pull/198)) |
+| ↳ 1.31b | Delivery faults and outage | Delays, duplicates and reordering, applied when a delivery is created; the outage switch; manual redelivery of a refused or failed delivery ([#200](https://github.com/renatomf/axion/pull/200)) |
 
 ### 4.6 Block F — Billing and settlement
 
 | PR | Title | Delivers |
 |---|---|---|
-| 1.32 | Billing design doc | Charge lifecycle, settlement transaction, late payments, refunds, security considerations ([#202](https://github.com/renatomf/finaxis/pull/202)) |
-| 1.33 | Charge domain | Aggregate and state machine; invalid transitions impossible ([#204](https://github.com/renatomf/finaxis/pull/204)) |
-| 1.34 | BR Code | Dynamic QR (EMV) payload generation with CRC16, tests against known vectors ([#206](https://github.com/renatomf/finaxis/pull/206)) |
+| 1.32 | Billing design doc | Charge lifecycle, settlement transaction, late payments, refunds, security considerations ([#202](https://github.com/renatomf/axion/pull/202)) |
+| 1.33 | Charge domain | Aggregate and state machine; invalid transitions impossible ([#204](https://github.com/renatomf/axion/pull/204)) |
+| 1.34 | BR Code | Dynamic QR (EMV) payload generation with CRC16, tests against known vectors ([#206](https://github.com/renatomf/axion/pull/206)) |
 | 1.35 | Create charge | `POST /v1/charges`, contract-first, idempotent, limits |
-| ↳ 1.35a | Charge creation | The charges table, its constraints, roles and policies; `BillingApi.createCharge` with its limits; the tenant's and the platform's ledger accounts ([#208](https://github.com/renatomf/finaxis/pull/208)) |
-| ↳ 1.35b | Create charge endpoint | `POST /v1/charges` in `v1.yaml`, then the endpoint, idempotent ([#210](https://github.com/renatomf/finaxis/pull/210)) |
-| 1.36 | Read charges | `GET /v1/charges` (cursor pagination, filters by status and date), `GET /v1/charges/{id}` ([#212](https://github.com/renatomf/finaxis/pull/212)) |
+| ↳ 1.35a | Charge creation | The charges table, its constraints, roles and policies; `BillingApi.createCharge` with its limits; the tenant's and the platform's ledger accounts ([#208](https://github.com/renatomf/axion/pull/208)) |
+| ↳ 1.35b | Create charge endpoint | `POST /v1/charges` in `v1.yaml`, then the endpoint, idempotent ([#210](https://github.com/renatomf/axion/pull/210)) |
+| 1.36 | Read charges | `GET /v1/charges` (cursor pagination, filters by status and date), `GET /v1/charges/{id}` ([#212](https://github.com/renatomf/axion/pull/212)) |
 | 1.37 | Basic risk rules | Pre-charge decision: amount and velocity rules |
-| ↳ 1.37a | Risk rules | The `risk` module: `RiskApi` with the amount, daily amount and hourly count rules, held by conditional counters ([#214](https://github.com/renatomf/finaxis/pull/214)) |
-| ↳ 1.37b | Risk before charging | The decision applied to charge creation ([#216](https://github.com/renatomf/finaxis/pull/216)) |
-| 1.38 | Rails anti-corruption layer | The `rails` module: the callback endpoint on its own filter chain, its signature verification (RFC 9421, Ed25519), and the inbox that deduplicates credits by `EndToEndId` ([#218](https://github.com/renatomf/finaxis/pull/218)) |
-| 1.39 | Settlement | The inbox processor and the `PixCreditHandler` port; one transaction: charge `PAID` + payment + ledger entry; flagged and unmatched payments; a charge's `payments` in `GET /v1/charges/{id}` ([#220](https://github.com/renatomf/finaxis/pull/220)) |
-| 1.40 | Late payments | The expiry job; a payment accepted after expiry credited and flagged; one accepted before it settles the expired charge ([#222](https://github.com/renatomf/finaxis/pull/222)) |
+| ↳ 1.37a | Risk rules | The `risk` module: `RiskApi` with the amount, daily amount and hourly count rules, held by conditional counters ([#214](https://github.com/renatomf/axion/pull/214)) |
+| ↳ 1.37b | Risk before charging | The decision applied to charge creation ([#216](https://github.com/renatomf/axion/pull/216)) |
+| 1.38 | Rails anti-corruption layer | The `rails` module: the callback endpoint on its own filter chain, its signature verification (RFC 9421, Ed25519), and the inbox that deduplicates credits by `EndToEndId` ([#218](https://github.com/renatomf/axion/pull/218)) |
+| 1.39 | Settlement | The inbox processor and the `PixCreditHandler` port; one transaction: charge `PAID` + payment + ledger entry; flagged and unmatched payments; a charge's `payments` in `GET /v1/charges/{id}` ([#220](https://github.com/renatomf/axion/pull/220)) |
+| 1.40 | Late payments | The expiry job; a payment accepted after expiry credited and flagged; one accepted before it settles the expired charge ([#222](https://github.com/renatomf/axion/pull/222)) |
 | 1.41 | Refunds | Reversal entries, partial and full refunds |
-| ↳ 1.41a | Refunds | Refunds of one payment and their table; reversal entries for full and partial refunds within the payment's amount ([#224](https://github.com/renatomf/finaxis/pull/224)) |
-| ↳ 1.41b | Refund endpoint | `POST /v1/charges/{id}/refunds`, idempotent; a charge's `refunds` in `GET /v1/charges/{id}` ([#226](https://github.com/renatomf/finaxis/pull/226)) |
+| ↳ 1.41a | Refunds | Refunds of one payment and their table; reversal entries for full and partial refunds within the payment's amount ([#224](https://github.com/renatomf/axion/pull/224)) |
+| ↳ 1.41b | Refund endpoint | `POST /v1/charges/{id}/refunds`, idempotent; a charge's `refunds` in `GET /v1/charges/{id}` ([#226](https://github.com/renatomf/axion/pull/226)) |
 | 1.42 | Fault-injection suite | Timeouts, duplicates, out-of-order and late callbacks, mid-settlement failure |
 
 ### 4.7 Block G — Events, webhooks, audit and notifications

@@ -1,5 +1,5 @@
 {
-  "name": "finaxis",
+  "name": "axion",
   "private": true,
   "description": "Repository-level development tooling (git hooks, commit linting, API contract linting).",
   "license": "Apache-2.0",

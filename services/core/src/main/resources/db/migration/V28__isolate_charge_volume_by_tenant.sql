@@ -10,10 +10,10 @@ ALTER TABLE risk.charge_volume FORCE ROW LEVEL SECURITY;
 -- table combine with OR, so a tenant bound by mistake would otherwise widen
 -- what the removal job's role sees.
 CREATE POLICY tenant_isolation ON risk.charge_volume
-    TO finaxis_risk
+    TO axion_risk
     USING (tenant_id = shared.current_tenant())
     WITH CHECK (tenant_id = shared.current_tenant());
 
 -- A policy runs with the privileges of the role querying the table.
-GRANT USAGE ON SCHEMA shared TO finaxis_risk;
-GRANT EXECUTE ON FUNCTION shared.current_tenant() TO finaxis_risk;
+GRANT USAGE ON SCHEMA shared TO axion_risk;
+GRANT EXECUTE ON FUNCTION shared.current_tenant() TO axion_risk;

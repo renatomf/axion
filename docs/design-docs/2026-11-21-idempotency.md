@@ -153,7 +153,7 @@ idempotency.keys
 ```
 
 - The primary key is the natural one: a row is only ever looked up by tenant and key, and a surrogate ID would be another index with no reader.
-- Rows are never changed: the module role, `finaxis_idempotency`, may only `SELECT` and `INSERT`.
+- Rows are never changed: the module role, `axion_idempotency`, may only `SELECT` and `INSERT`.
 - The table has the tenant policy of the tenancy design (section 5.4), forced.
 - The status check makes a bug that would store a server error fail its request instead of making the error permanent.
 - The body is `bytea`, not `jsonb`: it is replayed as written, and `jsonb` would reorder its keys.
@@ -166,15 +166,15 @@ A key is honored for at least 24 hours after its request ran, until `expires_at`
 
 ### 6.2 Removal
 
-A scheduled job deletes expired rows every hour, in batches of 1,000 until none is left, each batch in its own transaction so that it never holds locks for long. It spans tenants, so it runs as its own role, `finaxis_idempotency_jobs`, like the ledger's jobs (tenancy design, section 5.4), with policies that let it see and delete only expired rows:
+A scheduled job deletes expired rows every hour, in batches of 1,000 until none is left, each batch in its own transaction so that it never holds locks for long. It spans tenants, so it runs as its own role, `axion_idempotency_jobs`, like the ledger's jobs (tenancy design, section 5.4), with policies that let it see and delete only expired rows:
 
 ```sql
 CREATE POLICY expired_keys_visible ON idempotency.keys
-    FOR SELECT TO finaxis_idempotency_jobs
+    FOR SELECT TO axion_idempotency_jobs
     USING (expires_at <= now());
 
 CREATE POLICY expired_keys_removable ON idempotency.keys
-    FOR DELETE TO finaxis_idempotency_jobs
+    FOR DELETE TO axion_idempotency_jobs
     USING (expires_at <= now());
 ```
 
@@ -202,7 +202,7 @@ public record KeyReused() implements IdempotentResult {}                        
 - A request in progress and a reused key are expected outcomes, so they are values, not exceptions (overview, section 19.1). An exception from the operation rolls the transaction back and propagates to the usual error handling.
 - `IdempotencyKey` and `Fingerprint` exist only valid: a key of 1 to 255 visible ASCII characters, a fingerprint of 32 bytes.
 - The module, `idempotency`, depends on `shared` only. Its persistence uses `JdbcClient`, as the other modules do: the lock, the lookup and the insert are three exact statements.
-- The metric `finaxis_idempotency_requests_total{outcome}` counts `executed`, `replayed`, `in_progress` and `key_reused`. Logs carry the SHA-256 of the key, never the key: it is text the client chose and may hold anything.
+- The metric `axion_idempotency_requests_total{outcome}` counts `executed`, `replayed`, `in_progress` and `key_reused`. Logs carry the SHA-256 of the key, never the key: it is text the client chose and may hold anything.
 
 ## 8. Testing
 

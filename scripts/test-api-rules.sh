@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 declare -A expected=(
-    [finaxis-v1-writes-idempotent]='["paths /v1/without_key post"]'
+    [axion-v1-writes-idempotent]='["paths /v1/without_key post"]'
 )
 
 failed=0

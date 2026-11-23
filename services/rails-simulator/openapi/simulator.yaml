@@ -2,7 +2,7 @@
 # endpoints (rails simulator design, section 7.4). Lint it with `just lint-api`.
 openapi: 3.1.1
 info:
-  title: Finaxis Rails Simulator Operator API
+  title: Axion Rails Simulator Operator API
   version: 0.1.0
   summary: Drives the simulated Pix rails, the core's counterpart for payments.
   description: |
@@ -18,7 +18,7 @@ info:
     name: Apache 2.0
     identifier: Apache-2.0
   contact:
-    url: https://github.com/renatomf/finaxis
+    url: https://github.com/renatomf/axion
 servers:
   - url: http://localhost:8090
     description: Local development

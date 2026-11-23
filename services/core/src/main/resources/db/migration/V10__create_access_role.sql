@@ -11,19 +11,19 @@
 -- Roles belong to the whole PostgreSQL cluster, so the role may already exist.
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'finaxis_access') THEN
-        CREATE ROLE finaxis_access NOLOGIN;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'axion_access') THEN
+        CREATE ROLE axion_access NOLOGIN;
     END IF;
 END;
 $$;
 
-GRANT USAGE ON SCHEMA access TO finaxis_access;
-GRANT SELECT, INSERT ON access.api_keys TO finaxis_access;
+GRANT USAGE ON SCHEMA access TO axion_access;
+GRANT SELECT, INSERT ON access.api_keys TO axion_access;
 -- A column privilege: an UPDATE that sets any other column is denied.
-GRANT UPDATE (expires_at, revoked_at, last_used_at) ON access.api_keys TO finaxis_access;
+GRANT UPDATE (expires_at, revoked_at, last_used_at) ON access.api_keys TO axion_access;
 
 -- Authentication reads this table on every /v1 request, so a stuck statement
 -- must fail fast instead of holding a connection.
-ALTER ROLE finaxis_access SET lock_timeout = '2s';
-ALTER ROLE finaxis_access SET statement_timeout = '5s';
-ALTER ROLE finaxis_access SET transaction_timeout = '30s';
+ALTER ROLE axion_access SET lock_timeout = '2s';
+ALTER ROLE axion_access SET statement_timeout = '5s';
+ALTER ROLE axion_access SET transaction_timeout = '30s';

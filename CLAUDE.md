@@ -4,7 +4,7 @@ Instructions for Claude Code in this repository. Workflow rules that apply to ev
 
 ## Project
 
-Finaxis is an open-source, API-first billing and receivables platform on simulated Brazilian payment rails. It is a demonstration project engineered as a production financial system.
+Axion is an open-source, API-first billing and receivables platform on simulated Brazilian payment rails. It is a demonstration project engineered as a production financial system.
 
 Sources of truth, to read before planning any work:
 

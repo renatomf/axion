@@ -1,0 +1,133 @@
+package dev.axion.core.access.security;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.crypto.MACSigner;
+import com.nimbusds.jwt.SignedJWT;
+import dev.axion.core.KeycloakRealm;
+import dev.axion.core.KeycloakTestConfiguration;
+import dev.axion.core.OpenApiContract;
+import dev.axion.core.PostgresTestConfiguration;
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.text.ParseException;
+import java.util.Base64;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpStatus;
+import org.springframework.test.web.servlet.assertj.MockMvcTester;
+import org.springframework.test.web.servlet.assertj.MvcTestResult;
+import org.springframework.test.web.servlet.assertj.MvcTestResultAssert;
+
+/**
+ * Members' access tokens on {@code /internal}, against a real Keycloak (tenancy design, section
+ * 4.1): an accepted token gets {@code 200} from {@code /internal/me}, a rejected one {@code 401}.
+ */
+@SpringBootTest
+@Import({PostgresTestConfiguration.class, KeycloakTestConfiguration.class})
+@AutoConfigureMockMvc
+class MemberAuthenticationTest {
+
+    private static final String INTERNAL_PATH = "/internal/me";
+
+    private final MockMvcTester mvc;
+    private final KeycloakRealm realm;
+
+    @Autowired
+    MemberAuthenticationTest(MockMvcTester mvc, KeycloakRealm realm) {
+        this.mvc = mvc;
+        this.realm = realm;
+    }
+
+    /** Every response, accepted or rejected, must also be one the contract documents. */
+    private MvcTestResultAssert internalWith(String token) {
+        MvcTestResult result = mvc.get()
+                .uri(INTERNAL_PATH)
+                .header("Authorization", "Bearer " + token)
+                .exchange();
+        OpenApiContract.internal().assertConforms(result);
+        return assertThat(result);
+    }
+
+    private static void isUnauthorized(MvcTestResultAssert response) {
+        response.hasStatus(HttpStatus.UNAUTHORIZED).bodyJson().isLenientlyEqualTo("""
+                {"status": 401, "detail": "Authentication is required.", "code": "unauthorized"}
+                """);
+    }
+
+    @Test
+    void acceptsAnAccessTokenOfTheRealm() {
+        internalWith(realm.login(KeycloakRealm.TEST_CLIENT).accessToken()).hasStatus(HttpStatus.OK);
+    }
+
+    @Test
+    void rejectsARequestWithoutAToken() {
+        isUnauthorized(assertThat(mvc.get().uri(INTERNAL_PATH)));
+    }
+
+    /** Same realm, same audience, same signature: only the client differs. */
+    @Test
+    void rejectsAnAccessTokenIssuedToAClientTheCoreDoesNotAccept() {
+        isUnauthorized(internalWith(realm.login(KeycloakRealm.OTHER_CLIENT).accessToken()));
+    }
+
+    /** An ID token proves a login to the client; it is not a credential for the core. */
+    @Test
+    void rejectsAnIdToken() {
+        isUnauthorized(internalWith(realm.login(KeycloakRealm.TEST_CLIENT).idToken()));
+    }
+
+    @Test
+    void rejectsATokenWithAnAlteredSignature() {
+        String token = realm.login(KeycloakRealm.TEST_CLIENT).accessToken();
+        int middle = token.lastIndexOf('.') + (token.length() - token.lastIndexOf('.')) / 2;
+        char altered = token.charAt(middle) == 'A' ? 'B' : 'A';
+        isUnauthorized(internalWith(token.substring(0, middle) + altered + token.substring(middle + 1)));
+    }
+
+    /** The realm's claims with {@code alg: none}: a token that claims it needs no signature. */
+    @Test
+    void rejectsAnUnsignedToken() throws ParseException {
+        String payload = SignedJWT.parse(realm.login(KeycloakRealm.TEST_CLIENT).accessToken())
+                .getParsedParts()[1]
+                .toString();
+        String header = Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString("{\"alg\":\"none\",\"typ\":\"JWT\"}".getBytes(StandardCharsets.UTF_8));
+        isUnauthorized(internalWith(header + "." + payload + "."));
+    }
+
+    /** The realm's claims signed with HMAC: whoever holds the secret could mint tokens. */
+    @Test
+    void rejectsATokenSignedWithASymmetricAlgorithm() throws ParseException, JOSEException {
+        SignedJWT realmToken =
+                SignedJWT.parse(realm.login(KeycloakRealm.TEST_CLIENT).accessToken());
+        byte[] secret = new byte[32];
+        new SecureRandom().nextBytes(secret);
+        SignedJWT forged = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), realmToken.getJWTClaimsSet());
+        forged.sign(new MACSigner(secret));
+        isUnauthorized(internalWith(forged.serialize()));
+    }
+
+    /** An API key on /internal is a credential of the wrong kind. */
+    @Test
+    void rejectsAnApiKey() {
+        isUnauthorized(internalWith("sk_test_not-a-real-key"));
+    }
+
+    /** /v1 accepts API keys only: a valid member token there is a credential of the wrong kind. */
+    @Test
+    void rejectsAnAccessTokenOnThePublicApi() {
+        isUnauthorized(assertThat(mvc.get()
+                .uri("/v1/charges")
+                .header(
+                        "Authorization",
+                        "Bearer " + realm.login(KeycloakRealm.TEST_CLIENT).accessToken())));
+    }
+}

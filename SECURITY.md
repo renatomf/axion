@@ -1,6 +1,6 @@
 # Security policy
 
-Finaxis is a demonstration project: all money, payment rails and data are simulated, and no real customer data exists. Security is still treated as it would be in a production financial system, so reports are welcome.
+Axion is a demonstration project: all money, payment rails and data are simulated, and no real customer data exists. Security is still treated as it would be in a production financial system, so reports are welcome.
 
 ## Supported versions
 
@@ -10,7 +10,7 @@ Only the latest commit on `main` receives security fixes. There are no released 
 
 **Do not open a public issue, discussion or pull request for a vulnerability.**
 
-Report it privately through GitHub: **Security** tab → **Report a vulnerability** ([private vulnerability reporting](https://github.com/renatomf/finaxis/security/advisories/new)).
+Report it privately through GitHub: **Security** tab → **Report a vulnerability** ([private vulnerability reporting](https://github.com/renatomf/axion/security/advisories/new)).
 
 Please include:
 

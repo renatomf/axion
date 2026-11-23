@@ -7,14 +7,14 @@
 -- Roles belong to the whole PostgreSQL cluster, so the role may already exist.
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'finaxis_ledger_jobs') THEN
-        CREATE ROLE finaxis_ledger_jobs NOLOGIN;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'axion_ledger_jobs') THEN
+        CREATE ROLE axion_ledger_jobs NOLOGIN;
     END IF;
 END;
 $$;
 
-GRANT USAGE ON SCHEMA ledger TO finaxis_ledger_jobs;
-GRANT SELECT ON ledger.accounts, ledger.entries, ledger.postings, ledger.balances TO finaxis_ledger_jobs;
+GRANT USAGE ON SCHEMA ledger TO axion_ledger_jobs;
+GRANT SELECT ON ledger.accounts, ledger.entries, ledger.postings, ledger.balances TO axion_ledger_jobs;
 
 -- The service switches to it with SET ROLE, as to a module role (V15).
-GRANT finaxis_ledger_jobs TO finaxis_app WITH INHERIT FALSE, SET TRUE;
+GRANT axion_ledger_jobs TO axion_app WITH INHERIT FALSE, SET TRUE;

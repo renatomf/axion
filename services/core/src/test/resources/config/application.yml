@@ -2,12 +2,12 @@
 # reads classpath:/config/application.yml after classpath:/application.yml,
 # so these values are added to the main file instead of replacing it.
 
-finaxis:
+axion:
   members:
     # A realm that cannot exist (.invalid is a reserved top-level domain).
     # The core contacts the realm only when a request carries a bearer
     # token; tests that send one start a real Keycloak and override this.
-    issuer: http://keycloak.invalid/realms/finaxis
+    issuer: http://keycloak.invalid/realms/axion
   billing:
     expiry:
       # Tests expire charges themselves: the database is shared, and a job on

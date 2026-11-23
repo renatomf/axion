@@ -9,7 +9,7 @@
 
 ## Context
 
-Finaxis is built over months by a single author with AI assistance. Decisions made early (a modular monolith, no card data, the choice of identity provider) shape everything that follows, and their reasons are easily lost: conversations are not kept, AI sessions start without memory, and code shows *what* was built but not *why*.
+Axion is built over months by a single author with AI assistance. Decisions made early (a modular monolith, no card data, the choice of identity provider) shape everything that follows, and their reasons are easily lost: conversations are not kept, AI sessions start without memory, and code shows *what* was built but not *why*.
 
 The project must also be defensible in engineering interviews, which requires the reasoning behind each decision, including the alternatives that were rejected.
 

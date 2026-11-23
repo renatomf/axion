@@ -1,5 +1,5 @@
 // Settings for the core service build: https://docs.gradle.org/current/userguide/settings_file_basics.html
-rootProject.name = "finaxis-core"
+rootProject.name = "axion-core"
 
 // Where Gradle looks for build plugins.
 pluginManagement {

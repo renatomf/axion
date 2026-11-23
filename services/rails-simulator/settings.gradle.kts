@@ -1,5 +1,5 @@
 // Settings for the rails simulator build: https://docs.gradle.org/current/userguide/settings_file_basics.html
-rootProject.name = "finaxis-rails-simulator"
+rootProject.name = "axion-rails-simulator"
 
 // Where Gradle looks for build plugins.
 pluginManagement {
