@@ -1,9 +1,12 @@
 package dev.axion.core.webhooks;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.axion.core.DatabaseOwner;
+import dev.axion.core.DatabaseRole;
 import dev.axion.core.PostgresTestConfiguration;
+import dev.axion.core.shared.TenantId;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
@@ -19,11 +22,14 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
  * The events and deliveries tables and the rules the database enforces on them (events and webhooks
- * design, section 11), checked against a real PostgreSQL as their owner; nothing is committed.
+ * design, section 11), checked against a real PostgreSQL. The owner arranges the rows, then the
+ * module's role reads and writes them; nothing is committed.
  */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
 class WebhookDeliveriesSchemaTest {
+
+    private static final String RLS_VIOLATION = "violates row-level security policy";
 
     private final DatabaseOwner.Session session;
     private final JdbcClient jdbc;
@@ -119,11 +125,66 @@ class WebhookDeliveriesSchemaTest {
         assertRejected(() -> insertEvent(event), "events_pkey");
     }
 
+    @Test
+    void letsTheModuleRoleRecordAnEventAndItsDelivery() {
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+        UUID recorded = UUID.randomUUID();
+
+        insertEvent(recorded, tenant);
+        insertDelivery(endpoint, recorded, "PENDING", 0, "now()", null);
+    }
+
+    @Test
+    void letsTheModuleRoleFindAnEventRecordedAlready() {
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        int inserted = jdbc.sql("""
+                        INSERT INTO webhooks.events (id, tenant_id, type, body, occurred_at)
+                        VALUES (?, ?, 'charge.paid', '\\x7b7d', now())
+                        ON CONFLICT (id) DO NOTHING
+                        """).params(event, tenant).update();
+
+        assertThat(inserted).isZero();
+    }
+
+    @Test
+    void deniesTheModuleRoleReadingAnEventsBody() {
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        assertThatThrownBy(() -> jdbc.sql("SELECT body FROM webhooks.events")
+                        .query(byte[].class)
+                        .list())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void deniesTheModuleRoleRecordingAnEventForAnotherTenant() {
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        assertThatThrownBy(() -> insertEvent(UUID.randomUUID(), UUID.randomUUID()))
+                .rootCause()
+                .hasMessageContaining(RLS_VIOLATION);
+    }
+
+    @Test
+    void deniesTheModuleRoleRecordingADeliveryWithNoTenantBound() {
+        DatabaseRole.WEBHOOKS.actAs(jdbc);
+
+        assertThatThrownBy(() -> insertDelivery(endpoint, event, "PENDING", 0, "now()", null))
+                .rootCause()
+                .hasMessageContaining(RLS_VIOLATION);
+    }
+
     private void insertEvent(UUID id) {
+        insertEvent(id, tenant);
+    }
+
+    private void insertEvent(UUID id, UUID owner) {
         jdbc.sql("""
                         INSERT INTO webhooks.events (id, tenant_id, type, body, occurred_at)
                         VALUES (?, ?, 'charge.paid', '\\x7b7d', now())
-                        """).params(id, tenant).update();
+                        """).params(id, owner).update();
     }
 
     // The times are SQL expressions, such as now(), or null.
