@@ -1,5 +1,6 @@
 package dev.finaxis.core.billing.persistence;
 
+import dev.finaxis.core.billing.ChargeFilter;
 import dev.finaxis.core.billing.ChargeId;
 import dev.finaxis.core.billing.ChargeRequest;
 import dev.finaxis.core.billing.ChargeStatus;
@@ -18,6 +19,8 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Currency;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -88,6 +91,42 @@ public class JdbcCharges {
                 .param("id", id.value())
                 .query((row, rowNumber) -> view(row, tenant.environment()))
                 .optional();
+    }
+
+    /**
+     * The tenant's charges that match the filter, newest first, up to {@code count}.
+     *
+     * @param after the last charge of the previous page; only older ones follow it
+     */
+    public List<ChargeView> list(
+            TenantContext.Binding tenant, ChargeFilter filter, Optional<ChargeId> after, int count) {
+        // Keyset pagination on (tenant_id, id), or (tenant_id, status, id) with a status: a UUIDv7
+        // grows with time, so the newest come first, and a deep page costs the same as the first.
+        var sql = new StringBuilder("SELECT " + COLUMNS + " FROM billing.charges WHERE tenant_id = :tenant");
+        var params = new HashMap<String, Object>();
+        params.put("tenant", tenant.tenant().value());
+        filter.status().ifPresent(status -> {
+            sql.append(" AND status = :status");
+            params.put("status", status.name());
+        });
+        filter.createdFrom().ifPresent(from -> {
+            sql.append(" AND created_at >= :createdFrom");
+            params.put("createdFrom", from.atOffset(ZoneOffset.UTC));
+        });
+        filter.createdBefore().ifPresent(before -> {
+            sql.append(" AND created_at < :createdBefore");
+            params.put("createdBefore", before.atOffset(ZoneOffset.UTC));
+        });
+        after.ifPresent(last -> {
+            sql.append(" AND id < :after");
+            params.put("after", last.value());
+        });
+        sql.append(" ORDER BY id DESC LIMIT :count");
+        params.put("count", count);
+        return jdbc.sql(sql.toString())
+                .params(params)
+                .query((row, rowNumber) -> view(row, tenant.environment()))
+                .list();
     }
 
     private ChargeView view(ResultSet row, Environment environment) throws SQLException {

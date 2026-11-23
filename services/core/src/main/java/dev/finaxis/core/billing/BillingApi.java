@@ -8,6 +8,9 @@ import java.util.Optional;
  */
 public interface BillingApi {
 
+    /** The most charges one page of {@link #charges} holds. */
+    int MAX_PAGE_SIZE = 100;
+
     /**
      * Creates an active charge with its transaction ID and its BR Code, and opens the tenant's
      * ledger account if it is not open yet, so the account exists before any payment can arrive
@@ -24,4 +27,14 @@ public interface BillingApi {
      * @throws IllegalStateException if no tenant is bound, a bug in the caller
      */
     Optional<ChargeView> charge(ChargeId charge);
+
+    /**
+     * A page of the tenant's charges that match the filter, newest first. Start from {@link
+     * ChargeCursor#first()}, then each page's {@link ChargePage#next()}.
+     *
+     * @param limit 1 to {@value #MAX_PAGE_SIZE}
+     * @throws IllegalArgumentException if the limit is out of range
+     * @throws IllegalStateException if no tenant is bound, a bug in the caller
+     */
+    ChargePage charges(ChargeFilter filter, ChargeCursor cursor, int limit);
 }
