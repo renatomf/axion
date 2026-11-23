@@ -11,7 +11,9 @@
  *   <li>{@code application}: the implementation of {@code WebhooksApi}, which owns the transactions,
  *       the encryption of signing secrets, and the listener that records deliveries;
  *   <li>{@code domain}: which URLs and addresses the core may send to, the event types an endpoint
- *       may receive and the format of secrets, in plain Java;
+ *       may receive, the format of secrets and what an attempt to deliver can come to, in plain
+ *       Java;
+ *   <li>{@code http}: the HTTP client that sends webhooks, connecting only to checked addresses;
  *   <li>{@code persistence}: the module's SQL;
  *   <li>{@code web}: the module's endpoints and the bodies they return.
  * </ul>
