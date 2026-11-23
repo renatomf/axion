@@ -151,18 +151,19 @@ public class JdbcApiKeys {
     }
 
     // The first revocation is the one on record; a concurrent second one finds it and writes nothing.
-    public void revoke(TenantId tenant, ApiKeyId id, Instant revokedAt) {
-        jdbc.sql("""
+    public boolean revoke(TenantId tenant, ApiKeyId id, Instant revokedAt) {
+        return jdbc.sql("""
                         UPDATE access.api_keys
                            SET revoked_at = :revokedAt
                          WHERE tenant_id = :tenant
                            AND id = :id
                            AND revoked_at IS NULL
                         """)
-                .param("revokedAt", utc(revokedAt))
-                .param("tenant", tenant.value())
-                .param("id", id.value())
-                .update();
+                        .param("revokedAt", utc(revokedAt))
+                        .param("tenant", tenant.value())
+                        .param("id", id.value())
+                        .update()
+                == 1;
     }
 
     // A key rolls once, so its grace period is never extended; a concurrent second roll writes nothing.

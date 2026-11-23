@@ -2,6 +2,8 @@ package dev.axion.core.access;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.axion.core.TestCaller;
+import dev.axion.core.shared.ActorContext;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.MemberId;
 import dev.axion.core.shared.TenantContext;
@@ -27,10 +29,16 @@ public final class AccessFixtures {
         return member(organization, environment, organization.admin(), Role.ADMIN);
     }
 
-    /** Issues a key as a controller would, with the issuer's tenant bound, failing the test unless it is issued. */
+    /**
+     * Issues a key as a controller would, with the issuer's tenant bound and the issuer as the actor,
+     * failing the test unless it is issued.
+     */
     public static IssuedApiKey issue(AccessApi access, MemberCaller issuer, String name, Set<Permission> scopes) {
-        IssueResult result =
-                TenantContext.call(issuer.tenant(), issuer.environment(), () -> access.issue(issuer, name, scopes));
+        IssueResult result = TenantContext.call(
+                issuer.tenant(),
+                issuer.environment(),
+                () -> ActorContext.call(
+                        issuer.actor(), TestCaller.CORRELATION_ID, () -> access.issue(issuer, name, scopes)));
         assertThat(result).isInstanceOf(IssueResult.Issued.class);
         return ((IssueResult.Issued) result).key();
     }
