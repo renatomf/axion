@@ -554,6 +554,34 @@ paths:
           $ref: "components.yaml#/responses/TooManyRequests"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
+    delete:
+      operationId: deleteWebhookEndpoint
+      tags: [Webhook endpoints]
+      summary: Delete a webhook endpoint
+      description: >-
+        Deletes the endpoint: it receives no events from then on, is no
+        longer read or listed, and no longer counts toward the tenant's 16
+        endpoints. Deleting it again answers `404`. Requires
+        `webhooks:manage`.
+      responses:
+        "204":
+          description: The endpoint was deleted.
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The key lacks `webhooks:manage` (`insufficient_permission`), or
+            its tenant is not active (`tenant_inactive`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
 components:
   schemas:
     CreateChargeRequest:

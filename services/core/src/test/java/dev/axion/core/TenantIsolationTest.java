@@ -99,7 +99,8 @@ class TenantIsolationTest {
             Map.entry("createWebhookEndpoint", this::createWebhookEndpointRegistersNothingForAnotherTenant),
             Map.entry("listWebhookEndpoints", this::listWebhookEndpointsHidesAnotherTenantsEndpoints),
             Map.entry("getWebhookEndpoint", this::getWebhookEndpointHidesAnotherTenantsEndpoint),
-            Map.entry("updateWebhookEndpoint", this::updateWebhookEndpointLeavesAnotherTenantsEndpointAsItWas));
+            Map.entry("updateWebhookEndpoint", this::updateWebhookEndpointLeavesAnotherTenantsEndpointAsItWas),
+            Map.entry("deleteWebhookEndpoint", this::deleteWebhookEndpointLeavesAnotherTenantsEndpointInPlace));
 
     @Autowired
     TenantIsolationTest(
@@ -332,6 +333,18 @@ class TenantIsolationTest {
                 .hasValueSatisfying(endpoint -> assertThat(endpoint.url()).isEqualTo(ENDPOINT_URL));
 
         assertThat(request.sendBodyWithKey(manager, patch, own.publicId())).hasStatus(HttpStatus.OK);
+    }
+
+    private void deleteWebhookEndpointLeavesAnotherTenantsEndpointInPlace(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookEndpointId own = endpoint(scene.caller().test());
+        IssuedApiKey manager = webhookManager(scene);
+
+        assertNotFound(request.sendWithKey(manager, others.publicId()));
+        assertThat(TestCaller.call(scene.other().test(), Environment.TEST, () -> webhooks.endpoint(others)))
+                .isPresent();
+
+        assertThat(request.sendWithKey(manager, own.publicId())).hasStatus(HttpStatus.NO_CONTENT);
     }
 
     private IssuedApiKey webhookManager(Scene scene) {

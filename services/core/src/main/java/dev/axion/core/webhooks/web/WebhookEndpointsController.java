@@ -25,6 +25,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.ErrorResponseException;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -101,6 +102,17 @@ class WebhookEndpointsController {
             case UpdateEndpointResult.EndpointNotFound unknown -> throw notFound();
             case UpdateEndpointResult.InvalidUrl invalid -> throw invalidUrl(invalid.reason());
         };
+    }
+
+    // 204: the endpoint is gone, so there is nothing to show. Deleting it again is 404, like an
+    // unknown endpoint; the request changes nothing more, as DELETE must not.
+    @RequiresPermission(Permission.WEBHOOKS_MANAGE)
+    @DeleteMapping(PATH + "/{id}")
+    ResponseEntity<Void> delete(@PathVariable("id") String id) {
+        if (webhooks.delete(endpointIn(id)).isEmpty()) {
+            throw notFound();
+        }
+        return ResponseEntity.noContent().build();
     }
 
     // A malformed ID answers 404, like another tenant's endpoint, not 400.
