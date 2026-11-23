@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.MutableClock;
 import dev.finaxis.core.PostgresTestConfiguration;
+import dev.finaxis.core.billing.application.ChargeExpiry;
 import dev.finaxis.core.billing.application.Settlement;
 import dev.finaxis.core.billing.domain.Charge;
 import dev.finaxis.core.ledger.AccountRequest;
@@ -74,6 +75,7 @@ class SettlementTest {
     }
 
     private final PixCreditHandler settlement;
+    private final ChargeExpiry expiry;
     private final BillingApi billing;
     private final TenancyApi tenancy;
     private final LedgerApi ledger;
@@ -88,6 +90,7 @@ class SettlementTest {
     @Autowired
     SettlementTest(
             PixCreditHandler settlement,
+            ChargeExpiry expiry,
             BillingApi billing,
             TenancyApi tenancy,
             LedgerApi ledger,
@@ -96,6 +99,7 @@ class SettlementTest {
             MutableClock clock,
             MeterRegistry meters) {
         this.settlement = settlement;
+        this.expiry = expiry;
         this.billing = billing;
         this.tenancy = tenancy;
         this.ledger = ledger;
@@ -199,6 +203,37 @@ class SettlementTest {
     void flagsAPaymentAcceptedAtTheExpiryAndExpiresTheCharge() {
         clock.advance(Duration.ofMinutes(31));
         PixCredit credit = credit(10_000, charge.expiresAt());
+
+        settlement.handle(credit);
+
+        assertThat(read().status()).isEqualTo(ChargeStatus.EXPIRED);
+        assertThat(read().paidAt()).isNull();
+        assertThat(payment(credit))
+                .containsEntry("outcome", "FLAGGED")
+                .containsEntry("review_reason", "CHARGE_EXPIRED");
+        assertThat(available()).isEqualTo(brl(10_000));
+    }
+
+    @Test
+    void settlesAChargeTheJobExpiredWithAPaymentAcceptedBeforeItsExpiry() {
+        PixCredit credit = credit(10_000, charge.expiresAt().minusSeconds(5));
+        clock.advance(Duration.ofMinutes(31));
+        expiry.expireDue();
+        assertThat(read().status()).isEqualTo(ChargeStatus.EXPIRED);
+
+        settlement.handle(credit);
+
+        assertThat(read().status()).isEqualTo(ChargeStatus.PAID);
+        assertThat(read().paidAt()).isEqualTo(credit.acceptedAt());
+        assertThat(payment(credit)).containsEntry("outcome", "SETTLED");
+        assertThat(available()).isEqualTo(brl(10_000));
+    }
+
+    @Test
+    void flagsAPaymentAcceptedAfterTheExpiryOfAChargeTheJobExpiredAndCreditsIt() {
+        clock.advance(Duration.ofMinutes(31));
+        expiry.expireDue();
+        PixCredit credit = credit(10_000, charge.expiresAt().plusSeconds(10));
 
         settlement.handle(credit);
 
