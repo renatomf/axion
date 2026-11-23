@@ -23,12 +23,18 @@ import dev.axion.core.shared.TenantId;
 import dev.axion.core.tenancy.NewOrganization;
 import dev.axion.core.tenancy.Permission;
 import dev.axion.core.tenancy.TenancyApi;
+import dev.axion.core.webhooks.CreateEndpointResult;
+import dev.axion.core.webhooks.EndpointRequest;
+import dev.axion.core.webhooks.TestDns;
+import dev.axion.core.webhooks.WebhookEndpointId;
+import dev.axion.core.webhooks.WebhooksApi;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Currency;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -58,7 +64,7 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
  * in, so the tenant is the only reason left to refuse.
  */
 @SpringBootTest
-@Import({PostgresTestConfiguration.class, KeycloakTestConfiguration.class})
+@Import({PostgresTestConfiguration.class, KeycloakTestConfiguration.class, TestDns.class})
 @AutoConfigureMockMvc
 class TenantIsolationTest {
 
@@ -76,17 +82,20 @@ class TenantIsolationTest {
     private final DatabaseOwner owner;
     private final BillingApi billing;
     private final PixCreditHandler settlement;
+    private final WebhooksApi webhooks;
 
-    private final Map<String, Attempt> attempts = Map.of(
-            "getCurrentMember", this::currentMemberShowsNoOtherOrganization,
-            "listApiKeys", this::listApiKeysHidesAnotherTenantsKeys,
-            "issueApiKey", this::issueApiKeyIssuesNoKeyForAnotherTenant,
-            "revokeApiKey", this::revokeApiKeyLeavesAnotherTenantsKeyWorking,
-            "rollApiKey", this::rollApiKeyLeavesAnotherTenantsKeyUnrolled,
-            "createCharge", this::createChargeCreatesNothingForAnotherTenant,
-            "getCharge", this::getChargeHidesAnotherTenantsCharge,
-            "listCharges", this::listChargesHidesAnotherTenantsCharges,
-            "createRefund", this::createRefundRefundsNothingOfAnotherTenant);
+    private final Map<String, Attempt> attempts = Map.ofEntries(
+            Map.entry("getCurrentMember", this::currentMemberShowsNoOtherOrganization),
+            Map.entry("listApiKeys", this::listApiKeysHidesAnotherTenantsKeys),
+            Map.entry("issueApiKey", this::issueApiKeyIssuesNoKeyForAnotherTenant),
+            Map.entry("revokeApiKey", this::revokeApiKeyLeavesAnotherTenantsKeyWorking),
+            Map.entry("rollApiKey", this::rollApiKeyLeavesAnotherTenantsKeyUnrolled),
+            Map.entry("createCharge", this::createChargeCreatesNothingForAnotherTenant),
+            Map.entry("getCharge", this::getChargeHidesAnotherTenantsCharge),
+            Map.entry("listCharges", this::listChargesHidesAnotherTenantsCharges),
+            Map.entry("createRefund", this::createRefundRefundsNothingOfAnotherTenant),
+            Map.entry("listWebhookEndpoints", this::listWebhookEndpointsHidesAnotherTenantsEndpoints),
+            Map.entry("getWebhookEndpoint", this::getWebhookEndpointHidesAnotherTenantsEndpoint));
 
     @Autowired
     TenantIsolationTest(
@@ -95,13 +104,15 @@ class TenantIsolationTest {
             TenancyApi tenancy,
             DatabaseOwner owner,
             BillingApi billing,
-            PixCreditHandler settlement) {
+            PixCreditHandler settlement,
+            WebhooksApi webhooks) {
         this.mvc = mvc;
         this.access = new TenantBoundAccess(access, tenancy);
         this.tenancy = tenancy;
         this.owner = owner;
         this.billing = billing;
         this.settlement = settlement;
+        this.webhooks = webhooks;
     }
 
     @TestFactory
@@ -251,6 +262,42 @@ class TenantIsolationTest {
         assertThat(request.sendWithKey(refunder, "refund-2", "{}", own.publicId()))
                 .hasStatus(HttpStatus.CREATED);
         assertThat(refunds(scene.caller().test())).isOne();
+    }
+
+    private void listWebhookEndpointsHidesAnotherTenantsEndpoints(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookEndpointId own = endpoint(scene.caller().test());
+
+        MvcTestResult result = request.sendWithKey(webhookManager(scene));
+        assertThat(result).hasStatus(HttpStatus.OK);
+        assertThat(result)
+                .body()
+                .asString()
+                .contains(own.publicId().toString())
+                .doesNotContain(others.publicId().toString());
+    }
+
+    private void getWebhookEndpointHidesAnotherTenantsEndpoint(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookEndpointId own = endpoint(scene.caller().test());
+        IssuedApiKey manager = webhookManager(scene);
+
+        assertNotFound(request.sendWithKey(manager, others.publicId()));
+        assertThat(request.sendWithKey(manager, own.publicId())).hasStatus(HttpStatus.OK);
+    }
+
+    private IssuedApiKey webhookManager(Scene scene) {
+        return AccessFixtures.issue(
+                access,
+                AccessFixtures.admin(scene.caller(), Environment.TEST),
+                "Integrations",
+                Set.of(Permission.WEBHOOKS_MANAGE));
+    }
+
+    private WebhookEndpointId endpoint(TenantId tenant) {
+        var request = new EndpointRequest("https://orders.example.com/axion", Optional.empty(), Set.of("charge.paid"));
+        var result = TestCaller.call(tenant, Environment.TEST, () -> webhooks.create(request));
+        return ((CreateEndpointResult.Created) result).endpoint().endpoint().id();
     }
 
     private ChargeId charge(TenantId tenant) {

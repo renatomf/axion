@@ -4,17 +4,21 @@
  * off its own network.
  *
  * <p>The module receives domain events and nothing else from other modules: it never calls one, so
- * it cannot slow down what publishes them.
+ * it cannot slow down what publishes them. Its endpoints declare the access module's permissions,
+ * as every module's do.
  *
  * <ul>
  *   <li>{@code application}: the implementation of {@code WebhooksApi}, which owns the transactions,
  *       and the encryption of signing secrets;
  *   <li>{@code domain}: which URLs and addresses the core may send to, the event types an endpoint
  *       may receive and the format of secrets, in plain Java;
- *   <li>{@code persistence}: the module's SQL.
+ *   <li>{@code persistence}: the module's SQL;
+ *   <li>{@code web}: the module's endpoints and the bodies they return.
  * </ul>
  */
-@ApplicationModule(displayName = "Webhooks", allowedDependencies = "shared")
+@ApplicationModule(
+        displayName = "Webhooks",
+        allowedDependencies = {"shared", "access", "tenancy"})
 @NullMarked
 package dev.axion.core.webhooks;
 
