@@ -367,3 +367,48 @@ The response body is the tenant's server talking. It is stored as text, shown es
 ### 8.8 Retention
 
 Events, deliveries and attempts are kept for 30 days, then deleted by a job of `webhooks`. The audit trail, not the delivery log, is the permanent record.
+
+## 9. Audit trail
+
+### 9.1 Records
+
+```
+audit.records
+  id              uuid primary key
+  tenant_id       uuid not null      -- the platform tenant for platform actions
+  sequence        bigint not null    -- 1, 2, 3 … within the chain
+  occurred_at     timestamptz not null
+  actor_type      text not null      -- MEMBER | API_KEY | SYSTEM (CHECK)
+  actor_id        text not null
+  action          text not null      -- such as api_key.issued, charge.refunded
+  resource_type   text not null
+  resource_id     text not null
+  correlation_id  text not null
+  event_id        uuid not null unique
+  details         text not null      -- canonical JSON (section 9.2)
+  previous_hash   bytea not null     -- 32 zero bytes for the first record of a chain
+  hash            bytea not null
+  unique (tenant_id, sequence)
+```
+
+- Each tenant has its own chain; actions of the platform itself go to the platform tenant's chain (tenancy design, section 5.5). Records of one tenant never wait on another's, and a tenant's chain can be verified, and one day exported, without the others.
+- `details` holds the facts of the action, such as a key's name and scopes or a refund's amount, never a secret and never personal data.
+- `event_id` is unique, so a duplicate event finds its record and adds nothing (section 4.4).
+
+### 9.2 The chain
+
+A record's hash is SHA-256 over the previous record's hash and the record's fields, each encoded as its length and its UTF-8 bytes, in the column order above. Length prefixes make the encoding unambiguous: no two different records produce the same bytes. `details` is stored as the exact text that was hashed, not as `jsonb`, which would reorder its keys; it is rendered canonically once, with sorted keys and no insignificant whitespace.
+
+Appending takes the chain's head: `audit.chain_heads` holds each chain's last sequence and hash, and the listener locks its chain's row (`SELECT … FOR UPDATE`), computes the new record, inserts it and moves the head, in one transaction. Appends to one chain are serialized; appends to different chains are not.
+
+`axion_audit` may insert records and read them, never update or delete them; it updates only `chain_heads`. No role but the owner can change a record, and the chain shows it if the owner does.
+
+### 9.3 Verification
+
+`AuditApi.verify(chain)` walks a chain in sequence order, recomputes every hash and compares it, and checks that sequences have no gaps and that the head matches the last record. A changed record breaks its own hash; a deleted one leaves a gap; a reordered one breaks the next hash.
+
+A job verifies every chain each night, as `axion_audit_checks`, and publishes the result (`axion_audit_chain_verified`, 1 or 0 per chain) and each head's hash in the log. Deleting the last records of a chain together with its head is the one change the chain alone cannot show; the heads written to the log each night, outside the database, are the anchor it is checked against.
+
+### 9.4 What is audited
+
+The domain events marked in section 3.3: key, member and endpoint changes, settlements, flagged payments and refunds. The rule for a new event is the question an investigator would ask: who gave access, who moved money, who changed where the money's notifications go. Operations that only read are not audited in phase 1; revealing masked personal data, which the overview audits (section 4.4), arrives with the screen that reveals it.
