@@ -21,13 +21,16 @@ public interface BillingApi {
      */
     CreateChargeResult createCharge(ChargeRequest request);
 
+    /** The most payments a {@link ChargeDetail} holds; a charge paid more often is an anomaly. */
+    int MAX_DETAIL_PAYMENTS = 100;
+
     /**
-     * The tenant's charge; empty for an unknown ID and for another tenant's charge alike (section
-     * 12.1).
+     * The tenant's charge, with its first {@value #MAX_DETAIL_PAYMENTS} payments, read from one snapshot; empty
+     * for an unknown ID and for another tenant's charge alike (section 12.1).
      *
      * @throws IllegalStateException if no tenant is bound, a bug in the caller
      */
-    Optional<ChargeView> charge(ChargeId charge);
+    Optional<ChargeDetail> charge(ChargeId charge);
 
     /**
      * A page of the tenant's charges that match the filter, newest first. Start from {@link

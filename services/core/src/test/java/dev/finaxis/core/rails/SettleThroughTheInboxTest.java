@@ -103,7 +103,8 @@ class SettleThroughTheInboxTest {
         while (true) {
             ChargeView now = TenantContext.call(
                             organization.test(), Environment.TEST, () -> billing.charge(charge.id()))
-                    .orElseThrow();
+                    .orElseThrow()
+                    .charge();
             if (now.status() == ChargeStatus.PAID || Instant.now().isAfter(deadline)) {
                 assertThat(now.status())
                         .as("the charge's status after %s", PATIENCE)

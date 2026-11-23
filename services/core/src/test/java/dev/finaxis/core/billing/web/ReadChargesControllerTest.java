@@ -9,7 +9,10 @@ import dev.finaxis.core.access.AccessApi;
 import dev.finaxis.core.access.AccessFixtures;
 import dev.finaxis.core.access.IssuedApiKey;
 import dev.finaxis.core.access.TenantBoundAccess;
+import dev.finaxis.core.billing.BillingFixtures;
 import dev.finaxis.core.billing.ChargeId;
+import dev.finaxis.core.rails.PixCredit;
+import dev.finaxis.core.rails.PixCreditHandler;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.PublicId;
 import dev.finaxis.core.shared.UuidV7Generator;
@@ -18,6 +21,7 @@ import dev.finaxis.core.tenancy.Permission;
 import dev.finaxis.core.tenancy.TenancyApi;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Locale;
@@ -35,7 +39,9 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * {@code GET /v1/charges/{id}} and {@code GET /v1/charges} (billing design, section 12.2), every
@@ -60,6 +66,7 @@ class ReadChargesControllerTest {
     private final TenancyApi tenancy;
     private final JdbcClient owner;
     private final JsonMapper json;
+    private final PixCreditHandler settlement;
     private final OpenApiContract contract = OpenApiContract.v1();
 
     private NewOrganization organization;
@@ -68,8 +75,14 @@ class ReadChargesControllerTest {
 
     @Autowired
     ReadChargesControllerTest(
-            MockMvcTester mvc, AccessApi access, TenancyApi tenancy, DatabaseOwner owner, JsonMapper json) {
+            MockMvcTester mvc,
+            AccessApi access,
+            TenancyApi tenancy,
+            DatabaseOwner owner,
+            JsonMapper json,
+            PixCreditHandler settlement) {
         this.mvc = mvc;
+        this.settlement = settlement;
         this.access = new TenantBoundAccess(access, tenancy);
         this.tenancy = tenancy;
         this.owner = owner.jdbc();
@@ -90,7 +103,44 @@ class ReadChargesControllerTest {
         MvcTestResult result = get(reader, "/v1/charges/" + id(created));
 
         assertThat(result).hasStatus(HttpStatus.OK).hasContentType(MediaType.APPLICATION_JSON);
-        assertThat(result).bodyJson().isStrictlyEqualTo(body(created));
+        var expected = (ObjectNode) json.readTree(body(created));
+        expected.putArray("payments");
+        assertThat(result).bodyJson().isStrictlyEqualTo(expected.toString());
+    }
+
+    @Test
+    void showsThePaymentsTheChargeReceived() {
+        MvcTestResult created = create(writer, BODY);
+        var accepted = Instant.parse("2026-11-22T14:41:07.512Z");
+        var credit = new PixCredit(
+                BillingFixtures.endToEndId(),
+                "M99990011aB3dE5gH7jK2mN4pQ6rS8tU",
+                json.readTree(body(created)).path("pix").path("transaction_id").asString(),
+                BillingFixtures.brl(10_000),
+                accepted,
+                "99990011");
+        settlement.handle(credit);
+
+        MvcTestResult result = get(reader, "/v1/charges/" + id(created));
+
+        assertThat(result).hasStatus(HttpStatus.OK);
+        JsonNode charge = json.readTree(body(result));
+        assertThat(charge.path("status").asString()).isEqualTo("paid");
+        assertThat(charge.path("payments")).hasSize(1);
+        JsonNode payment = charge.path("payments").path(0);
+        assertThat(payment.path("id").asString()).startsWith("pmt_");
+        assertThat(payment)
+                .isEqualTo(json.readTree("""
+                        {
+                          "id": "%s",
+                          "end_to_end_id": "%s",
+                          "amount": 10000,
+                          "amount_refunded": 0,
+                          "accepted_at": "2026-11-22T14:41:07.512Z",
+                          "outcome": "settled",
+                          "review_reason": null
+                        }
+                        """.formatted(payment.path("id").asString(), credit.endToEndId())));
     }
 
     @Test

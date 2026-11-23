@@ -379,7 +379,8 @@ class SettlementTest {
 
     private ChargeView read() {
         return TenantContext.call(organization.test(), Environment.TEST, () -> billing.charge(charge.id()))
-                .orElseThrow();
+                .orElseThrow()
+                .charge();
     }
 
     private Money available() {

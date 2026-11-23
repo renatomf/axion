@@ -3,6 +3,7 @@ package dev.finaxis.core.billing.persistence;
 import dev.finaxis.core.billing.ChargeId;
 import dev.finaxis.core.billing.PaymentId;
 import dev.finaxis.core.billing.PaymentOutcome;
+import dev.finaxis.core.billing.PaymentView;
 import dev.finaxis.core.billing.ReviewReason;
 import dev.finaxis.core.billing.domain.Charge;
 import dev.finaxis.core.billing.domain.Payment;
@@ -40,6 +41,31 @@ public class JdbcPayments {
                         """)
                 .param("charge", charge.value())
                 .query((row, rowNumber) -> payment(row))
+                .list();
+    }
+
+    /** The first {@code limit} payments of the charge, oldest first, as the API shows them. */
+    public List<PaymentView> views(ChargeId charge, int limit) {
+        return jdbc.sql("""
+                        SELECT id, end_to_end_id, amount_minor, amount_refunded, accepted_at, outcome, review_reason
+                          FROM billing.payments
+                         WHERE charge_id = :charge
+                         ORDER BY id
+                         LIMIT :limit
+                        """)
+                .param("charge", charge.value())
+                .param("limit", limit)
+                .query((row, rowNumber) -> {
+                    Payment payment = payment(row);
+                    return new PaymentView(
+                            payment.id(),
+                            payment.endToEndId(),
+                            payment.amount(),
+                            Money.ofMinor(row.getLong("amount_refunded"), Charge.CURRENCY),
+                            payment.acceptedAt(),
+                            payment.outcome(),
+                            payment.reviewReason());
+                })
                 .list();
     }
 

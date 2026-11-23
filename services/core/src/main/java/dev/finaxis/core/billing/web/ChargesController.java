@@ -84,8 +84,8 @@ class ChargesController {
 
     @RequiresPermission(Permission.CHARGES_READ)
     @GetMapping(PATH + "/{id}")
-    ChargeResponse charge(@PathVariable("id") String id) {
-        return billing.charge(chargeIn(id)).map(ChargeResponse::of).orElseThrow(ChargesController::notFound);
+    ChargeDetailResponse charge(@PathVariable("id") String id) {
+        return billing.charge(chargeIn(id)).map(ChargeDetailResponse::of).orElseThrow(ChargesController::notFound);
     }
 
     // A malformed ID answers 404, like another tenant's charge, not 400.

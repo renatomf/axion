@@ -11,6 +11,7 @@ import dev.finaxis.core.billing.ChargeRequest;
 import dev.finaxis.core.billing.ChargeView;
 import dev.finaxis.core.billing.domain.TransactionId;
 import dev.finaxis.core.billing.persistence.JdbcCharges;
+import dev.finaxis.core.billing.persistence.JdbcPayments;
 import dev.finaxis.core.ledger.LedgerApi;
 import dev.finaxis.core.risk.RiskApi;
 import dev.finaxis.core.shared.Environment;
@@ -42,6 +43,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 class TransactionIdDrawTest {
 
     private final JdbcCharges charges;
+    private final JdbcPayments payments;
     private final LedgerApi ledger;
     private final RiskApi risk;
     private final TenancyApi tenancy;
@@ -57,6 +59,7 @@ class TransactionIdDrawTest {
     @Autowired
     TransactionIdDrawTest(
             JdbcCharges charges,
+            JdbcPayments payments,
             LedgerApi ledger,
             RiskApi risk,
             TenancyApi tenancy,
@@ -66,6 +69,7 @@ class TransactionIdDrawTest {
             MeterRegistry meters,
             PlatformTransactionManager transactions) {
         this.charges = charges;
+        this.payments = payments;
         this.ledger = ledger;
         this.risk = risk;
         this.tenancy = tenancy;
@@ -110,6 +114,7 @@ class TransactionIdDrawTest {
     private BillingService billing(String... transactionIds) {
         return new BillingService(
                 charges,
+                payments,
                 ledger,
                 risk,
                 tenancy,
