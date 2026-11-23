@@ -191,11 +191,11 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | ↳ 1.37a | Risk rules | The `risk` module: `RiskApi` with the amount, daily amount and hourly count rules, held by conditional counters |
 | ↳ 1.37b | Risk before charging | The decision applied to charge creation |
 | 1.38 | Rails anti-corruption layer | The `rails` module: the callback endpoint on its own filter chain, its signature verification (RFC 9421, Ed25519), and the inbox that deduplicates credits by `EndToEndId` |
-| 1.39 | Settlement | The inbox processor and the `PixCreditHandler` port; one transaction: charge `PAID` + payment + ledger entry; flagged and unmatched payments |
+| 1.39 | Settlement | The inbox processor and the `PixCreditHandler` port; one transaction: charge `PAID` + payment + ledger entry; flagged and unmatched payments; a charge's `payments` in `GET /v1/charges/{id}` |
 | 1.40 | Late payments | The expiry job; a payment accepted after expiry credited and flagged; one accepted before it settles the expired charge |
 | 1.41 | Refunds | Reversal entries, partial and full refunds |
 | ↳ 1.41a | Refunds | Refunds of one payment and their table; reversal entries for full and partial refunds within the payment's amount |
-| ↳ 1.41b | Refund endpoint | `POST /v1/charges/{id}/refunds`, idempotent |
+| ↳ 1.41b | Refund endpoint | `POST /v1/charges/{id}/refunds`, idempotent; a charge's `refunds` in `GET /v1/charges/{id}` |
 | 1.42 | Fault-injection suite | Timeouts, duplicates, out-of-order and late callbacks, mid-settlement failure |
 
 ### 4.7 Block G — Events, webhooks, audit and notifications
