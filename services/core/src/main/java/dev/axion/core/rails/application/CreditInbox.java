@@ -24,7 +24,7 @@ public class CreditInbox {
         DUPLICATE
     }
 
-    private static final String ROLE = "finaxis_rails";
+    private static final String ROLE = "axion_rails";
 
     private static final Logger LOG = LoggerFactory.getLogger(CreditInbox.class);
 

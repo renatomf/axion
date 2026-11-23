@@ -7,10 +7,10 @@ import org.springframework.stereotype.Component;
 
 /**
  * Runs a pass of the {@link CreditProcessor} every 500 ms (billing design, section 7.3). Off when
- * {@code finaxis.rails.processor.enabled} is false, so tests run the passes themselves.
+ * {@code axion.rails.processor.enabled} is false, so tests run the passes themselves.
  */
 @Component
-@ConditionalOnBooleanProperty(name = "finaxis.rails.processor.enabled", matchIfMissing = true)
+@ConditionalOnBooleanProperty(name = "axion.rails.processor.enabled", matchIfMissing = true)
 class ScheduledCreditProcessing {
 
     private final CreditProcessor processor;

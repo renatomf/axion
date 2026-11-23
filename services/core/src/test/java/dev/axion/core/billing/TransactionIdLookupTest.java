@@ -73,8 +73,8 @@ class TransactionIdLookupTest {
     void runsAsTheLookupRoleAndOnlyForTheBillingRole() {
         var lookup = jdbc.sql("""
                         SELECT p.prosecdef, pg_get_userbyid(p.proowner) AS owner,
-                               has_function_privilege('finaxis_billing', p.oid, 'EXECUTE') AS billing,
-                               has_function_privilege('finaxis_rails', p.oid, 'EXECUTE') AS rails
+                               has_function_privilege('axion_billing', p.oid, 'EXECUTE') AS billing,
+                               has_function_privilege('axion_rails', p.oid, 'EXECUTE') AS rails
                           FROM pg_proc p
                          WHERE p.oid = CAST('billing.find_charge_tenant(text)' AS regprocedure)
                         """)
@@ -85,13 +85,13 @@ class TransactionIdLookupTest {
                         row.getBoolean("rails")))
                 .single();
 
-        assertThat(lookup).containsExactly(true, "finaxis_billing_lookup", true, false);
+        assertThat(lookup).containsExactly(true, "axion_billing_lookup", true, false);
     }
 
     @Test
     void letsTheLookupRoleReadNoColumnButTheTenantAndTheTransactionId() {
         insertCharge(UUID.randomUUID());
-        jdbc.sql("SET LOCAL ROLE finaxis_billing_lookup").update();
+        jdbc.sql("SET LOCAL ROLE axion_billing_lookup").update();
 
         assertThatThrownBy(() -> jdbc.sql("SELECT br_code FROM billing.charges")
                         .query(String.class)

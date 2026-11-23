@@ -18,7 +18,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataAccessException;
 
 /**
- * The access module's statements run as {@code finaxis_access}, so Row-Level Security binds them
+ * The access module's statements run as {@code axion_access}, so Row-Level Security binds them
  * even though the tests connect as a superuser: with no tenant bound, they reach no key.
  */
 @SpringBootTest

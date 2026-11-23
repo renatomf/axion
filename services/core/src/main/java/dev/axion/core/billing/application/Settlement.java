@@ -58,11 +58,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class Settlement implements PixCreditHandler {
 
-    public static final String PAYMENTS = "finaxis.billing.payments";
+    public static final String PAYMENTS = "axion.billing.payments";
 
-    public static final String SETTLEMENT_LAG = "finaxis.billing.settlement.lag";
+    public static final String SETTLEMENT_LAG = "axion.billing.settlement.lag";
 
-    private static final String ROLE = "finaxis_billing";
+    private static final String ROLE = "axion_billing";
 
     private static final Logger LOG = LoggerFactory.getLogger(Settlement.class);
 
@@ -197,7 +197,7 @@ public class Settlement implements PixCreditHandler {
         return outcome + "/" + reason;
     }
 
-    // Settled or flagged, the money is in Finaxis's settlement account, so it is owed to the tenant
+    // Settled or flagged, the money is in Axion's settlement account, so it is owed to the tenant
     // (section 8.3). The EndToEndId is the source, so the ledger refuses a second entry for it.
     private EntryId post(TenantView tenant, PixCredit credit) {
         AccountId available = ledger.openAccount(BillingService.availableAccount(tenant));

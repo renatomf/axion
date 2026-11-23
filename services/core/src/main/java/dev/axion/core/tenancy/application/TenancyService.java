@@ -29,7 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class TenancyService implements TenancyApi {
 
-    private static final String ROLE = "finaxis_tenancy";
+    private static final String ROLE = "axion_tenancy";
 
     // Fixed by migration V7__create_platform_organization.
     private static final TenantId PLATFORM_TEST = new TenantId(UUID.fromString("00000000-0000-7000-8000-000000000002"));

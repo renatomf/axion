@@ -7,14 +7,14 @@
 -- Roles belong to the whole PostgreSQL cluster, so the role may already exist.
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'finaxis_rails') THEN
-        CREATE ROLE finaxis_rails NOLOGIN;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'axion_rails') THEN
+        CREATE ROLE axion_rails NOLOGIN;
     END IF;
 END;
 $$;
 
-GRANT USAGE ON SCHEMA rails TO finaxis_rails;
-GRANT SELECT, INSERT ON rails.pix_credits TO finaxis_rails;
+GRANT USAGE ON SCHEMA rails TO axion_rails;
+GRANT SELECT, INSERT ON rails.pix_credits TO axion_rails;
 
 -- The service switches to it with SET ROLE, as to the other module roles (V15).
-GRANT finaxis_rails TO finaxis_app WITH INHERIT FALSE, SET TRUE;
+GRANT axion_rails TO axion_app WITH INHERIT FALSE, SET TRUE;

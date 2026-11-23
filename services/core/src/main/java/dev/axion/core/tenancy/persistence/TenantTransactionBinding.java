@@ -10,17 +10,17 @@ import org.springframework.transaction.TransactionExecution;
 import org.springframework.transaction.TransactionExecutionListener;
 
 /**
- * Hands the tenant in {@link TenantContext} to Row-Level Security as {@code finaxis.tenant_id}, and
- * the platform tenant of its environment as {@code finaxis.platform_tenant_id}, at the start of
+ * Hands the tenant in {@link TenantContext} to Row-Level Security as {@code axion.tenant_id}, and
+ * the platform tenant of its environment as {@code axion.platform_tenant_id}, at the start of
  * every transaction (tenancy design, sections 5.3 and 5.5). The settings are transaction-local, so
  * a pooled connection never carries them into the next transaction.
  */
 @Component
 public class TenantTransactionBinding implements TransactionExecutionListener {
 
-    public static final String TENANT_SETTING = "finaxis.tenant_id";
+    public static final String TENANT_SETTING = "axion.tenant_id";
 
-    public static final String PLATFORM_TENANT_SETTING = "finaxis.platform_tenant_id";
+    public static final String PLATFORM_TENANT_SETTING = "axion.platform_tenant_id";
 
     private final JdbcClient jdbc;
     private final TenancyApi tenancy;

@@ -32,9 +32,9 @@ import org.springframework.transaction.interceptor.TransactionAspectSupport;
 @EnableConfigurationProperties(RiskProperties.class)
 public class RiskService implements RiskApi {
 
-    public static final String DENIALS = "finaxis.risk.denials";
+    public static final String DENIALS = "axion.risk.denials";
 
-    private static final String ROLE = "finaxis_risk";
+    private static final String ROLE = "axion_risk";
 
     private static final Currency BRL = Currency.getInstance("BRL");
 

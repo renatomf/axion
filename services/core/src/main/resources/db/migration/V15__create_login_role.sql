@@ -11,20 +11,20 @@
 -- Roles belong to the whole PostgreSQL cluster, so the role may already exist.
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'finaxis_app') THEN
-        CREATE ROLE finaxis_app NOLOGIN NOINHERIT;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'axion_app') THEN
+        CREATE ROLE axion_app NOLOGIN NOINHERIT;
     END IF;
 END;
 $$;
 
-GRANT finaxis_tenancy, finaxis_access, finaxis_ledger TO finaxis_app WITH INHERIT FALSE, SET TRUE;
+GRANT axion_tenancy, axion_access, axion_ledger TO axion_app WITH INHERIT FALSE, SET TRUE;
 
 -- SET ROLE does not apply a role's settings; only logging in does. The bounds
 -- set on the module roles move to the role that logs in.
-ALTER ROLE finaxis_app SET lock_timeout = '2s';
-ALTER ROLE finaxis_app SET statement_timeout = '5s';
-ALTER ROLE finaxis_app SET transaction_timeout = '30s';
+ALTER ROLE axion_app SET lock_timeout = '2s';
+ALTER ROLE axion_app SET statement_timeout = '5s';
+ALTER ROLE axion_app SET transaction_timeout = '30s';
 
-ALTER ROLE finaxis_tenancy RESET ALL;
-ALTER ROLE finaxis_access RESET ALL;
-ALTER ROLE finaxis_ledger RESET ALL;
+ALTER ROLE axion_tenancy RESET ALL;
+ALTER ROLE axion_access RESET ALL;
+ALTER ROLE axion_ledger RESET ALL;

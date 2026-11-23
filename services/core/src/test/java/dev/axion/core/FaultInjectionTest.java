@@ -54,7 +54,7 @@ import org.springframework.test.context.DynamicPropertySource;
 @Tag(FaultInjectionTest.TAG)
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT,
-        properties = {"finaxis.rails.processor.enabled=true", "finaxis.billing.expiry.enabled=true"})
+        properties = {"axion.rails.processor.enabled=true", "axion.billing.expiry.enabled=true"})
 @Import(PostgresTestConfiguration.class)
 class FaultInjectionTest {
 
@@ -76,8 +76,8 @@ class FaultInjectionTest {
     @DynamicPropertySource
     static void rails(DynamicPropertyRegistry registry) {
         registry.add("server.port", () -> CORE_PORT);
-        registry.add("finaxis.rails.signing.keys[0].id", RAILS::keyId);
-        registry.add("finaxis.rails.signing.keys[0].public-key", RAILS::publicKey);
+        registry.add("axion.rails.signing.keys[0].id", RAILS::keyId);
+        registry.add("axion.rails.signing.keys[0].public-key", RAILS::publicKey);
     }
 
     @Autowired

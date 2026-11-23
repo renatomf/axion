@@ -4,29 +4,29 @@
 
 spring:
   config:
-    # Read the local infrastructure settings (FINAXIS_DB_PASSWORD,
-    # FINAXIS_APP_DB_PASSWORD, FINAXIS_DB_PORT) from the same git-ignored file
+    # Read the local infrastructure settings (AXION_DB_PASSWORD,
+    # AXION_APP_DB_PASSWORD, AXION_DB_PORT) from the same git-ignored file
     # Docker Compose uses, so they are defined once. `[.properties]` tells
     # Spring to parse the .env file as KEY=value properties. The path is relative to the
     # working directory, services/core under `./gradlew bootRun`.
     import: optional:file:../../infra/compose/.env[.properties]
   datasource:
     # The PostgreSQL started by `just up` (infra/compose/compose.yaml).
-    url: jdbc:postgresql://localhost:${FINAXIS_DB_PORT:5432}/finaxis
+    url: jdbc:postgresql://localhost:${AXION_DB_PORT:5432}/axion
     # The role the service logs in as, which owns nothing and reaches a
     # module's tables only through the module's role.
-    username: finaxis_app
-    password: ${FINAXIS_APP_DB_PASSWORD}
+    username: axion_app
+    password: ${AXION_APP_DB_PASSWORD}
   flyway:
     # Migrations run as the owner of the schemas, on a connection of their own.
-    user: finaxis
-    password: ${FINAXIS_DB_PASSWORD}
+    user: axion
+    password: ${AXION_DB_PASSWORD}
 
-finaxis:
+axion:
   members:
     # The realm of the Keycloak started by `just up auth`. KEYCLOAK_PORT comes
     # from the same .env file as the database settings.
-    issuer: http://localhost:${KEYCLOAK_PORT:8180}/realms/finaxis
+    issuer: http://localhost:${KEYCLOAK_PORT:8180}/realms/axion
   rails:
     signing:
       # The public half of the key pair `just up` generates for the rails

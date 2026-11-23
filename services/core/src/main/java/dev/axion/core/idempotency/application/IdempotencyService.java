@@ -20,9 +20,9 @@ import org.springframework.transaction.interceptor.TransactionAspectSupport;
 @Service
 public class IdempotencyService implements IdempotencyApi {
 
-    public static final String REQUESTS = "finaxis.idempotency.requests";
+    public static final String REQUESTS = "axion.idempotency.requests";
 
-    private static final String ROLE = "finaxis_idempotency";
+    private static final String ROLE = "axion_idempotency";
 
     private static final Logger LOG = LoggerFactory.getLogger(IdempotencyService.class);
 

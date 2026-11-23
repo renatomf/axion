@@ -33,8 +33,8 @@ class RailsAuthenticationTest {
 
     @DynamicPropertySource
     static void signingKey(DynamicPropertyRegistry registry) {
-        registry.add("finaxis.rails.signing.keys[0].id", RAILS::keyId);
-        registry.add("finaxis.rails.signing.keys[0].public-key", RAILS::publicKey);
+        registry.add("axion.rails.signing.keys[0].id", RAILS::keyId);
+        registry.add("axion.rails.signing.keys[0].public-key", RAILS::publicKey);
     }
 
     @LocalServerPort

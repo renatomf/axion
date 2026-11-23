@@ -1,6 +1,6 @@
 {
-  "realm": "finaxis",
-  "displayName": "Finaxis",
+  "realm": "axion",
+  "displayName": "Axion",
   "enabled": true,
   "sslRequired": "external",
   "registrationAllowed": false,
@@ -25,7 +25,7 @@
   "revokeRefreshToken": true,
   "refreshTokenMaxReuse": 0,
   "browserFlow": "mfa browser",
-  "webAuthnPolicyRpEntityName": "Finaxis",
+  "webAuthnPolicyRpEntityName": "Axion",
   "authenticationFlows": [
     {
       "alias": "mfa browser",
@@ -155,14 +155,14 @@
   ],
   "clients": [
     {
-      "clientId": "finaxis-console",
-      "name": "Finaxis console",
+      "clientId": "axion-console",
+      "name": "Axion console",
       "description": "The console's backend for frontend; it logs members in and calls the core's /internal API",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,
       "clientAuthenticatorType": "client-secret",
-      "secret": "${FINAXIS_CONSOLE_CLIENT_SECRET}",
+      "secret": "${AXION_CONSOLE_CLIENT_SECRET}",
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
@@ -178,11 +178,11 @@
       },
       "protocolMappers": [
         {
-          "name": "finaxis-core audience",
+          "name": "axion-core audience",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-audience-mapper",
           "config": {
-            "included.custom.audience": "finaxis-core",
+            "included.custom.audience": "axion-core",
             "access.token.claim": "true",
             "id.token.claim": "false",
             "introspection.token.claim": "true"

@@ -27,7 +27,7 @@ class BillingPropertiesTest {
     void refusesAnEnvironmentWithoutKey() {
         assertThatThrownBy(() -> new BillingProperties(Map.of(Environment.TEST, TEST_KEY), "SAO PAULO"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("finaxis.billing.pix-keys.live must be set");
+                .hasMessageContaining("axion.billing.pix-keys.live must be set");
     }
 
     @Test
@@ -43,6 +43,6 @@ class BillingPropertiesTest {
         assertThatThrownBy(() ->
                         new BillingProperties(Map.of(Environment.TEST, TEST_KEY, Environment.LIVE, LIVE_KEY), " "))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("finaxis.billing.merchant-city must be set");
+                .hasMessageContaining("axion.billing.merchant-city must be set");
     }
 }

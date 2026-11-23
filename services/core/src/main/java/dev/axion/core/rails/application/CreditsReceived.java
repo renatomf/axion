@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class CreditsReceived {
 
-    public static final String METRIC = "finaxis.rails.credits.received";
+    public static final String METRIC = "axion.rails.credits.received";
 
     public enum Result {
         NEW,

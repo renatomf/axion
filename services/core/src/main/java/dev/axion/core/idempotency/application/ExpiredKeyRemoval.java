@@ -20,7 +20,7 @@ public class ExpiredKeyRemoval {
 
     static final int BATCH_SIZE = 1_000;
 
-    private static final String ROLE = "finaxis_idempotency_jobs";
+    private static final String ROLE = "axion_idempotency_jobs";
 
     private static final Logger LOG = LoggerFactory.getLogger(ExpiredKeyRemoval.class);
 

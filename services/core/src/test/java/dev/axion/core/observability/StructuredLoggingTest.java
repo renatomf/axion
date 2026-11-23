@@ -46,6 +46,6 @@ class StructuredLoggingTest {
         // JsonPath fails if the line is not valid JSON.
         assertThat(JsonPath.<String>read(line, "$.message")).isEqualTo("handling the request");
         assertThat(JsonPath.<String>read(line, "$.correlation_id")).isEqualTo("log-test-1");
-        assertThat(JsonPath.<String>read(line, "$.service.name")).isEqualTo("finaxis-core");
+        assertThat(JsonPath.<String>read(line, "$.service.name")).isEqualTo("axion-core");
     }
 }

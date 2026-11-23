@@ -19,15 +19,15 @@ import org.springframework.util.Assert;
  *
  * @param keys at least one key, each ID once
  */
-@ConfigurationProperties("finaxis.rails.signing")
+@ConfigurationProperties("axion.rails.signing")
 record SigningProperties(List<Key> keys) {
 
     SigningProperties {
         keys = List.copyOf(keys);
-        Assert.notEmpty(keys, "finaxis.rails.signing.keys must list at least one key");
+        Assert.notEmpty(keys, "axion.rails.signing.keys must list at least one key");
         Assert.isTrue(
                 keys.stream().map(Key::id).distinct().count() == keys.size(),
-                "finaxis.rails.signing.keys must name each key ID once");
+                "axion.rails.signing.keys must name each key ID once");
     }
 
     Map<String, PublicKey> publicKeys() {
@@ -47,7 +47,7 @@ record SigningProperties(List<Key> keys) {
         Key {
             Assert.isTrue(
                     ID.matcher(id).matches(),
-                    "finaxis.rails.signing.keys[].id must be 1 to 64 letters, digits, '.', '_' or '-'");
+                    "axion.rails.signing.keys[].id must be 1 to 64 letters, digits, '.', '_' or '-'");
             parse(publicKey);
         }
 
@@ -62,7 +62,7 @@ record SigningProperties(List<Key> keys) {
                                 new X509EncodedKeySpec(Base64.getDecoder().decode(base64.strip())));
             } catch (IllegalArgumentException | GeneralSecurityException e) {
                 throw new IllegalArgumentException(
-                        "finaxis.rails.signing.keys[].public-key must be an Ed25519 public key, X.509 DER in base64");
+                        "axion.rails.signing.keys[].public-key must be an Ed25519 public key, X.509 DER in base64");
             }
         }
     }

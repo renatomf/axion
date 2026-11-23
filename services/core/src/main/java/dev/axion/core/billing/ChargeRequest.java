@@ -12,7 +12,7 @@ import org.jspecify.annotations.Nullable;
  * first and answers {@code 422} instead.
  *
  * @param description for the tenant's records; never in the BR Code
- * @param metadata the tenant's own keys and values, stored and returned, never read by Finaxis
+ * @param metadata the tenant's own keys and values, stored and returned, never read by Axion
  */
 public record ChargeRequest(
         Money amount, @Nullable String description, Duration expiresIn, Map<String, String> metadata) {

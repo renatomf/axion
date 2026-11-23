@@ -29,8 +29,8 @@ class ModuleRolesTest {
 
     @Test
     void runsTheWorkAsTheRole() {
-        assertThat(inTransaction(() -> roles.call("finaxis_access", this::currentUser)))
-                .isEqualTo("finaxis_access");
+        assertThat(inTransaction(() -> roles.call("axion_access", this::currentUser)))
+                .isEqualTo("axion_access");
     }
 
     @Test
@@ -38,7 +38,7 @@ class ModuleRolesTest {
         String sessionUser = inTransaction(this::currentUser);
 
         assertThat(inTransaction(() -> {
-                    roles.call("finaxis_access", this::currentUser);
+                    roles.call("axion_access", this::currentUser);
                     return currentUser();
                 }))
                 .isEqualTo(sessionUser);
@@ -46,11 +46,11 @@ class ModuleRolesTest {
 
     @Test
     void anotherModuleCalledInsideRestoresTheFirstModulesRole() {
-        assertThat(inTransaction(() -> roles.call("finaxis_access", () -> {
-                    roles.call("finaxis_tenancy", this::currentUser);
+        assertThat(inTransaction(() -> roles.call("axion_access", () -> {
+                    roles.call("axion_tenancy", this::currentUser);
                     return currentUser();
                 })))
-                .isEqualTo("finaxis_access");
+                .isEqualTo("axion_access");
     }
 
     @Test
@@ -59,7 +59,7 @@ class ModuleRolesTest {
 
         assertThat(inTransaction(() -> {
                     try {
-                        roles.call("finaxis_access", () -> {
+                        roles.call("axion_access", () -> {
                             throw new IllegalStateException("work failed");
                         });
                     } catch (IllegalStateException expected) {
@@ -73,14 +73,14 @@ class ModuleRolesTest {
     @Test
     void theNextTransactionStartsAsTheSessionsRole() {
         String sessionUser = inTransaction(this::currentUser);
-        inTransaction(() -> roles.call("finaxis_access", this::currentUser));
+        inTransaction(() -> roles.call("axion_access", this::currentUser));
 
         assertThat(inTransaction(this::currentUser)).isEqualTo(sessionUser);
     }
 
     @Test
     void refusesToSwitchOutsideATransaction() {
-        assertThatIllegalStateException().isThrownBy(() -> roles.call("finaxis_access", this::currentUser));
+        assertThatIllegalStateException().isThrownBy(() -> roles.call("axion_access", this::currentUser));
     }
 
     private <T> T inTransaction(Supplier<T> work) {

@@ -9,7 +9,7 @@ import dev.axion.core.tenancy.TenantStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-// Inserts only: the finaxis_tenancy role may not update or delete an organization, tenant or member.
+// Inserts only: the axion_tenancy role may not update or delete an organization, tenant or member.
 @Repository
 public class JdbcOrganizations {
 

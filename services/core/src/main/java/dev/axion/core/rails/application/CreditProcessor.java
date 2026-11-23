@@ -31,7 +31,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class CreditProcessor {
 
-    public static final String UNMATCHED = "finaxis.rails.credits.unmatched";
+    public static final String UNMATCHED = "axion.rails.credits.unmatched";
 
     static final int BATCH_SIZE = 16;
 
@@ -44,7 +44,7 @@ public class CreditProcessor {
     /** From this failed attempt on, each failure is an error for a person, not a warning. */
     static final int ATTEMPTS_BEFORE_ERROR = 5;
 
-    private static final String ROLE = "finaxis_rails";
+    private static final String ROLE = "axion_rails";
 
     private static final Logger LOG = LoggerFactory.getLogger(CreditProcessor.class);
 

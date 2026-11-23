@@ -35,7 +35,7 @@ import org.springframework.transaction.interceptor.TransactionAspectSupport;
 @Service
 public class LedgerService implements LedgerApi {
 
-    private static final String ROLE = "finaxis_ledger";
+    private static final String ROLE = "axion_ledger";
 
     private static final Comparator<AccountId> LOCK_ORDER = Comparator.comparing(AccountId::value);
 

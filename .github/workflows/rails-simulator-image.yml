@@ -29,7 +29,7 @@ jobs:
           persist-credentials: false
 
       - name: Build image
-        run: docker build --tag finaxis-rails-simulator:ci services/rails-simulator
+        run: docker build --tag axion-rails-simulator:ci services/rails-simulator
 
       # The binary is downloaded and verified rather than run through a
       # third-party action, so nothing unpinned executes in this job.
@@ -52,4 +52,4 @@ jobs:
       - name: Scan image
         run: >-
           trivy image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed
-          --no-progress finaxis-rails-simulator:ci
+          --no-progress axion-rails-simulator:ci

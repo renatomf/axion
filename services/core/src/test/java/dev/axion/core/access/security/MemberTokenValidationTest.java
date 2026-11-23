@@ -15,11 +15,11 @@ import org.springframework.security.oauth2.jwt.Jwt;
 /** The claim rules, without Keycloak: each test changes one claim of a token that passes. */
 class MemberTokenValidationTest {
 
-    private static final String ISSUER = "http://keycloak.test/realms/finaxis";
+    private static final String ISSUER = "http://keycloak.test/realms/axion";
     private static final Instant NOW = Instant.parse("2026-11-19T12:00:00Z");
 
     private final OAuth2TokenValidator<Jwt> validator =
-            MemberTokenValidation.validator(ISSUER, Set.of("finaxis-console"), Clock.fixed(NOW, ZoneOffset.UTC));
+            MemberTokenValidation.validator(ISSUER, Set.of("axion-console"), Clock.fixed(NOW, ZoneOffset.UTC));
 
     /** A token as Keycloak issues it to the console, five minutes long, issued a minute ago. */
     private static Jwt.Builder validToken() {
@@ -27,8 +27,8 @@ class MemberTokenValidationTest {
                 .header("alg", "RS256")
                 .subject("8b4a1c9e-0000-4000-8000-000000000001")
                 .issuer(ISSUER)
-                .audience(List.of("finaxis-core"))
-                .claim("azp", "finaxis-console")
+                .audience(List.of("axion-core"))
+                .claim("azp", "axion-console")
                 .issuedAt(NOW.minusSeconds(60))
                 .expiresAt(NOW.plusSeconds(240));
     }
@@ -44,7 +44,7 @@ class MemberTokenValidationTest {
 
     @Test
     void acceptsATokenWithOtherAudiencesBesidesTheCore() {
-        assertThat(accepts(token -> token.audience(List.of("account", "finaxis-core"))))
+        assertThat(accepts(token -> token.audience(List.of("account", "axion-core"))))
                 .isTrue();
     }
 
@@ -57,13 +57,13 @@ class MemberTokenValidationTest {
     /** An ID token's audience is the client; a refresh token's is the realm. */
     @Test
     void rejectsATokenNotMeantForTheCore() {
-        assertThat(accepts(token -> token.audience(List.of("finaxis-console")))).isFalse();
+        assertThat(accepts(token -> token.audience(List.of("axion-console")))).isFalse();
         assertThat(accepts(token -> token.audience(List.of(ISSUER)))).isFalse();
     }
 
     @Test
     void rejectsATokenIssuedToAnotherClient() {
-        assertThat(accepts(token -> token.claim("azp", "finaxis-other"))).isFalse();
+        assertThat(accepts(token -> token.claim("azp", "axion-other"))).isFalse();
     }
 
     @Test

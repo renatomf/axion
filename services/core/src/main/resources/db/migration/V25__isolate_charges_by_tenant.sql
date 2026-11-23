@@ -10,10 +10,10 @@ ALTER TABLE billing.charges FORCE ROW LEVEL SECURITY;
 -- table combine with OR, so a tenant bound by mistake would otherwise widen
 -- what the expiry job's and the transaction ID lookup's roles see.
 CREATE POLICY tenant_isolation ON billing.charges
-    TO finaxis_billing
+    TO axion_billing
     USING (tenant_id = shared.current_tenant())
     WITH CHECK (tenant_id = shared.current_tenant());
 
 -- A policy runs with the privileges of the role querying the table.
-GRANT USAGE ON SCHEMA shared TO finaxis_billing;
-GRANT EXECUTE ON FUNCTION shared.current_tenant() TO finaxis_billing;
+GRANT USAGE ON SCHEMA shared TO axion_billing;
+GRANT EXECUTE ON FUNCTION shared.current_tenant() TO axion_billing;

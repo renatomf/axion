@@ -48,9 +48,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @EnableConfigurationProperties(BillingProperties.class)
 public class BillingService implements BillingApi {
 
-    private static final String ROLE = "finaxis_billing";
+    private static final String ROLE = "axion_billing";
 
-    public static final String CHARGES_CREATED = "finaxis.billing.charges.created";
+    public static final String CHARGES_CREATED = "axion.billing.charges.created";
 
     // A collision of 148 random bits is not expected in the life of the system; a few draws bound
     // the loop should the random source ever be broken.
@@ -222,7 +222,7 @@ public class BillingService implements BillingApi {
                 "No free transaction ID in " + MAX_TRANSACTION_ID_DRAWS + " draws; is the random source broken?");
     }
 
-    // A liability: money Finaxis owes the tenant (platform overview, section 6.3).
+    // A liability: money Axion owes the tenant (platform overview, section 6.3).
     static AccountRequest availableAccount(TenantView tenant) {
         return new AccountRequest(
                 tenant.id().value(),

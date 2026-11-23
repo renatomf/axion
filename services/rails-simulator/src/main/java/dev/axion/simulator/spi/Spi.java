@@ -21,7 +21,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Settles Pix payments as the payer's institution and the SPI would together: the institution debits
- * the payer and identifies the payment, and the SPI moves the money to Finaxis and notifies it (rails
+ * the payer and identifies the payment, and the SPI moves the money to Axion and notifies it (rails
  * simulator design, section 4.1). A settled payment always happened; nothing here can refuse or undo it.
  */
 @Service

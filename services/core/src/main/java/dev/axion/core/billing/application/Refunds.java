@@ -49,9 +49,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @Component
 public class Refunds {
 
-    public static final String REFUNDS = "finaxis.billing.refunds";
+    public static final String REFUNDS = "axion.billing.refunds";
 
-    private static final String ROLE = "finaxis_billing";
+    private static final String ROLE = "axion_billing";
 
     private static final Logger LOG = LoggerFactory.getLogger(Refunds.class);
 

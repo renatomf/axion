@@ -14,16 +14,16 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * How long the oldest credit of the inbox has waited to be recorded by billing (billing design,
- * section 7.3), as {@code finaxis_rails_credit_oldest_pending_seconds}: the alert's signal that
+ * section 7.3), as {@code axion_rails_credit_oldest_pending_seconds}: the alert's signal that
  * money arrived and is not in any balance yet. Read from the inbox when the gauge is read, so it
  * keeps rising when the processor itself has stopped.
  */
 @Component
 class PendingCredits {
 
-    static final String OLDEST_PENDING = "finaxis.rails.credit.oldest.pending";
+    static final String OLDEST_PENDING = "axion.rails.credit.oldest.pending";
 
-    private static final String ROLE = "finaxis_rails";
+    private static final String ROLE = "axion_rails";
 
     private final JdbcPixCredits credits;
     private final ModuleRoles roles;

@@ -2,7 +2,7 @@
   "ifResourceExists": "FAIL",
   "clients": [
     {
-      "clientId": "finaxis-test",
+      "clientId": "axion-test",
       "description": "Tests only: issues core access tokens with the password grant",
       "enabled": true,
       "protocol": "openid-connect",
@@ -12,11 +12,11 @@
       "fullScopeAllowed": false,
       "protocolMappers": [
         {
-          "name": "finaxis-core audience",
+          "name": "axion-core audience",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-audience-mapper",
           "config": {
-            "included.custom.audience": "finaxis-core",
+            "included.custom.audience": "axion-core",
             "access.token.claim": "true",
             "id.token.claim": "false"
           }
@@ -24,7 +24,7 @@
       ]
     },
     {
-      "clientId": "finaxis-other",
+      "clientId": "axion-other",
       "description": "Tests only: a client of the realm the core does not accept",
       "enabled": true,
       "protocol": "openid-connect",
@@ -34,11 +34,11 @@
       "fullScopeAllowed": false,
       "protocolMappers": [
         {
-          "name": "finaxis-core audience",
+          "name": "axion-core audience",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-audience-mapper",
           "config": {
-            "included.custom.audience": "finaxis-core",
+            "included.custom.audience": "axion-core",
             "access.token.claim": "true",
             "id.token.claim": "false"
           }

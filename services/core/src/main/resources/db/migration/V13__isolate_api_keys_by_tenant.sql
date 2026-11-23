@@ -12,14 +12,14 @@ CREATE POLICY tenant_isolation ON access.api_keys
     USING (tenant_id = shared.current_tenant())
     WITH CHECK (tenant_id = shared.current_tenant());
 
--- The lookup functions of V12 run as finaxis_access_lookup, before a tenant
+-- The lookup functions of V12 run as axion_access_lookup, before a tenant
 -- is known. Its grants already limit it to reading keys and setting
 -- last_used_at; these policies let it do so for any tenant.
 CREATE POLICY key_lookup ON access.api_keys
-    FOR SELECT TO finaxis_access_lookup
+    FOR SELECT TO axion_access_lookup
     USING (true);
 
 CREATE POLICY key_use ON access.api_keys
-    FOR UPDATE TO finaxis_access_lookup
+    FOR UPDATE TO axion_access_lookup
     USING (true)
     WITH CHECK (true);

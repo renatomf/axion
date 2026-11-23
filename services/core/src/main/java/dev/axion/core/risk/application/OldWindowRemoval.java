@@ -23,7 +23,7 @@ public class OldWindowRemoval {
 
     static final int BATCH_SIZE = 1_000;
 
-    private static final String ROLE = "finaxis_risk_jobs";
+    private static final String ROLE = "axion_risk_jobs";
 
     private static final Logger LOG = LoggerFactory.getLogger(OldWindowRemoval.class);
 

@@ -9,10 +9,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.util.Assert;
 
 /**
- * What a BR Code names besides the tenant: the Pix key of Finaxis's account in each environment and
+ * What a BR Code names besides the tenant: the Pix key of Axion's account in each environment and
  * the platform's city (billing design, section 5.3).
  */
-@ConfigurationProperties("finaxis.billing")
+@ConfigurationProperties("axion.billing")
 record BillingProperties(Map<Environment, String> pixKeys, String merchantCity) {
 
     // A random key: the other types are personal data, and nothing resolves it, since the DICT is
@@ -22,10 +22,10 @@ record BillingProperties(Map<Environment, String> pixKeys, String merchantCity) 
         for (Environment environment : Environment.values()) {
             String key = pixKeys.get(environment);
             Assert.hasText(
-                    key, "finaxis.billing.pix-keys." + environment.name().toLowerCase(Locale.ROOT) + " must be set");
+                    key, "axion.billing.pix-keys." + environment.name().toLowerCase(Locale.ROOT) + " must be set");
             new PixKey(PixKey.Type.RANDOM, key);
         }
-        Assert.hasText(merchantCity, "finaxis.billing.merchant-city must be set");
+        Assert.hasText(merchantCity, "axion.billing.merchant-city must be set");
     }
 
     PixKey pixKey(Environment environment) {

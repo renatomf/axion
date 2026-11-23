@@ -16,7 +16,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 /**
- * The platform's settlement account in each environment, {@code platform:settlement}: Finaxis's
+ * The platform's settlement account in each environment, {@code platform:settlement}: Axion's
  * account at the Central Bank, which every Pix credit debits (billing design, section 8.3). Opened
  * at startup, each with its platform tenant bound, since Row-Level Security lets a module open only
  * the bound tenant's accounts.

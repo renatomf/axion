@@ -71,8 +71,8 @@ class CreateChargeTest {
             PlatformTransactionManager transactions,
             MeterRegistry meters,
             Clock clock,
-            @Value("${finaxis.billing.pix-keys.test}") String testPixKey,
-            @Value("${finaxis.billing.pix-keys.live}") String livePixKey) {
+            @Value("${axion.billing.pix-keys.test}") String testPixKey,
+            @Value("${axion.billing.pix-keys.live}") String livePixKey) {
         this.billing = billing;
         this.tenancy = tenancy;
         this.owner = databaseOwner.jdbc();

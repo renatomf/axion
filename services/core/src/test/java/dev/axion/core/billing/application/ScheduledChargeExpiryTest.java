@@ -21,7 +21,7 @@ import org.springframework.scheduling.config.ScheduledTaskHolder;
  * The schedule of {@link ChargeExpiry}. The job runs for as long as the context is cached, so its
  * clock stands before any test's charges: no pass can expire a charge another test relies on.
  */
-@SpringBootTest(properties = "finaxis.billing.expiry.enabled=true")
+@SpringBootTest(properties = "axion.billing.expiry.enabled=true")
 @Import({PostgresTestConfiguration.class, ScheduledChargeExpiryTest.Configuration.class})
 class ScheduledChargeExpiryTest {
 

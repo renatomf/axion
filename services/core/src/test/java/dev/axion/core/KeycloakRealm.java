@@ -13,7 +13,7 @@ import org.springframework.web.client.RestClient;
 import org.testcontainers.containers.GenericContainer;
 
 /**
- * The {@code finaxis} realm of the test Keycloak, and tokens from it. The console's login (code
+ * The {@code axion} realm of the test Keycloak, and tokens from it. The console's login (code
  * flow, PKCE, second factor) cannot run in a test, so this adds two password-grant clients and a
  * synthetic member from {@code keycloak/test-fixtures.json}: {@value #TEST_CLIENT}, which the core
  * accepts, and {@value #OTHER_CLIENT}, which it does not. Their tokens differ from the console's
@@ -24,8 +24,8 @@ public final class KeycloakRealm {
     static final String ADMIN_USERNAME = "admin";
     static final String ADMIN_PASSWORD = "admin-test-only";
 
-    public static final String TEST_CLIENT = "finaxis-test";
-    public static final String OTHER_CLIENT = "finaxis-other";
+    public static final String TEST_CLIENT = "axion-test";
+    public static final String OTHER_CLIENT = "axion-other";
 
     private static final String MEMBER_USERNAME = "member.test";
     private static final String MEMBER_PASSWORD = "synthetic-password-1";
@@ -47,13 +47,13 @@ public final class KeycloakRealm {
 
     /** The realm's issuer: in {@code start-dev}, the URL tokens are requested from. */
     public String issuer() {
-        return baseUrl + "/realms/finaxis";
+        return baseUrl + "/realms/axion";
     }
 
     /** Logs the synthetic member in through {@code client}, as the password grant allows. */
     public Tokens login(String client) {
         Map<String, Object> response = token(
-                "/realms/finaxis",
+                "/realms/axion",
                 form(
                         "grant_type", "password",
                         "client_id", client,
@@ -79,7 +79,7 @@ public final class KeycloakRealm {
                                 ADMIN_PASSWORD))
                 .get("access_token"));
         http.post()
-                .uri("/admin/realms/finaxis/partialImport")
+                .uri("/admin/realms/axion/partialImport")
                 .header("Authorization", "Bearer " + adminToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(readFixtures())

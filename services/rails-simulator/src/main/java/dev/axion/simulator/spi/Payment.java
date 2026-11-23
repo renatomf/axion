@@ -3,7 +3,7 @@ package dev.axion.simulator.spi;
 import java.time.Instant;
 
 /**
- * A Pix payment the SPI has settled: the payer was debited and the money reached Finaxis's settlement
+ * A Pix payment the SPI has settled: the payer was debited and the money reached Axion's settlement
  * account. It is never undone.
  *
  * @param endToEndId the payment's identity on both sides

@@ -19,7 +19,7 @@ import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
  */
 final class MemberTokenValidation {
 
-    static final String AUDIENCE = "finaxis-core";
+    static final String AUDIENCE = "axion-core";
 
     static final Duration CLOCK_SKEW = Duration.ofSeconds(30);
 

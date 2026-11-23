@@ -21,7 +21,7 @@ RUN --mount=type=cache,target=/root/.gradle \
 # libraries, then the service's own code. Each becomes one image layer below,
 # so a change to the service's code rebuilds and ships only the last, small
 # layer and reuses the others from the cache.
-RUN java -Djarmode=tools -jar build/libs/finaxis-core.jar \
+RUN java -Djarmode=tools -jar build/libs/axion-core.jar \
     extract --layers --destination extracted
 
 # Distroless: the Java runtime and nothing else, no shell and no package
@@ -36,4 +36,4 @@ COPY --from=build /workspace/extracted/application/ ./
 USER nonroot
 EXPOSE 8080
 # The extracted JAR finds its libraries in lib/ through its manifest.
-ENTRYPOINT ["java", "-jar", "finaxis-core.jar"]
+ENTRYPOINT ["java", "-jar", "axion-core.jar"]

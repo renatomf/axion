@@ -21,9 +21,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class BalanceVerifier {
 
-    public static final String VIOLATIONS = "finaxis.ledger.invariant.violations";
+    public static final String VIOLATIONS = "axion.ledger.invariant.violations";
 
-    private static final String ROLE = "finaxis_ledger_jobs";
+    private static final String ROLE = "axion_ledger_jobs";
 
     private static final Logger LOG = LoggerFactory.getLogger(BalanceVerifier.class);
 

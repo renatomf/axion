@@ -34,7 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AccessService implements AccessApi {
 
-    private static final String ROLE = "finaxis_access";
+    private static final String ROLE = "axion_access";
 
     private final JdbcApiKeys keys;
     private final TenancyApi tenancy;

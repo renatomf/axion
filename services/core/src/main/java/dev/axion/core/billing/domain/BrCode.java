@@ -19,7 +19,7 @@ public record BrCode(String text) {
     public static final int MERCHANT_CITY_LENGTH = 15;
 
     /** The receiving participant, named when nothing of the organization's name can be written. */
-    static final String FALLBACK_MERCHANT_NAME = "FINAXIS";
+    static final String FALLBACK_MERCHANT_NAME = "AXION";
 
     private static final String PIX_GUI = "br.gov.bcb.pix";
     private static final String SINGLE_PAYMENT = "12";

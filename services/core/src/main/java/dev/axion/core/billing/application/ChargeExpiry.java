@@ -20,7 +20,7 @@ public class ChargeExpiry {
 
     static final int BATCH_SIZE = 500;
 
-    private static final String ROLE = "finaxis_billing_jobs";
+    private static final String ROLE = "axion_billing_jobs";
 
     private static final Logger LOG = LoggerFactory.getLogger(ChargeExpiry.class);
 

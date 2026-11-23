@@ -1,9 +1,9 @@
-# Breaks finaxis-v1-writes-idempotent once, at /v1/without_key; the other
+# Breaks axion-v1-writes-idempotent once, at /v1/without_key; the other
 # operations follow it. scripts/test-api-rules.sh checks that the rule
 # reports exactly the broken operation.
 openapi: 3.1.1
 info:
-  title: Fixture of finaxis-v1-writes-idempotent
+  title: Fixture of axion-v1-writes-idempotent
   version: 0.0.1
 paths:
   /v1/with_key:

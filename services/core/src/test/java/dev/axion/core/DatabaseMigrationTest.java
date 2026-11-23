@@ -49,7 +49,7 @@ class DatabaseMigrationTest {
 
     @Test
     void exemptsNoRoleFromRowLevelSecurity() {
-        var exempt = owner.sql("SELECT rolname FROM pg_roles WHERE rolname LIKE 'finaxis%' AND rolbypassrls")
+        var exempt = owner.sql("SELECT rolname FROM pg_roles WHERE rolname LIKE 'axion%' AND rolbypassrls")
                 .query(String.class)
                 .list();
 

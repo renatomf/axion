@@ -16,7 +16,7 @@ import org.slf4j.spi.LoggingEventBuilder;
  */
 final class AuthenticationFailures {
 
-    static final String FAILURES = "finaxis.authentication.failures";
+    static final String FAILURES = "axion.authentication.failures";
 
     private static final Logger LOG = LoggerFactory.getLogger(AuthenticationFailures.class);
 

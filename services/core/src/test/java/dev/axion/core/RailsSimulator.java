@@ -34,7 +34,7 @@ import org.testcontainers.utility.DockerImageName;
  */
 public final class RailsSimulator {
 
-    static final String IMAGE_NAME = "finaxis-rails-simulator:dev";
+    static final String IMAGE_NAME = "axion-rails-simulator:dev";
 
     private static final int OPERATOR_PORT = 8090;
     private static final String DATABASE_ALIAS = "rails-database";

@@ -5,14 +5,14 @@
 -- Roles belong to the whole PostgreSQL cluster, so the role may already exist.
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'finaxis_idempotency') THEN
-        CREATE ROLE finaxis_idempotency NOLOGIN;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'axion_idempotency') THEN
+        CREATE ROLE axion_idempotency NOLOGIN;
     END IF;
 END;
 $$;
 
-GRANT USAGE ON SCHEMA idempotency TO finaxis_idempotency;
-GRANT SELECT, INSERT ON idempotency.keys TO finaxis_idempotency;
+GRANT USAGE ON SCHEMA idempotency TO axion_idempotency;
+GRANT SELECT, INSERT ON idempotency.keys TO axion_idempotency;
 
 -- The service switches to it with SET ROLE, as to the other module roles (V15).
-GRANT finaxis_idempotency TO finaxis_app WITH INHERIT FALSE, SET TRUE;
+GRANT axion_idempotency TO axion_app WITH INHERIT FALSE, SET TRUE;

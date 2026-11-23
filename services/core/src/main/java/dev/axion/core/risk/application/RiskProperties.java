@@ -11,7 +11,7 @@ import org.springframework.util.Assert;
  * The limits of each environment's charges (billing design, section 6). They are the same for every
  * tenant of an environment until the back office sets them per tenant.
  */
-@ConfigurationProperties("finaxis.risk")
+@ConfigurationProperties("axion.risk")
 record RiskProperties(Map<Environment, Limits> limits) {
 
     // Checked here, so a missing or zero limit stops the start instead of denying every charge.
@@ -20,7 +20,7 @@ record RiskProperties(Map<Environment, Limits> limits) {
         for (Environment environment : Environment.values()) {
             Assert.notNull(
                     limits.get(environment),
-                    "finaxis.risk.limits." + environment.name().toLowerCase(Locale.ROOT) + " must be set");
+                    "axion.risk.limits." + environment.name().toLowerCase(Locale.ROOT) + " must be set");
         }
     }
 

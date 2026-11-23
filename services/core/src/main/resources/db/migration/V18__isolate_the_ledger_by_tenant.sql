@@ -39,9 +39,9 @@ CREATE POLICY tenant_isolation ON ledger.balances
 -- The balance verifier reads every tenant's rows (V16), and the commit-time
 -- checks every posting of the entry they check (V14). Their grants already
 -- limit them to reading; these policies let them read across tenants.
-CREATE POLICY ledger_jobs ON ledger.accounts FOR SELECT TO finaxis_ledger_jobs USING (true);
-CREATE POLICY ledger_jobs ON ledger.entries FOR SELECT TO finaxis_ledger_jobs USING (true);
-CREATE POLICY ledger_jobs ON ledger.postings FOR SELECT TO finaxis_ledger_jobs USING (true);
-CREATE POLICY ledger_jobs ON ledger.balances FOR SELECT TO finaxis_ledger_jobs USING (true);
+CREATE POLICY ledger_jobs ON ledger.accounts FOR SELECT TO axion_ledger_jobs USING (true);
+CREATE POLICY ledger_jobs ON ledger.entries FOR SELECT TO axion_ledger_jobs USING (true);
+CREATE POLICY ledger_jobs ON ledger.postings FOR SELECT TO axion_ledger_jobs USING (true);
+CREATE POLICY ledger_jobs ON ledger.balances FOR SELECT TO axion_ledger_jobs USING (true);
 
-CREATE POLICY ledger_checks ON ledger.postings FOR SELECT TO finaxis_ledger_checks USING (true);
+CREATE POLICY ledger_checks ON ledger.postings FOR SELECT TO axion_ledger_checks USING (true);

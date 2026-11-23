@@ -2,7 +2,7 @@
 # Lint it with `just lint-api`; see CONTRIBUTING.md, "API contracts".
 openapi: 3.1.1
 info:
-  title: Finaxis Internal API
+  title: Axion Internal API
   version: 0.0.1
   summary: API that the console's BFF and the intelligence service call.
   description: |
@@ -17,7 +17,7 @@ info:
     name: Apache 2.0
     identifier: Apache-2.0
   contact:
-    url: https://github.com/renatomf/finaxis
+    url: https://github.com/renatomf/axion
 servers:
   - url: http://localhost:8080
     description: Local development
@@ -267,7 +267,7 @@ components:
     service_token:
       description: >-
         An OAuth 2.0 access token of a member, issued by the Keycloak realm
-        `finaxis` for the audience `finaxis-core`, sent as a bearer token.
+        `axion` for the audience `axion-core`, sent as a bearer token.
         Each member has a request budget, whatever the tenant: every response
         reports it in the `RateLimit-Policy` and `RateLimit` headers, and a
         request beyond it gets `429` with code `rate_limited`.

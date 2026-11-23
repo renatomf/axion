@@ -86,7 +86,7 @@ jobs:
 
       # The tag the suite runs (RailsSimulator.IMAGE_NAME), as `just image` builds it.
       - name: Build rails simulator image
-        run: docker build --tag finaxis-rails-simulator:dev ../rails-simulator
+        run: docker build --tag axion-rails-simulator:dev ../rails-simulator
 
       - name: Run fault-injection suite
         run: ./gradlew faultInjectionTest

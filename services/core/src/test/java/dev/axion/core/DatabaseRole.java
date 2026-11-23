@@ -21,7 +21,7 @@ public enum DatabaseRole {
 
     /** Acts as this role until the current transaction ends. */
     public void actAs(JdbcClient jdbc) {
-        jdbc.sql("SET LOCAL ROLE finaxis_" + name().toLowerCase(Locale.ROOT)).update();
+        jdbc.sql("SET LOCAL ROLE axion_" + name().toLowerCase(Locale.ROOT)).update();
     }
 
     /**

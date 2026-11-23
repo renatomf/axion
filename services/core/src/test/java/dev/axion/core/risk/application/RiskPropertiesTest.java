@@ -25,7 +25,7 @@ class RiskPropertiesTest {
     void refusesAnEnvironmentWithoutLimits() {
         assertThatThrownBy(() -> new RiskProperties(Map.of(Environment.TEST, TEST)))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("finaxis.risk.limits.live must be set");
+                .hasMessageContaining("axion.risk.limits.live must be set");
     }
 
     @Test

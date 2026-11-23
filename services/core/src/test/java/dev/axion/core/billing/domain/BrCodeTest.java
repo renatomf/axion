@@ -65,8 +65,8 @@ class BrCodeTest {
 
         assertThat(code.text())
                 .isEqualTo("00020101021226360014br.gov.bcb.pix0114+55619999999995204000053039865404"
-                        + "0.015802BR5907FINAXIS6009SAO PAULO622905250000000000000000000000001"
-                        + "6304837F");
+                        + "0.015802BR5905AXION6009SAO PAULO622905250000000000000000000000001"
+                        + "6304489F");
     }
 
     @ParameterizedTest
@@ -85,8 +85,8 @@ class BrCodeTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"日本", "!!!", "   ", "€ ß Æ"})
-    void namesFinaxisWhenNothingOfTheNameIsLeft(String organizationName) {
-        assertThat(BrCode.merchantName(organizationName)).isEqualTo("FINAXIS");
+    void namesAxionWhenNothingOfTheNameIsLeft(String organizationName) {
+        assertThat(BrCode.merchantName(organizationName)).isEqualTo("AXION");
     }
 
     @Test

@@ -11,10 +11,10 @@ ALTER TABLE idempotency.keys FORCE ROW LEVEL SECURITY;
 -- policies of one table combine with OR, so a tenant bound by mistake would
 -- otherwise show the removal job's role the tenant's keys still honored.
 CREATE POLICY tenant_isolation ON idempotency.keys
-    TO finaxis_idempotency
+    TO axion_idempotency
     USING (tenant_id = shared.current_tenant())
     WITH CHECK (tenant_id = shared.current_tenant());
 
 -- A policy runs with the privileges of the role querying the table.
-GRANT USAGE ON SCHEMA shared TO finaxis_idempotency;
-GRANT EXECUTE ON FUNCTION shared.current_tenant() TO finaxis_idempotency;
+GRANT USAGE ON SCHEMA shared TO axion_idempotency;
+GRANT EXECUTE ON FUNCTION shared.current_tenant() TO axion_idempotency;

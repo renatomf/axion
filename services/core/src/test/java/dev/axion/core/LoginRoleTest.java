@@ -17,17 +17,17 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 class LoginRoleTest {
 
     private static final List<String> MODULE_ROLES = List.of(
-            "finaxis_tenancy",
-            "finaxis_access",
-            "finaxis_ledger",
-            "finaxis_ledger_jobs",
-            "finaxis_idempotency",
-            "finaxis_idempotency_jobs",
-            "finaxis_billing",
-            "finaxis_billing_jobs",
-            "finaxis_risk",
-            "finaxis_risk_jobs",
-            "finaxis_rails");
+            "axion_tenancy",
+            "axion_access",
+            "axion_ledger",
+            "axion_ledger_jobs",
+            "axion_idempotency",
+            "axion_idempotency_jobs",
+            "axion_billing",
+            "axion_billing_jobs",
+            "axion_risk",
+            "axion_risk_jobs",
+            "axion_rails");
 
     private final JdbcClient jdbc;
 
@@ -38,7 +38,7 @@ class LoginRoleTest {
 
     @Test
     void isTheRoleTheServiceLogsInAs() {
-        assertThat(jdbc.sql("SELECT session_user").query(String.class).single()).isEqualTo("finaxis_app");
+        assertThat(jdbc.sql("SELECT session_user").query(String.class).single()).isEqualTo("axion_app");
     }
 
     @Test
@@ -66,7 +66,7 @@ class LoginRoleTest {
 
     @Test
     void limitsHowLongTheServiceWaits() {
-        assertThat(settingsOf("finaxis_app"))
+        assertThat(settingsOf("axion_app"))
                 .containsExactlyInAnyOrder("lock_timeout=2s", "statement_timeout=5s", "transaction_timeout=30s");
     }
 
@@ -78,7 +78,7 @@ class LoginRoleTest {
 
     // USAGE: the role's privileges are inherited; SET: SET ROLE may switch to it.
     private boolean loginRoleHas(String role, String privilege) {
-        return jdbc.sql("SELECT pg_has_role('finaxis_app', ?, ?)")
+        return jdbc.sql("SELECT pg_has_role('axion_app', ?, ?)")
                 .params(role, privilege)
                 .query(Boolean.class)
                 .single();

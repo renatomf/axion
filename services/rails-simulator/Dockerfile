@@ -17,7 +17,7 @@ RUN --mount=type=cache,target=/root/.gradle \
     ./gradlew --no-daemon bootJar
 # One directory per layer, ordered by how often it changes, so a change to
 # the simulator's code ships only the last, small layer.
-RUN java -Djarmode=tools -jar build/libs/finaxis-rails-simulator.jar \
+RUN java -Djarmode=tools -jar build/libs/axion-rails-simulator.jar \
     extract --layers --destination extracted
 
 # Distroless, `nonroot` variant: the Java runtime only, running as user 65532.
@@ -29,4 +29,4 @@ COPY --from=build /workspace/extracted/snapshot-dependencies/ ./
 COPY --from=build /workspace/extracted/application/ ./
 USER nonroot
 EXPOSE 8090
-ENTRYPOINT ["java", "-jar", "finaxis-rails-simulator.jar"]
+ENTRYPOINT ["java", "-jar", "axion-rails-simulator.jar"]

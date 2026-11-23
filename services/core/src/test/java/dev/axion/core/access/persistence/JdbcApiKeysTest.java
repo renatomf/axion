@@ -160,7 +160,7 @@ class JdbcApiKeysTest {
     void findsAKeyAndRecordsItsUseWithNoTenantBound() {
         var hash = randomHash();
         var id = insert(tenant, Set.of(Permission.CHARGES_READ), hash);
-        jdbc.sql("SELECT set_config('finaxis.tenant_id', '', true)").query().singleRow();
+        jdbc.sql("SELECT set_config('axion.tenant_id', '', true)").query().singleRow();
 
         assertThat(keys.findByHash(hash)).map(JdbcApiKeys.Credential::id).contains(id);
         assertThat(keys.recordUse(hash, NOW)).isTrue();

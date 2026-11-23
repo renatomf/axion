@@ -55,7 +55,7 @@ class CurrentTenantFunctionTest {
 
     private Optional<UUID> currentTenantWithSetting(String setting) {
         return Objects.requireNonNull(transactions.execute(status -> {
-            jdbc.sql("SELECT set_config('finaxis.tenant_id', ?, true)")
+            jdbc.sql("SELECT set_config('axion.tenant_id', ?, true)")
                     .param(setting)
                     .query()
                     .singleRow();

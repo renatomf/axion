@@ -8,26 +8,26 @@
 -- Roles belong to the whole PostgreSQL cluster, so the role may already exist.
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'finaxis_billing_jobs') THEN
-        CREATE ROLE finaxis_billing_jobs NOLOGIN;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'axion_billing_jobs') THEN
+        CREATE ROLE axion_billing_jobs NOLOGIN;
     END IF;
 END;
 $$;
 
-GRANT USAGE ON SCHEMA billing TO finaxis_billing_jobs;
-GRANT SELECT (id, status, expires_at) ON billing.charges TO finaxis_billing_jobs;
-GRANT UPDATE (status, updated_at) ON billing.charges TO finaxis_billing_jobs;
+GRANT USAGE ON SCHEMA billing TO axion_billing_jobs;
+GRANT SELECT (id, status, expires_at) ON billing.charges TO axion_billing_jobs;
+GRANT UPDATE (status, updated_at) ON billing.charges TO axion_billing_jobs;
 
 -- An UPDATE that reads the table checks the new row against the SELECT
 -- policies too, so the role must see the charges it has just expired.
 CREATE POLICY unpaid_charges_visible ON billing.charges
-    FOR SELECT TO finaxis_billing_jobs
+    FOR SELECT TO axion_billing_jobs
     USING (status IN ('ACTIVE', 'EXPIRED'));
 
 CREATE POLICY active_charges_expirable ON billing.charges
-    FOR UPDATE TO finaxis_billing_jobs
+    FOR UPDATE TO axion_billing_jobs
     USING (status = 'ACTIVE')
     WITH CHECK (status = 'EXPIRED');
 
 -- The service switches to it with SET ROLE, as to a module role (V15).
-GRANT finaxis_billing_jobs TO finaxis_app WITH INHERIT FALSE, SET TRUE;
+GRANT axion_billing_jobs TO axion_app WITH INHERIT FALSE, SET TRUE;

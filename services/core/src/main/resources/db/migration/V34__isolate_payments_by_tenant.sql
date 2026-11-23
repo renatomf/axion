@@ -5,6 +5,6 @@ ALTER TABLE billing.payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE billing.payments FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY tenant_isolation ON billing.payments
-    TO finaxis_billing
+    TO axion_billing
     USING (tenant_id = shared.current_tenant())
     WITH CHECK (tenant_id = shared.current_tenant());

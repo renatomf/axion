@@ -228,8 +228,8 @@ class ApiKeySchemaTest {
     void restrictsTheKeyLookupToTheAccessRole(String function) {
         var lookup = jdbc.sql("""
                         SELECT p.prosecdef, pg_get_userbyid(p.proowner) AS owner,
-                               has_function_privilege('finaxis_access', p.oid, 'EXECUTE') AS access,
-                               has_function_privilege('finaxis_tenancy', p.oid, 'EXECUTE') AS tenancy
+                               has_function_privilege('axion_access', p.oid, 'EXECUTE') AS access,
+                               has_function_privilege('axion_tenancy', p.oid, 'EXECUTE') AS tenancy
                           FROM pg_proc p
                          WHERE p.oid = CAST(:function AS regprocedure)
                         """)
@@ -241,7 +241,7 @@ class ApiKeySchemaTest {
                         row.getBoolean("tenancy")))
                 .single();
 
-        assertThat(lookup).containsExactly(true, "finaxis_access_lookup", true, false);
+        assertThat(lookup).containsExactly(true, "axion_access_lookup", true, false);
     }
 
     private UUID insertKey(String name, byte[] hash, String lastFour, String scopes) {
