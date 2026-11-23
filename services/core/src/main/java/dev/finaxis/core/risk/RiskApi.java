@@ -16,7 +16,8 @@ public interface RiskApi {
      *
      * @param tenant the tenant bound to the transaction; the limits are its environment's
      * @param amount positive, in BRL
-     * @throws IllegalStateException with no transaction, or with no tenant or another tenant bound
+     * @throws org.springframework.transaction.IllegalTransactionStateException with no transaction
+     * @throws IllegalStateException with no tenant or another tenant bound
      * @throws IllegalArgumentException if the amount is not a positive amount in BRL
      */
     ChargeDecision assessCharge(TenantId tenant, Money amount);
