@@ -127,7 +127,7 @@ public class BillingService implements BillingApi {
 
     // One charge more than the limit tells whether there is a next page, so no cursor leads to an empty one.
     private ChargePage page(TenantContext.Binding binding, ChargeFilter filter, ChargeCursor cursor, int limit) {
-        List<ChargeView> found = charges.list(binding, filter, cursor.after(), limit + 1);
+        List<ChargeView> found = charges.list(binding, filter, cursor.after(), Math.addExact(limit, 1));
         if (found.size() <= limit) {
             return new ChargePage(found, Optional.empty());
         }
