@@ -248,6 +248,14 @@ class CreditProcessorTest {
         });
     }
 
+    @Test
+    void reportsHowLongTheOldestPendingCreditHasWaited() {
+        record();
+        clock.advance(Duration.ofSeconds(90));
+
+        assertThat(meters.get(PendingCredits.OLDEST_PENDING).gauge().value()).isGreaterThanOrEqualTo(90.0);
+    }
+
     /** Records a new credit in the inbox, due at once, as the endpoint does. */
     private PixCredit record() {
         var credit = new PixCredit(

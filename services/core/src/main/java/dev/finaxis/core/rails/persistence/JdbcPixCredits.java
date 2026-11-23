@@ -7,6 +7,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Currency;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -109,6 +110,14 @@ public class JdbcPixCredits {
                 .param("nextAttemptAt", nextAttemptAt.atOffset(ZoneOffset.UTC))
                 .param("endToEndId", endToEndId)
                 .update();
+    }
+
+    /** When the oldest credit still to hand to billing was received; empty if none is. */
+    public Optional<Instant> oldestPendingReceivedAt() {
+        return jdbc.sql("SELECT min(received_at) AS oldest FROM rails.pix_credits WHERE status = 'received'")
+                .query((row, rowNumber) -> Optional.ofNullable(row.getObject("oldest", OffsetDateTime.class)))
+                .single()
+                .map(OffsetDateTime::toInstant);
     }
 
     /** What billing did with a credit, as the inbox records it. */
