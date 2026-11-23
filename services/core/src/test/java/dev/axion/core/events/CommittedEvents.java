@@ -37,14 +37,28 @@ public class CommittedEvents {
                 .toList();
     }
 
-    /** The event types of the tenant's publications in the registry, oldest first. */
+    /** The types of the tenant's events, in the order they were published and committed. */
+    public List<String> types(TenantId tenant) {
+        return received.stream()
+                .filter(event -> event.tenant().equals(tenant))
+                .map(event -> event.getClass().getName())
+                .toList();
+    }
+
+    /**
+     * The event types of the tenant's publications in the registry, oldest first; those of one
+     * transaction share their time, so in no particular order among themselves. Only those of this
+     * listener, which receives every event, so other consumers do not repeat them.
+     */
     public List<String> publications(TenantId tenant) {
         return jdbc.sql("""
                         SELECT event_type FROM events.event_publication
                          WHERE serialized_event::jsonb #>> '{header,tenant,value}' = ?
+                           AND listener_id LIKE ?
                          ORDER BY publication_date
                         """)
                 .param(tenant.value().toString())
+                .param(CommittedEvents.class.getName() + ".%")
                 .query((row, number) -> row.getString("event_type"))
                 .list();
     }
