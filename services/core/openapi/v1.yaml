@@ -203,12 +203,12 @@ paths:
       tags: [Charges]
       summary: Retrieve a charge
       description: >-
-        The charge as it is now, with the payments it received: its status
-        moves from `active` as it is paid, refunded or expires. Requires
-        `charges:read`.
+        The charge as it is now, with the payments it received and the
+        refunds made of them: its status moves from `active` as it is paid,
+        refunded or expires. Requires `charges:read`.
       responses:
         "200":
-          description: The charge and its payments.
+          description: The charge, its payments and its refunds.
           content:
             application/json:
               schema:
@@ -447,8 +447,8 @@ components:
           livemode: false
     ChargeDetail:
       description: >-
-        A charge, with the payments it received. Its fields are those of a
-        `Charge`.
+        A charge, with the payments it received and the refunds made of
+        them. Its fields are those of a `Charge`.
       type: object
       required:
         - id
@@ -465,6 +465,7 @@ components:
         - created_at
         - livemode
         - payments
+        - refunds
       properties:
         id:
           $ref: "#/components/schemas/Charge/properties/id"
@@ -503,13 +504,21 @@ components:
           maxItems: 100
           items:
             $ref: "#/components/schemas/Payment"
+        refunds:
+          description: >-
+            The refunds made of the charge's payments, oldest first, each as
+            its creation returned it; a charge has at most 50.
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/Refund"
       examples:
         - id: ch_01jdq8k3m4n5p6q7r8s9t0v1w2
           object: charge
-          status: paid
+          status: partially_refunded
           amount: 10000
           currency: BRL
-          amount_refunded: 0
+          amount_refunded: 5000
           description: Mensalidade de novembro
           metadata:
             order_id: ord_8842
@@ -524,10 +533,18 @@ components:
             - id: pmt_01jdq9a2b3c4d5e6f7g8h9j0k1
               end_to_end_id: E99990011202611221441aB3dE5gH7jK
               amount: 10000
-              amount_refunded: 0
+              amount_refunded: 5000
               accepted_at: "2026-11-22T14:41:07.512Z"
               outcome: settled
               review_reason: null
+          refunds:
+            - id: re_01jdqb7c8d9e0f1g2h3j4k5m6n
+              object: refund
+              charge: ch_01jdq8k3m4n5p6q7r8s9t0v1w2
+              payment: pmt_01jdq9a2b3c4d5e6f7g8h9j0k1
+              amount: 5000
+              status: succeeded
+              created_at: "2026-11-22T16:10:00Z"
     ChargeList:
       description: A page of charges, newest first.
       type: object

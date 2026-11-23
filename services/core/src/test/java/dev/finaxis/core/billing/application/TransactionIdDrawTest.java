@@ -12,6 +12,7 @@ import dev.finaxis.core.billing.ChargeView;
 import dev.finaxis.core.billing.domain.TransactionId;
 import dev.finaxis.core.billing.persistence.JdbcCharges;
 import dev.finaxis.core.billing.persistence.JdbcPayments;
+import dev.finaxis.core.billing.persistence.JdbcRefunds;
 import dev.finaxis.core.ledger.LedgerApi;
 import dev.finaxis.core.risk.RiskApi;
 import dev.finaxis.core.shared.Environment;
@@ -44,7 +45,8 @@ class TransactionIdDrawTest {
 
     private final JdbcCharges charges;
     private final JdbcPayments payments;
-    private final Refunds refunds;
+    private final JdbcRefunds refunds;
+    private final Refunds refunding;
     private final LedgerApi ledger;
     private final RiskApi risk;
     private final TenancyApi tenancy;
@@ -61,7 +63,8 @@ class TransactionIdDrawTest {
     TransactionIdDrawTest(
             JdbcCharges charges,
             JdbcPayments payments,
-            Refunds refunds,
+            JdbcRefunds refunds,
+            Refunds refunding,
             LedgerApi ledger,
             RiskApi risk,
             TenancyApi tenancy,
@@ -73,6 +76,7 @@ class TransactionIdDrawTest {
         this.charges = charges;
         this.payments = payments;
         this.refunds = refunds;
+        this.refunding = refunding;
         this.ledger = ledger;
         this.risk = risk;
         this.tenancy = tenancy;
@@ -119,6 +123,7 @@ class TransactionIdDrawTest {
                 charges,
                 payments,
                 refunds,
+                refunding,
                 ledger,
                 risk,
                 tenancy,

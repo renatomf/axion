@@ -105,6 +105,7 @@ class ReadChargesControllerTest {
         assertThat(result).hasStatus(HttpStatus.OK).hasContentType(MediaType.APPLICATION_JSON);
         var expected = (ObjectNode) json.readTree(body(created));
         expected.putArray("payments");
+        expected.putArray("refunds");
         assertThat(result).bodyJson().isStrictlyEqualTo(expected.toString());
     }
 
@@ -141,6 +142,35 @@ class ReadChargesControllerTest {
                           "review_reason": null
                         }
                         """.formatted(payment.path("id").asString(), credit.endToEndId())));
+    }
+
+    @Test
+    void showsTheRefundsAsTheirCreationReturnedThem() {
+        MvcTestResult created = create(writer, BODY);
+        settlement.handle(new PixCredit(
+                BillingFixtures.endToEndId(),
+                "M99990011aB3dE5gH7jK2mN4pQ6rS8tU",
+                json.readTree(body(created)).path("pix").path("transaction_id").asString(),
+                BillingFixtures.brl(10_000),
+                Instant.now(),
+                "99990011"));
+        IssuedApiKey refunder = issued(Environment.TEST, Permission.REFUNDS_WRITE);
+        MvcTestResult first = refund(refunder, id(created), """
+                {"amount": 2500}
+                """);
+        MvcTestResult second = refund(refunder, id(created), """
+                {"amount": 1500}
+                """);
+
+        MvcTestResult result = get(reader, "/v1/charges/" + id(created));
+
+        assertThat(result).hasStatus(HttpStatus.OK);
+        JsonNode charge = json.readTree(body(result));
+        assertThat(charge.path("status").asString()).isEqualTo("partially_refunded");
+        assertThat(charge.path("amount_refunded").asLong()).isEqualTo(4_000);
+        assertThat(charge.path("payments").path(0).path("amount_refunded").asLong())
+                .isEqualTo(4_000);
+        assertThat(charge.path("refunds")).containsExactly(json.readTree(body(first)), json.readTree(body(second)));
     }
 
     @Test
@@ -311,6 +341,19 @@ class ReadChargesControllerTest {
     private MvcTestResult create(IssuedApiKey caller, String body) {
         MvcTestResult result = mvc.post()
                 .uri("/v1/charges")
+                .header("Authorization", "Bearer " + caller.secret())
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body)
+                .exchange();
+        contract.assertConforms(result);
+        assertThat(result).hasStatus(HttpStatus.CREATED);
+        return result;
+    }
+
+    private MvcTestResult refund(IssuedApiKey caller, String charge, String body) {
+        MvcTestResult result = mvc.post()
+                .uri("/v1/charges/" + charge + "/refunds")
                 .header("Authorization", "Bearer " + caller.secret())
                 .header("Idempotency-Key", UUID.randomUUID().toString())
                 .contentType(MediaType.APPLICATION_JSON)

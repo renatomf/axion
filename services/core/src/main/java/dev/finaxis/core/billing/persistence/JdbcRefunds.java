@@ -4,6 +4,7 @@ import dev.finaxis.core.billing.ChargeId;
 import dev.finaxis.core.billing.PaymentId;
 import dev.finaxis.core.billing.RefundId;
 import dev.finaxis.core.billing.RefundStatus;
+import dev.finaxis.core.billing.RefundView;
 import dev.finaxis.core.billing.domain.Charge;
 import dev.finaxis.core.billing.domain.Refund;
 import dev.finaxis.core.ledger.EntryId;
@@ -38,6 +39,25 @@ public class JdbcRefunds {
                         new RefundId(row.getObject("id", UUID.class)),
                         new PaymentId(row.getObject("payment_id", UUID.class)),
                         Money.ofMinor(row.getLong("amount_minor"), Charge.CURRENCY),
+                        row.getObject("created_at", OffsetDateTime.class).toInstant()))
+                .list();
+    }
+
+    /** The charge's refunds, oldest first, as the API shows them; a charge has at most {@code Charge.MAX_REFUNDS}. */
+    public List<RefundView> views(ChargeId charge) {
+        return jdbc.sql("""
+                        SELECT id, payment_id, amount_minor, status, created_at
+                          FROM billing.refunds
+                         WHERE charge_id = :charge
+                         ORDER BY id
+                        """)
+                .param("charge", charge.value())
+                .query((row, rowNumber) -> new RefundView(
+                        new RefundId(row.getObject("id", UUID.class)),
+                        charge,
+                        new PaymentId(row.getObject("payment_id", UUID.class)),
+                        Money.ofMinor(row.getLong("amount_minor"), Charge.CURRENCY),
+                        RefundStatus.valueOf(row.getString("status")),
                         row.getObject("created_at", OffsetDateTime.class).toInstant()))
                 .list();
     }
