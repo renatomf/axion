@@ -17,6 +17,7 @@ import dev.axion.core.webhooks.EndpointStatus;
 import dev.axion.core.webhooks.EndpointView;
 import dev.axion.core.webhooks.UpdateEndpointResult;
 import dev.axion.core.webhooks.WebhookEndpointCreated;
+import dev.axion.core.webhooks.WebhookEndpointDeleted;
 import dev.axion.core.webhooks.WebhookEndpointId;
 import dev.axion.core.webhooks.WebhookEndpointUpdated;
 import dev.axion.core.webhooks.WebhooksApi;
@@ -122,6 +123,16 @@ public class WebhooksService implements WebhooksApi {
             events.publishEvent(new WebhookEndpointUpdated(header(made.at()), made.endpoint(), made.previous()));
         }
         return new UpdateEndpointResult.Updated(made.endpoint());
+    }
+
+    @Override
+    @Transactional
+    public Optional<EndpointView> delete(WebhookEndpointId id) {
+        TenantId tenant = bound("Deleting a webhook endpoint");
+        Instant now = now();
+        Optional<EndpointView> deleted = roles.call(ROLE, () -> endpoints.markDeleted(tenant, id, now));
+        deleted.ifPresent(endpoint -> events.publishEvent(new WebhookEndpointDeleted(header(now), endpoint)));
+        return deleted;
     }
 
     // Locked, so concurrent changes apply one after another and each event's previous endpoint is the

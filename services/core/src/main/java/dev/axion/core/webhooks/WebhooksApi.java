@@ -49,6 +49,17 @@ public interface WebhooksApi {
      */
     UpdateEndpointResult update(WebhookEndpointId id, EndpointChanges changes);
 
+    /**
+     * Deletes one of the tenant's endpoints, publishing {@link WebhookEndpointDeleted}: it receives
+     * nothing from then on, is never read or listed again, and no longer counts toward {@link
+     * #MAX_ENDPOINTS}.
+     *
+     * @return the endpoint as it was, or empty for an unknown endpoint, another tenant's and one
+     *     already deleted alike
+     * @throws IllegalStateException if no tenant is bound, a bug in the caller
+     */
+    Optional<EndpointView> delete(WebhookEndpointId id);
+
     /** The most endpoints one page of {@link #endpoints} holds. */
     int MAX_PAGE_SIZE = 100;
 

@@ -22,10 +22,10 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class JdbcEndpoints {
 
-    private static final String SELECT = """
-            SELECT id, url, description, enabled_events, status, disabled_reason, created_at
-              FROM webhooks.endpoints
-            """;
+    private static final String COLUMNS = "id, url, description, enabled_events, status, disabled_reason, created_at";
+
+    // A deleted endpoint is never read: it receives nothing and is never listed.
+    private static final String SELECT = "SELECT " + COLUMNS + " FROM webhooks.endpoints WHERE deleted_at IS NULL";
 
     private final JdbcClient jdbc;
 
@@ -43,7 +43,7 @@ public class JdbcEndpoints {
     }
 
     public int count(TenantId tenant) {
-        return jdbc.sql("SELECT count(*) FROM webhooks.endpoints WHERE tenant_id = :tenant")
+        return jdbc.sql("SELECT count(*) FROM webhooks.endpoints WHERE tenant_id = :tenant AND deleted_at IS NULL")
                 .param("tenant", tenant.value())
                 .query(Integer.class)
                 .single();
@@ -85,7 +85,7 @@ public class JdbcEndpoints {
     }
 
     public Optional<EndpointView> find(TenantId tenant, WebhookEndpointId id) {
-        return jdbc.sql(SELECT + " WHERE tenant_id = :tenant AND id = :id")
+        return jdbc.sql(SELECT + " AND tenant_id = :tenant AND id = :id")
                 .param("tenant", tenant.value())
                 .param("id", id.value())
                 .query(JdbcEndpoints::view)
@@ -94,7 +94,7 @@ public class JdbcEndpoints {
 
     /** Locked until the transaction ends, so a change is made to the endpoint as it is. */
     public Optional<EndpointView> lock(TenantId tenant, WebhookEndpointId id) {
-        return jdbc.sql(SELECT + " WHERE tenant_id = :tenant AND id = :id FOR UPDATE")
+        return jdbc.sql(SELECT + " AND tenant_id = :tenant AND id = :id FOR UPDATE")
                 .param("tenant", tenant.value())
                 .param("id", id.value())
                 .query(JdbcEndpoints::view)
@@ -122,12 +122,29 @@ public class JdbcEndpoints {
     }
 
     /**
+     * Marks the endpoint deleted, keeping its row for its delivery log; empty if it is unknown or
+     * already deleted, so of concurrent deletions only one succeeds.
+     */
+    public Optional<EndpointView> markDeleted(TenantId tenant, WebhookEndpointId id, Instant deletedAt) {
+        return jdbc.sql("""
+                        UPDATE webhooks.endpoints
+                           SET deleted_at = :deletedAt, updated_at = :deletedAt
+                         WHERE tenant_id = :tenant AND id = :id AND deleted_at IS NULL
+                        """ + "RETURNING " + COLUMNS)
+                .param("tenant", tenant.value())
+                .param("id", id.value())
+                .param("deletedAt", utc(deletedAt))
+                .query(JdbcEndpoints::view)
+                .optional();
+    }
+
+    /**
      * Newest first, by ID: a UUIDv7 starts with its creation time.
      *
      * @param after the last endpoint of the previous page; only older ones follow it
      */
     public List<EndpointView> list(TenantId tenant, Optional<WebhookEndpointId> after, int count) {
-        StringBuilder sql = new StringBuilder(SELECT).append(" WHERE tenant_id = :tenant");
+        StringBuilder sql = new StringBuilder(SELECT).append(" AND tenant_id = :tenant");
         Map<String, Object> params = new HashMap<>();
         params.put("tenant", tenant.value());
         after.ifPresent(last -> {
