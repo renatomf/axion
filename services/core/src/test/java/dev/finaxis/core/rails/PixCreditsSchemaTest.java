@@ -12,6 +12,8 @@ import java.util.Map;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -149,6 +151,44 @@ class PixCreditsSchemaTest {
 
         assertThat(insert(Map.of(), " ON CONFLICT (end_to_end_id) DO NOTHING")).isEqualTo(1);
         assertThat(insert(Map.of(), " ON CONFLICT (end_to_end_id) DO NOTHING")).isZero();
+    }
+
+    @Test
+    void letsTheModuleRoleRecordWhatBillingDidWithACredit() {
+        insert(Map.of());
+        DatabaseRole.RAILS.actAs(jdbc);
+
+        int updated = jdbc.sql("""
+                        UPDATE rails.pix_credits
+                           SET status = 'processed', attempts = attempts + 1, next_attempt_at = NULL,
+                               processed_at = now()
+                         WHERE end_to_end_id = ?
+                        """).param(END_TO_END_ID).update();
+
+        assertThat(updated).isOne();
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "message_id = 'M99990011aB3dE5gH7jK2mN4pQ6rS8tV'",
+                "transaction_id = 'fx7Kq2mP9wR4tY6uA8sD3fG5i'",
+                "amount_minor = 1",
+                "accepted_at = now()",
+                "debtor_ispb = '99990012'",
+                "key_id = 'other'",
+                "content_digest = content_digest",
+                "received_at = now()"
+            })
+    void deniesTheModuleRoleChangingWhatTheRailsSent(String change) {
+        insert(Map.of());
+        DatabaseRole.RAILS.actAs(jdbc);
+
+        assertThatThrownBy(() -> jdbc.sql("UPDATE rails.pix_credits SET " + change + " WHERE end_to_end_id = ?")
+                        .param(END_TO_END_ID)
+                        .update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
     }
 
     @Test

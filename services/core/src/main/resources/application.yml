@@ -58,6 +58,11 @@ finaxis:
     # confirms. Finaxis is the receiving participant.
     merchant-city: SAO PAULO
   rails:
+    processor:
+      # Hands the credits of the rails' inbox to billing, a batch every 500 ms
+      # (billing design, section 7.3). Off only where something else runs the
+      # passes, as the tests do.
+      enabled: true
     # Finaxis's ISPB on the rails, the receiving participant every credit
     # must name. Fictitious, as the rails simulator's (its application.yml,
     # simulator.participants.receiver). Quoted: an ISPB is a code, not a

@@ -1,8 +1,12 @@
 package dev.finaxis.core.rails.persistence;
 
 import dev.finaxis.core.rails.PixCredit;
+import dev.finaxis.core.shared.Money;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Currency;
+import java.util.List;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -42,4 +46,83 @@ public class JdbcPixCredits {
                         .update()
                 == 1;
     }
+
+    /**
+     * Claims up to {@code limit} received credits that are due, oldest due first, and leases them
+     * until {@code leaseUntil}: another processor skips them while they are locked and does not find
+     * them due until the lease ends. Committed with the caller's transaction.
+     */
+    public List<PendingCredit> claimDue(Instant now, Instant leaseUntil, int limit) {
+        return jdbc.sql("""
+                        UPDATE rails.pix_credits
+                           SET next_attempt_at = :leaseUntil
+                         WHERE end_to_end_id IN (SELECT end_to_end_id
+                                                   FROM rails.pix_credits
+                                                  WHERE status = 'received' AND next_attempt_at <= :now
+                                                  ORDER BY next_attempt_at
+                                                  LIMIT :limit
+                                                    FOR UPDATE SKIP LOCKED)
+                        RETURNING end_to_end_id, message_id, transaction_id, amount_minor, currency, accepted_at,
+                                  debtor_ispb, attempts
+                        """)
+                .param("now", now.atOffset(ZoneOffset.UTC))
+                .param("leaseUntil", leaseUntil.atOffset(ZoneOffset.UTC))
+                .param("limit", limit)
+                .query((row, rowNumber) -> new PendingCredit(
+                        new PixCredit(
+                                row.getString("end_to_end_id"),
+                                row.getString("message_id"),
+                                row.getString("transaction_id"),
+                                Money.ofMinor(
+                                        row.getLong("amount_minor"), Currency.getInstance(row.getString("currency"))),
+                                row.getObject("accepted_at", OffsetDateTime.class)
+                                        .toInstant(),
+                                row.getString("debtor_ispb")),
+                        row.getInt("attempts")))
+                .list();
+    }
+
+    /**
+     * Records that billing handled the credit, as {@code processed} or {@code unmatched}; it is no
+     * longer due. A credit handled already is left as it is.
+     */
+    public void markHandled(String endToEndId, Handled status, Instant handledAt) {
+        jdbc.sql("""
+                        UPDATE rails.pix_credits
+                           SET status = :status, attempts = attempts + 1, next_attempt_at = NULL,
+                               processed_at = :handledAt
+                         WHERE end_to_end_id = :endToEndId AND status = 'received'
+                        """)
+                .param("status", status.column)
+                .param("handledAt", handledAt.atOffset(ZoneOffset.UTC))
+                .param("endToEndId", endToEndId)
+                .update();
+    }
+
+    /** Records a failed attempt; the credit is due again at {@code nextAttemptAt}. */
+    public void markFailed(String endToEndId, Instant nextAttemptAt) {
+        jdbc.sql("""
+                        UPDATE rails.pix_credits
+                           SET attempts = attempts + 1, next_attempt_at = :nextAttemptAt
+                         WHERE end_to_end_id = :endToEndId AND status = 'received'
+                        """)
+                .param("nextAttemptAt", nextAttemptAt.atOffset(ZoneOffset.UTC))
+                .param("endToEndId", endToEndId)
+                .update();
+    }
+
+    /** What billing did with a credit, as the inbox records it. */
+    public enum Handled {
+        PROCESSED("processed"),
+        UNMATCHED("unmatched");
+
+        private final String column;
+
+        Handled(String column) {
+            this.column = column;
+        }
+    }
+
+    /** A claimed credit, with the attempts made to hand it over before this one. */
+    public record PendingCredit(PixCredit credit, int attempts) {}
 }
