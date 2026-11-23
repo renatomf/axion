@@ -626,3 +626,21 @@ Events and webhooks carry money's news out of the core and requests into other n
 | **Denial of service** | Live streams exhaust connections | Per-member and per-tenant limits; heartbeats; the stream holds no transaction |
 | **Elevation of privilege** | A leaked key with `webhooks:manage` points the endpoints at an attacker | The key reads payment news it could already read with `charges:read`, never moves money; endpoint changes are audited; the console shows endpoints and their changes; key and member events never go to webhooks |
 | **Elevation of privilege** | A listener acts without a tenant, or with the wrong one | Listeners bind the event's tenant before any query; outside a binding the policies return nothing |
+
+## 16. Delivery
+
+| PR | Delivers | Sections |
+|---|---|---|
+| 1.44a | The `events` module and the registry's table; `DomainEvent` and `Actor`; billing's, access's and tenancy's events of section 3.3 published in their transactions | 3.3, 4.1–4.3 |
+| 1.44b | `IdempotentConsumer` and `consumed_events`; resubmission with backoff, dead publications and the operator command; the publications' cleanup | 4.4, 4.5 |
+| 1.45a | `PublicAddressPolicy` and the URL validation | 7.1 |
+| 1.45b | The `webhooks` module: endpoints and secrets, their tables, roles and policies; `/v1/webhook_endpoints` and its `/internal` mirror; the endpoint events | 6, 12.2 |
+| 1.46a | The catalog and its schemas in `v1.yaml`; the events and deliveries tables; the listener, the queue and the HTTP client with the check at connection | 5, 7.2, 8.1–8.3 |
+| 1.46b | Signing, with two signatures during a grace period; the webhook guide | 8.4 |
+| 1.47a | Retries, `410`, disabling and its event; the fault-injection scenarios | 8.5, 8.6 |
+| 1.47b | The attempts table, the delivery log, replay and retention | 8.7, 8.8 |
+| 1.48a | The `audit` module: records, chain heads, appends and the verification job | 9.1–9.3 |
+| 1.48b | The audited events of section 3.3 | 9.4 |
+| 1.49 | The `notifications` module and the live stream | 10 |
+
+1.44a publishes events before any module consumes them: the slice prepares the ground for every consumer of the block, and its tests read the registry. 1.46a delivers unsigned requests for one slice, so that signing, a security boundary, is reviewed on its own in 1.46b; nothing is deployed in between.
