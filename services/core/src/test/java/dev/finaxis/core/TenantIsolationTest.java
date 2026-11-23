@@ -10,9 +10,9 @@ import dev.finaxis.core.access.AccessFixtures;
 import dev.finaxis.core.access.IssuedApiKey;
 import dev.finaxis.core.access.TenantBoundAccess;
 import dev.finaxis.core.billing.BillingApi;
+import dev.finaxis.core.billing.BillingFixtures;
 import dev.finaxis.core.billing.ChargeId;
 import dev.finaxis.core.billing.ChargeRequest;
-import dev.finaxis.core.billing.CreateChargeResult;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.Money;
 import dev.finaxis.core.shared.TenantContext;
@@ -227,9 +227,8 @@ class TenantIsolationTest {
 
     private ChargeId charge(TenantId tenant) {
         var request = ChargeRequest.of(Money.ofMinor(100, Currency.getInstance("BRL")));
-        return TenantContext.call(tenant, Environment.TEST, () -> switch (billing.createCharge(request)) {
-                    case CreateChargeResult.Created created -> created.charge();
-                })
+        return TenantContext.call(
+                        tenant, Environment.TEST, () -> BillingFixtures.created(billing.createCharge(request)))
                 .id();
     }
 

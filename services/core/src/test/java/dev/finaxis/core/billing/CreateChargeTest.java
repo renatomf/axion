@@ -1,12 +1,14 @@
 package dev.finaxis.core.billing;
 
 import static dev.finaxis.core.billing.BillingFixtures.brl;
+import static dev.finaxis.core.billing.BillingFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.billing.application.BillingService;
+import dev.finaxis.core.risk.RiskRule;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.shared.TenantId;
@@ -14,11 +16,21 @@ import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.TenancyApi;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.sql.Timestamp;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,11 +47,17 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Import(PostgresTestConfiguration.class)
 class CreateChargeTest {
 
+    // The test environment's limit of one charge, in centavos (application.yml).
+    private static final long TEST_AMOUNT_LIMIT = 100_000;
+    // The test environment's limit of charges in one clock hour (application.yml).
+    private static final int TEST_HOURLY_LIMIT = 200;
+
     private final BillingApi billing;
     private final TenancyApi tenancy;
     private final JdbcClient owner;
     private final TransactionTemplate transaction;
     private final MeterRegistry meters;
+    private final Clock clock;
     private final String testPixKey;
     private final String livePixKey;
 
@@ -52,6 +70,7 @@ class CreateChargeTest {
             DatabaseOwner databaseOwner,
             PlatformTransactionManager transactions,
             MeterRegistry meters,
+            Clock clock,
             @Value("${finaxis.billing.pix-keys.test}") String testPixKey,
             @Value("${finaxis.billing.pix-keys.live}") String livePixKey) {
         this.billing = billing;
@@ -59,6 +78,7 @@ class CreateChargeTest {
         this.owner = databaseOwner.jdbc();
         this.transaction = new TransactionTemplate(transactions);
         this.meters = meters;
+        this.clock = clock;
         this.testPixKey = testPixKey;
         this.livePixKey = livePixKey;
     }
@@ -194,6 +214,92 @@ class CreateChargeTest {
     }
 
     @Test
+    void countsTheChargeInTheTenantsWindows() {
+        create(organization.test(), Environment.TEST, ChargeRequest.of(brl(10_000)));
+        create(organization.test(), Environment.TEST, ChargeRequest.of(brl(5_000)));
+
+        assertThat(windows(organization.test()))
+                .containsExactlyInAnyOrder(
+                        Map.of("rule", "DAILY_AMOUNT", "total_minor", 15_000L, "count", 2),
+                        Map.of("rule", "HOURLY_COUNT", "total_minor", 15_000L, "count", 2));
+    }
+
+    @Test
+    void deniesAChargeARiskRuleRefusesAndWritesNothing() {
+        var result = TenantContext.call(
+                organization.test(),
+                Environment.TEST,
+                () -> billing.createCharge(ChargeRequest.of(brl(TEST_AMOUNT_LIMIT + 1))));
+
+        assertThat(result).isEqualTo(new CreateChargeResult.LimitExceeded(RiskRule.AMOUNT));
+        assertThat(count(
+                        "SELECT count(*) FROM billing.charges WHERE tenant_id = ?",
+                        organization.test().value()))
+                .isZero();
+        assertThat(count(
+                        "SELECT count(*) FROM ledger.accounts WHERE tenant_id = ?",
+                        organization.test().value()))
+                .isZero();
+    }
+
+    @Test
+    void createsAChargeAtTheAmountLimit() {
+        var charge = create(organization.test(), Environment.TEST, ChargeRequest.of(brl(TEST_AMOUNT_LIMIT)));
+
+        assertThat(charge.amount()).isEqualTo(brl(TEST_AMOUNT_LIMIT));
+    }
+
+    @Test
+    void givesItsShareOfTheWindowsBackWhenTheCallersTransactionRollsBack() {
+        create(organization.test(), Environment.TEST, ChargeRequest.of(brl(10_000)));
+
+        TenantContext.run(
+                organization.test(),
+                Environment.TEST,
+                () -> transaction.executeWithoutResult(status -> {
+                    billing.createCharge(ChargeRequest.of(brl(5_000)));
+                    status.setRollbackOnly();
+                }));
+
+        assertThat(windows(organization.test()))
+                .containsExactlyInAnyOrder(
+                        Map.of("rule", "DAILY_AMOUNT", "total_minor", 10_000L, "count", 1),
+                        Map.of("rule", "HOURLY_COUNT", "total_minor", 10_000L, "count", 1));
+    }
+
+    // The window of the next hour is filled too, so a run that crosses the hour finds the same room.
+    @Test
+    void createsExactlyTheChargesThereIsRoomForUnderConcurrentCalls() throws InterruptedException, ExecutionException {
+        Instant hour = clock.instant().truncatedTo(ChronoUnit.HOURS);
+        for (Instant window : List.of(hour, hour.plus(Duration.ofHours(1)))) {
+            owner.sql("""
+                            INSERT INTO risk.charge_volume (tenant_id, rule, window_start, total_minor, count)
+                            VALUES (?, 'HOURLY_COUNT', ?, 0, ?)
+                            """)
+                    .params(organization.test().value(), window.atOffset(ZoneOffset.UTC), TEST_HOURLY_LIMIT - 50)
+                    .update();
+        }
+        var calls = new ArrayList<Callable<CreateChargeResult>>();
+        for (int i = 0; i < 100; i++) {
+            calls.add(() -> TenantContext.call(
+                    organization.test(), Environment.TEST, () -> billing.createCharge(ChargeRequest.of(brl(100)))));
+        }
+
+        var results = atOnce(calls);
+
+        assertThat(results)
+                .filteredOn(CreateChargeResult.Created.class::isInstance)
+                .hasSize(50);
+        assertThat(results)
+                .filteredOn(new CreateChargeResult.LimitExceeded(RiskRule.HOURLY_COUNT)::equals)
+                .hasSize(50);
+        assertThat(count(
+                        "SELECT count(*) FROM billing.charges WHERE tenant_id = ?",
+                        organization.test().value()))
+                .isEqualTo(50);
+    }
+
+    @Test
     void countsTheChargesItCreated() {
         double before = chargesCreated();
 
@@ -229,10 +335,11 @@ class CreateChargeTest {
         return TenantContext.call(tenant, environment, () -> created(billing.createCharge(request)));
     }
 
-    private static ChargeView created(CreateChargeResult result) {
-        return switch (result) {
-            case CreateChargeResult.Created created -> created.charge();
-        };
+    private List<Map<String, @Nullable Object>> windows(TenantId tenant) {
+        return owner.sql("SELECT rule, total_minor, count FROM risk.charge_volume WHERE tenant_id = ?")
+                .param(tenant.value())
+                .query()
+                .listOfRows();
     }
 
     private double chargesCreated() {
@@ -241,6 +348,28 @@ class CreateChargeTest {
 
     private long count(String sql, UUID id) {
         return owner.sql(sql).param(id).query(Long.class).single();
+    }
+
+    private static <T> List<T> atOnce(List<Callable<T>> calls) throws InterruptedException, ExecutionException {
+        var ready = new CountDownLatch(calls.size());
+        var start = new CountDownLatch(1);
+        try (var threads = Executors.newFixedThreadPool(calls.size())) {
+            var futures = new ArrayList<Future<T>>();
+            for (var call : calls) {
+                futures.add(threads.submit(() -> {
+                    ready.countDown();
+                    start.await();
+                    return call.call();
+                }));
+            }
+            ready.await();
+            start.countDown();
+            var results = new ArrayList<T>();
+            for (var future : futures) {
+                results.add(future.get());
+            }
+            return results;
+        }
     }
 
     private static Instant instant(@Nullable Object timestamp) {
