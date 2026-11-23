@@ -1,16 +1,12 @@
 package dev.axion.core.webhooks.web;
 
 import dev.axion.core.access.RequiresPermission;
-import dev.axion.core.shared.PublicId;
 import dev.axion.core.tenancy.Permission;
 import dev.axion.core.web.ReplayBody;
 import dev.axion.core.webhooks.CreateEndpointResult;
-import dev.axion.core.webhooks.EndpointCursor;
 import dev.axion.core.webhooks.RollSecretResult;
 import dev.axion.core.webhooks.UpdateEndpointResult;
-import dev.axion.core.webhooks.WebhookEndpointId;
 import dev.axion.core.webhooks.WebhooksApi;
-import dev.axion.core.webhooks.domain.UrlRefusal;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -18,16 +14,9 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import java.net.URI;
 import java.time.Duration;
-import java.time.Instant;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 import org.jspecify.annotations.Nullable;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.ErrorResponseException;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -41,9 +30,6 @@ import org.springframework.web.bind.annotation.RestController;
 class WebhookEndpointsController {
 
     private static final String PATH = "/v1/webhook_endpoints";
-
-    // The contract's pattern for an endpoint's ID.
-    private static final String ENDPOINT_ID = "we_[0-7][0-9a-hjkmnp-tv-z]{25}";
 
     private static final String MERGE_PATCH = "application/merge-patch+json";
 
@@ -66,8 +52,8 @@ class WebhookEndpointsController {
                 yield ResponseEntity.created(URI.create(PATH + "/" + endpoint.id()))
                         .body(endpoint);
             }
-            case CreateEndpointResult.InvalidUrl invalid -> throw invalidUrl(invalid.reason());
-            case CreateEndpointResult.LimitReached reached -> throw limitExceeded(reached.limit());
+            case CreateEndpointResult.InvalidUrl invalid -> throw WebhookProblems.invalidUrl(invalid.reason());
+            case CreateEndpointResult.LimitReached reached -> throw WebhookProblems.limitExceeded(reached.limit());
         };
     }
 
@@ -76,21 +62,17 @@ class WebhookEndpointsController {
     @GetMapping(PATH)
     WebhookEndpointListResponse list(
             @RequestParam(name = "limit", defaultValue = "10") @Min(1) @Max(WebhooksApi.MAX_PAGE_SIZE) int limit,
-            @RequestParam(name = "starting_after", required = false) @Pattern(regexp = ENDPOINT_ID) @Nullable
+            @RequestParam(name = "starting_after", required = false) @Pattern(regexp = EndpointIds.PATTERN) @Nullable
                     String startingAfter) {
-        var cursor = startingAfter == null
-                ? EndpointCursor.first()
-                : EndpointCursor.after(new WebhookEndpointId(
-                        PublicId.parse(WebhookEndpointId.PREFIX, startingAfter).uuid()));
-        return WebhookEndpointListResponse.of(webhooks.endpoints(cursor, limit));
+        return WebhookEndpointListResponse.of(webhooks.endpoints(EndpointIds.cursor(startingAfter), limit));
     }
 
     @RequiresPermission(Permission.WEBHOOKS_MANAGE)
     @GetMapping(PATH + "/{id}")
     WebhookEndpointResponse endpoint(@PathVariable("id") String id) {
-        return webhooks.endpoint(endpointIn(id))
+        return webhooks.endpoint(EndpointIds.inPath(id))
                 .map(WebhookEndpointResponse::of)
-                .orElseThrow(WebhookEndpointsController::notFound);
+                .orElseThrow(WebhookProblems::notFound);
     }
 
     // A JSON merge patch, under its own media type or application/json, which most clients send.
@@ -100,10 +82,10 @@ class WebhookEndpointsController {
             consumes = {MERGE_PATCH, MediaType.APPLICATION_JSON_VALUE})
     WebhookEndpointResponse update(
             @PathVariable("id") String id, @Valid @RequestBody UpdateWebhookEndpointRequest request) {
-        return switch (webhooks.update(endpointIn(id), request.toEndpointChanges())) {
+        return switch (webhooks.update(EndpointIds.inPath(id), request.toEndpointChanges())) {
             case UpdateEndpointResult.Updated updated -> WebhookEndpointResponse.of(updated.endpoint());
-            case UpdateEndpointResult.EndpointNotFound unknown -> throw notFound();
-            case UpdateEndpointResult.InvalidUrl invalid -> throw invalidUrl(invalid.reason());
+            case UpdateEndpointResult.EndpointNotFound unknown -> throw WebhookProblems.notFound();
+            case UpdateEndpointResult.InvalidUrl invalid -> throw WebhookProblems.invalidUrl(invalid.reason());
         };
     }
 
@@ -112,8 +94,8 @@ class WebhookEndpointsController {
     @RequiresPermission(Permission.WEBHOOKS_MANAGE)
     @DeleteMapping(PATH + "/{id}")
     ResponseEntity<Void> delete(@PathVariable("id") String id) {
-        if (webhooks.delete(endpointIn(id)).isEmpty()) {
-            throw notFound();
+        if (webhooks.delete(EndpointIds.inPath(id)).isEmpty()) {
+            throw WebhookProblems.notFound();
         }
         return ResponseEntity.noContent().build();
     }
@@ -127,73 +109,15 @@ class WebhookEndpointsController {
             @Valid @RequestBody(required = false) @Nullable RollWebhookSecretRequest request,
             HttpServletRequest servletRequest) {
         Duration grace = request == null ? WebhooksApi.DEFAULT_SECRET_GRACE : request.gracePeriod();
-        return switch (webhooks.rollSecret(endpointIn(id), grace)) {
+        return switch (webhooks.rollSecret(EndpointIds.inPath(id), grace)) {
             case RollSecretResult.Rolled rolled -> {
                 RolledWebhookEndpointResponse endpoint = RolledWebhookEndpointResponse.of(rolled.secret());
                 ReplayBody.set(servletRequest, endpoint.withoutSecret());
                 yield endpoint;
             }
-            case RollSecretResult.EndpointNotFound unknown -> throw notFound();
-            case RollSecretResult.GracePeriodActive active -> throw gracePeriodActive(active.graceEndsAt());
+            case RollSecretResult.EndpointNotFound unknown -> throw WebhookProblems.notFound();
+            case RollSecretResult.GracePeriodActive active ->
+                throw WebhookProblems.gracePeriodActive(active.graceEndsAt());
         };
-    }
-
-    // A malformed ID answers 404, like another tenant's endpoint, not 400.
-    private static WebhookEndpointId endpointIn(String text) {
-        try {
-            return new WebhookEndpointId(
-                    PublicId.parse(WebhookEndpointId.PREFIX, text).uuid());
-        } catch (IllegalArgumentException malformed) {
-            throw notFound();
-        }
-    }
-
-    // Thrown, not returned, so the idempotency step stores a registration's refusal with the key and
-    // a retry gets it again. The reason names the rule, never the addresses the name resolved to
-    // (events and webhooks design, section 7.1).
-    private static ErrorResponseException invalidUrl(UrlRefusal reason) {
-        String detail = switch (reason) {
-            case MALFORMED -> "must be an absolute URL with a host, and no user information or fragment";
-            case MUST_BE_HTTPS -> "must be https";
-            case MUST_USE_DOMAIN_NAME -> "must name its host by a domain name, not an IP address";
-            case PORT_NOT_ALLOWED -> "must use port 443 or a port from 1024 to 65535";
-            case MUST_BE_PUBLIC -> "must name a host on the public internet";
-            case MUST_RESOLVE -> "must name a host that resolves";
-        };
-        ProblemDetail problem =
-                ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, "The request has invalid fields.");
-        problem.setProperty("code", "validation_failed");
-        problem.setProperty(
-                "errors",
-                List.of(Map.of(
-                        "field",
-                        "url",
-                        "detail",
-                        detail,
-                        "reason",
-                        reason.name().toLowerCase(Locale.ROOT))));
-        return new ErrorResponseException(HttpStatus.UNPROCESSABLE_CONTENT, problem, null);
-    }
-
-    // 422, not 409: no other request conflicts, and a retry changes nothing until an endpoint goes.
-    private static ErrorResponseException limitExceeded(int limit) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
-                HttpStatus.UNPROCESSABLE_CONTENT, "The tenant already has " + limit + " webhook endpoints.");
-        problem.setProperty("code", "limit_exceeded");
-        return new ErrorResponseException(HttpStatus.UNPROCESSABLE_CONTENT, problem, null);
-    }
-
-    private static ErrorResponseException gracePeriodActive(Instant graceEndsAt) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
-                HttpStatus.CONFLICT,
-                "The previous secret signs until " + graceEndsAt + "; the secret rolls again from then.");
-        problem.setProperty("code", "grace_period_active");
-        return new ErrorResponseException(HttpStatus.CONFLICT, problem, null);
-    }
-
-    private static ErrorResponseException notFound() {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "The resource was not found.");
-        problem.setProperty("code", "not_found");
-        return new ErrorResponseException(HttpStatus.NOT_FOUND, problem, null);
     }
 }
