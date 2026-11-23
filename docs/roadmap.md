@@ -204,17 +204,17 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 |---|---|---|
 | 1.43 | Events and webhooks design doc | Event catalog, CloudEvents envelope, signing, retries, SSRF defenses |
 | 1.44 | Domain events and outbox | Spring Modulith events with the publication registry; idempotent consumers |
-| ↳ 1.44a | Domain events | Spring Modulith events with the JDBC publication registry; settlement and API key events published through it |
-| ↳ 1.44b | Idempotent consumers | Each event handled once per consumer |
+| ↳ 1.44a | Domain events | The `events` module; Spring Modulith events with the JDBC publication registry; billing's, API key and member events published through it |
+| ↳ 1.44b | Idempotent consumers | Each event handled once per consumer; failed publications resubmitted with backoff, then left for an operator |
 | 1.45 | Webhook endpoints | `/v1/webhook_endpoints` with SSRF validation and secret management |
 | ↳ 1.45a | SSRF validation | URLs to private, loopback and metadata addresses refused |
-| ↳ 1.45b | Webhook endpoints | Endpoints, their events and table; signing secret generation and rotation; `/v1/webhook_endpoints` |
+| ↳ 1.45b | Webhook endpoints | Endpoints, their events and table; signing secrets, encrypted, and their rotation; `/v1/webhook_endpoints` and its `/internal` mirror |
 | 1.46 | Webhook delivery | PostgreSQL queue (`SKIP LOCKED`), HMAC-SHA256 with timestamp |
-| ↳ 1.46a | Delivery queue | PostgreSQL queue drained with `SKIP LOCKED`; HTTP delivery with timeouts and the SSRF check at connection |
-| ↳ 1.46b | Webhook signing | HMAC-SHA256 with timestamp |
+| ↳ 1.46a | Delivery queue | The public event catalog and its schemas in `v1.yaml`; PostgreSQL queue drained with `SKIP LOCKED`; HTTP delivery with timeouts and the SSRF check at connection |
+| ↳ 1.46b | Webhook signing | HMAC-SHA256 with timestamp (Standard Webhooks); the webhook guide |
 | 1.47 | Webhook reliability | Exponential backoff, endpoint disabling, delivery log, manual replay, dead letters |
-| ↳ 1.47a | Retries and disabling | Exponential backoff; endpoints that keep failing are disabled |
-| ↳ 1.47b | Delivery log and replay | Every attempt recorded and listed; manual replay; dead letters after the last attempt |
+| ↳ 1.47a | Retries and disabling | Exponential backoff; endpoints that keep failing are disabled; the fault-injection scenarios of webhooks |
+| ↳ 1.47b | Delivery log and replay | Every attempt recorded and listed; manual replay; dead deliveries after the last attempt; retention |
 | 1.48 | Audit trail | Hash-chained audit records and a verification check |
 | ↳ 1.48a | Audit chain | Hash-chained audit table and the check that the chain is intact |
 | ↳ 1.48b | Audited events | Key, member and settlement events recorded |
