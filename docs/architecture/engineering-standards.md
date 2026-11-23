@@ -31,7 +31,7 @@ How to run each tool is described in [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
 | No `null` in the domain; types are non-null unless annotated `@Nullable` (JSpecify) | NullAway (Build) |
 | Constructor injection only | ArchUnit `ArchitectureTest` (Build) |
 | No Lombok; records cover the need and keep the code explicit | Review: no Lombok dependency exists; the build check the design calls for is not written yet |
-| One module per subpackage of `dev.finaxis.core`; no cycles; a module uses only what another module exposes | Spring Modulith `ModuleStructureTest` (Build) |
+| One module per subpackage of `dev.axion.core`; no cycles; a module uses only what another module exposes | Spring Modulith `ModuleStructureTest` (Build) |
 | Hexagonal layout per module; `domain` packages free of Spring and persistence types | ArchUnit `ArchitectureTest` (Build) |
 | Transactions declared in the application layer only; short; no remote calls inside a transaction | Review; ArchUnit rule with the first transactional code (PR 1.10) |
 | Typed, validated `@ConfigurationProperties`; twelve-factor configuration; no secrets in the repository | Review; Gitleaks (Hook, CI) |

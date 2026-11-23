@@ -78,9 +78,9 @@ tasks.withType<JavaCompile>().configureEach {
     options.errorprone {
         // A possible null dereference is a compile error, not a warning.
         check("NullAway", CheckSeverity.ERROR)
-        // Check every class under dev.finaxis, even in a package that forgot
+        // Check every class under dev.axion, even in a package that forgot
         // its @NullMarked package-info.
-        option("NullAway:AnnotatedPackages", "dev.finaxis")
+        option("NullAway:AnnotatedPackages", "dev.axion")
         // Follow the JSpecify specification, including generics such as
         // List<@Nullable String>.
         option("NullAway:JSpecifyMode", "true")

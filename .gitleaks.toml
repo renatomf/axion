@@ -26,5 +26,5 @@ keywords = ["sk_live_", "sk_test_"]
 [[allowlists]]
 description = "RFC 9421 test-key-ed25519"
 condition = "AND"
-paths = ['''^services/rails-simulator/src/test/java/dev/finaxis/simulator/delivery/MessageSignerTest\.java$''']
+paths = ['''^services/rails-simulator/src/test/java/dev/axion/simulator/delivery/MessageSignerTest\.java$''']
 regexes = ['''MC4CAQAwBQYDK2VwBCIEIJ\+DYvh6SEqVTm50DFtMDoQikTmiCqirVv9mWG9qfSnF''']

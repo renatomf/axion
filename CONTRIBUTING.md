@@ -62,7 +62,7 @@ A `@SuppressWarnings` needs a comment saying why.
 
 ### Modules
 
-The core is a modular monolith ([ADR 0002](docs/adr/0002-modular-monolith.md)): each direct subpackage of `dev.finaxis.core` is a module. A module exposes only the types in its own package. A module with business logic splits the rest into `domain` (plain Java), `application` (the implementation of its API, which owns the transactions) and `persistence` (the SQL), as `ledger` does. `shared` is open to every module. A new module is a new subpackage with a `package-info.java`.
+The core is a modular monolith ([ADR 0002](docs/adr/0002-modular-monolith.md)): each direct subpackage of `dev.axion.core` is a module. A module exposes only the types in its own package. A module with business logic splits the rest into `domain` (plain Java), `application` (the implementation of its API, which owns the transactions) and `persistence` (the SQL), as `ledger` does. `shared` is open to every module. A new module is a new subpackage with a `package-info.java`.
 
 ### Comments
 
@@ -105,10 +105,10 @@ The APIs are contract-first: the OpenAPI 3.1 documents in [`services/core/openap
 | [`components.yaml`](services/core/openapi/components.yaml) | What both reference: the `Problem` schema and the common error responses |
 
 - A pull request that adds or changes an endpoint changes its contract first.
-- Errors are RFC 9457 Problem Details, built by [`ApiExceptionHandler`](services/core/src/main/java/dev/finaxis/core/web/ApiExceptionHandler.java), each with a stable snake_case `code` clients branch on. An unknown exception is a `500` whose details are only logged. Expected business outcomes are values, mapped by the endpoint to a problem with its own code.
+- Errors are RFC 9457 Problem Details, built by [`ApiExceptionHandler`](services/core/src/main/java/dev/axion/core/web/ApiExceptionHandler.java), each with a stable snake_case `code` clients branch on. An unknown exception is a `500` whose details are only logged. Expected business outcomes are values, mapped by the endpoint to a problem with its own code.
 - Request bodies are records with Bean Validation constraints, taken as `@Valid @RequestBody`: an unreadable body is `400 bad_request`; a broken constraint, or a field the record does not define, is `422 validation_failed` with the offending fields. Rejected values are never echoed.
-- Endpoint tests check every response against its contract with [`OpenApiContract`](services/core/src/test/java/dev/finaxis/core/OpenApiContract.java), strictly: a property the contract does not list fails the test.
-- A new operation needs a cross-tenant attempt in [`TenantIsolationTest`](services/core/src/test/java/dev/finaxis/core/TenantIsolationTest.java), which reads the operations from the contracts and fails for one it cannot attempt.
+- Endpoint tests check every response against its contract with [`OpenApiContract`](services/core/src/test/java/dev/axion/core/OpenApiContract.java), strictly: a property the contract does not list fails the test.
+- A new operation needs a cross-tenant attempt in [`TenantIsolationTest`](services/core/src/test/java/dev/axion/core/TenantIsolationTest.java), which reads the operations from the contracts and fails for one it cannot attempt.
 - `just lint-api` runs [Spectral](https://docs.stoplight.io/docs/spectral) ([`.spectral.yaml`](.spectral.yaml)); warnings fail. A project rule has a fixture in [`rule-fixtures`](services/core/openapi/rule-fixtures), named after it, that breaks it, and the operations it must report in [`test-api-rules.sh`](scripts/test-api-rules.sh).
 - Every `/v1` `POST` references `components.yaml#/parameters/IdempotencyKey`; the lint fails one that does not.
 
@@ -116,7 +116,7 @@ The APIs are contract-first: the OpenAPI 3.1 documents in [`services/core/openap
 
 How authentication and authorization work is in the [tenancy and access design](docs/design-docs/2026-11-19-tenancy-and-access.md), sections 4 and 5. A contribution must:
 
-- **Open nothing by default.** Every request is denied unless a rule of [`SecurityConfiguration`](services/core/src/main/java/dev/finaxis/core/access/security/SecurityConfiguration.java) opens it; a new rule is reviewed like any other code.
+- **Open nothing by default.** Every request is denied unless a rule of [`SecurityConfiguration`](services/core/src/main/java/dev/axion/core/access/security/SecurityConfiguration.java) opens it; a new rule is reviewed like any other code.
 - **Declare each endpoint's permission** with `@RequiresPermission(…)`, or `@NoPermissionRequired(reason = …)` when an authenticated caller is enough. `@RequiresStepUp` goes beside `@RequiresPermission` on operations that need a recent login.
 - **Take the tenant from the caller only:** a tenant-scoped method takes a `Caller`, `MemberCaller` or `ApiKeyCaller` parameter and never reads the tenant from the request.
 - **Never write an API key**, or anything shaped like one, in the repository: [`.gitleaks.toml`](.gitleaks.toml) rejects the format, and tests generate their keys at run time.
