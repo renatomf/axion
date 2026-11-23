@@ -134,6 +134,26 @@ public class JdbcCharges {
         }
     }
 
+    /**
+     * Expires up to {@code limit} active charges of any tenant whose expiry is at or before {@code now},
+     * earliest first, skipping those a settlement holds locked (billing design, section 9). Runs as the
+     * expiry job's role, whose policies let it change active charges only, and only to expired.
+     * Returns how many it expired.
+     */
+    public int expireDue(Instant now, int limit) {
+        return jdbc.sql("""
+                        UPDATE billing.charges SET status = 'EXPIRED', updated_at = :now
+                         WHERE id IN (SELECT id FROM billing.charges
+                                       WHERE status = 'ACTIVE' AND expires_at <= :now
+                                       ORDER BY expires_at
+                                       LIMIT :limit
+                                       FOR UPDATE SKIP LOCKED)
+                        """)
+                .param("now", now.atOffset(ZoneOffset.UTC))
+                .param("limit", limit)
+                .update();
+    }
+
     /** A charge's row as settlement locked it, before its payments are read. */
     public record LockedCharge(ChargeId id, Money amount, ChargeStatus status, Instant createdAt, Instant expiresAt) {
 
