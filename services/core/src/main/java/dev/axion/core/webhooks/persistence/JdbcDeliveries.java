@@ -76,6 +76,23 @@ public class JdbcDeliveries {
                 .update();
     }
 
+    /**
+     * Cancels the endpoint's pending deliveries, those a worker holds included: the result of an
+     * attempt in flight then changes nothing.
+     *
+     * @return how many were canceled
+     */
+    public int cancelPending(TenantId tenant, WebhookEndpointId endpoint) {
+        return jdbc.sql("""
+                        UPDATE webhooks.deliveries
+                           SET status = 'CANCELED', next_attempt_at = NULL, leased_until = NULL
+                         WHERE tenant_id = :tenant AND endpoint_id = :endpoint AND status = 'PENDING'
+                        """)
+                .param("tenant", tenant.value())
+                .param("endpoint", endpoint.value())
+                .update();
+    }
+
     // Bound as an offset, so the JVM's time zone never shifts the stored instant.
     private static OffsetDateTime utc(Instant instant) {
         return instant.atOffset(ZoneOffset.UTC);

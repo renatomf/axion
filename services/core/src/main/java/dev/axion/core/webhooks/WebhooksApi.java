@@ -42,7 +42,8 @@ public interface WebhooksApi {
     /**
      * Changes one of the tenant's endpoints, publishing {@link WebhookEndpointUpdated}; changes that
      * leave it as it was change nothing and publish nothing. A URL in the changes is checked before
-     * anything is stored, as for a registration, even when it is the endpoint's own.
+     * anything is stored, as for a registration, even when it is the endpoint's own. Disabling an
+     * endpoint cancels its pending deliveries, so enabled again it receives only later events.
      *
      * @throws IllegalArgumentException for a URL, description or event types outside the limits of
      *     {@link #create}
@@ -52,8 +53,8 @@ public interface WebhooksApi {
 
     /**
      * Deletes one of the tenant's endpoints, publishing {@link WebhookEndpointDeleted}: it receives
-     * nothing from then on, is never read or listed again, and no longer counts toward {@link
-     * #MAX_ENDPOINTS}.
+     * nothing from then on, its pending deliveries canceled, is never read or listed again, and no
+     * longer counts toward {@link #MAX_ENDPOINTS}.
      *
      * @return the endpoint as it was, or empty for an unknown endpoint, another tenant's and one
      *     already deleted alike

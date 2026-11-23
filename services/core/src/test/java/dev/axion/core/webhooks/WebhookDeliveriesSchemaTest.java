@@ -176,6 +176,44 @@ class WebhookDeliveriesSchemaTest {
                 .hasMessageContaining(RLS_VIOLATION);
     }
 
+    @Test
+    void letsTheModuleRoleCancelAPendingDelivery() {
+        insertDelivery(endpoint, event, "PENDING", 0, "now()", "now()");
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        int canceled = jdbc.sql("""
+                        UPDATE webhooks.deliveries
+                           SET status = 'CANCELED', next_attempt_at = NULL, leased_until = NULL
+                         WHERE endpoint_id = ? AND status = 'PENDING'
+                        """).param(endpoint).update();
+
+        assertThat(canceled).isOne();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"attempt_count = 9", "event_id = gen_random_uuid()", "tenant_id = gen_random_uuid()"})
+    void deniesTheModuleRoleChangingADeliveryBeyondItsCancellation(String assignment) {
+        insertDelivery(endpoint, event, "PENDING", 0, "now()", null);
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        assertThatThrownBy(() -> jdbc.sql("UPDATE webhooks.deliveries SET " + assignment + " WHERE endpoint_id = ?")
+                        .param(endpoint)
+                        .update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void hidesAnotherTenantsDeliveriesFromTheModuleRole() {
+        insertDelivery(endpoint, event, "PENDING", 0, "now()", null);
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(UUID.randomUUID()));
+
+        int canceled = jdbc.sql("UPDATE webhooks.deliveries SET status = 'CANCELED', next_attempt_at = NULL")
+                .update();
+
+        assertThat(canceled).isZero();
+    }
+
     private void insertEvent(UUID id) {
         insertEvent(id, tenant);
     }

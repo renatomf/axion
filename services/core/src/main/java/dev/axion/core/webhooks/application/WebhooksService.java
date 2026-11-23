@@ -28,6 +28,7 @@ import dev.axion.core.webhooks.domain.EventTypes;
 import dev.axion.core.webhooks.domain.SigningSecret;
 import dev.axion.core.webhooks.domain.UrlValidation;
 import dev.axion.core.webhooks.domain.WebhookUrlValidator;
+import dev.axion.core.webhooks.persistence.JdbcDeliveries;
 import dev.axion.core.webhooks.persistence.JdbcEndpoints;
 import java.security.SecureRandom;
 import java.time.Clock;
@@ -47,6 +48,7 @@ public class WebhooksService implements WebhooksApi {
     private static final String ROLE = "axion_webhooks";
 
     private final JdbcEndpoints endpoints;
+    private final JdbcDeliveries deliveries;
     private final WebhookUrlValidator urls;
     private final SecretCipher cipher;
     private final ModuleRoles roles;
@@ -57,12 +59,14 @@ public class WebhooksService implements WebhooksApi {
 
     WebhooksService(
             JdbcEndpoints endpoints,
+            JdbcDeliveries deliveries,
             WebhookUrlValidator urls,
             SecretCipher cipher,
             ModuleRoles roles,
             ApplicationEventPublisher events,
             Clock clock) {
         this.endpoints = endpoints;
+        this.deliveries = deliveries;
         this.urls = urls;
         this.cipher = cipher;
         this.roles = roles;
@@ -134,7 +138,11 @@ public class WebhooksService implements WebhooksApi {
     public Optional<EndpointView> delete(WebhookEndpointId id) {
         TenantId tenant = bound("Deleting a webhook endpoint");
         Instant now = now();
-        Optional<EndpointView> deleted = roles.call(ROLE, () -> endpoints.markDeleted(tenant, id, now));
+        Optional<EndpointView> deleted = roles.call(ROLE, () -> {
+            Optional<EndpointView> marked = endpoints.markDeleted(tenant, id, now);
+            marked.ifPresent(endpoint -> deliveries.cancelPending(tenant, endpoint.id()));
+            return marked;
+        });
         deleted.ifPresent(endpoint -> events.publishEvent(new WebhookEndpointDeleted(header(now), endpoint)));
         return deleted;
     }
@@ -181,6 +189,10 @@ public class WebhooksService implements WebhooksApi {
             EndpointView endpoint = changed(previous, changes);
             if (!endpoint.equals(previous)) {
                 endpoints.update(tenant, endpoint, now);
+            }
+            // A disabled endpoint receives nothing, and enabled again it starts afresh (section 6.3).
+            if (previous.status() == EndpointStatus.ENABLED && endpoint.status() == EndpointStatus.DISABLED) {
+                deliveries.cancelPending(tenant, id);
             }
             return new Change(endpoint, previous, now);
         });
