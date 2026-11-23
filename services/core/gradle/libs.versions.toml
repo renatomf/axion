@@ -49,6 +49,9 @@ spring-modulith-api = { module = "org.springframework.modulith:spring-modulith-a
 # Persists published events in a JDBC table, the publication registry, so an event
 # whose listener has not completed survives a crash; with Jackson serialization.
 spring-modulith-starter-jdbc = { module = "org.springframework.modulith:spring-modulith-starter-jdbc" }
+# The registry's EventSerializer, which the starter puts on the runtime classpath
+# only; tests read events back with the serializer the registry uses.
+spring-modulith-events-core = { module = "org.springframework.modulith:spring-modulith-events-core" }
 # Verifies module boundaries in tests and tests modules in isolation.
 spring-modulith-starter-test = { module = "org.springframework.modulith:spring-modulith-starter-test" }
 # Architecture rules written as unit tests; Spring Modulith is built on it.

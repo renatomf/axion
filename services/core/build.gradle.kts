@@ -77,6 +77,7 @@ dependencies {
     testImplementation(libs.spring.boot.testcontainers)
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.spring.modulith.starter.test)
+    testImplementation(libs.spring.modulith.events.core)
     testImplementation(libs.archunit.junit5)
     testImplementation(libs.jqwik)
     testImplementation(libs.json.schema.validator) {
