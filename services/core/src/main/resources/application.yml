@@ -45,6 +45,15 @@ spring:
         schema: events
         schema-initialization:
           enabled: false
+      staleness:
+        # A listener does one short transaction, so a publication still
+        # waiting, running or resubmitted after 10 minutes is taken as lost,
+        # such as one resubmitted by a process that then stopped, and marked
+        # failed for the resubmission job (events and webhooks design,
+        # section 4.5). If it was only slow, its consumer is idempotent.
+        published: 10m
+        processing: 10m
+        resubmitted: 10m
 
 server:
   tomcat:

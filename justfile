@@ -52,6 +52,18 @@ _signing-key:
     } >> "$env"
     echo "Added a rails simulator signing key pair to $env"
 
+# List the dead publications of the local core: failed after their last attempt
+dead-publications:
+    {{ compose }} --profile core exec --no-TTY postgres psql --username=axion --dbname=axion -v ON_ERROR_STOP=1 \
+        -c "SET ROLE axion_events" \
+        -c "SELECT id, listener_id, event_type, publication_date FROM events.event_publication WHERE completion_date IS NULL AND status = 'FAILED' AND completion_attempts >= 10 ORDER BY publication_date"
+
+# Start a dead publication's attempts over, once the cause of its failures is fixed
+resubmit-publication publication listener:
+    {{ compose }} --profile core exec --no-TTY postgres psql --username=axion --dbname=axion -v ON_ERROR_STOP=1 \
+        -v publication='{{ publication }}' -v listener='{{ listener }}' <<< \
+        "SET ROLE axion_events; SELECT events.resubmit_dead_publication(:'publication', :'listener') AS resubmitted;"
+
 # Lint the OpenAPI contracts of the core and the rails simulator, after testing the project's lint rules
 lint-api:
     pnpm run test:api-rules

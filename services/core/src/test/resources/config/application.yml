@@ -14,6 +14,12 @@ axion:
       # the real clock would expire the charges other tests create at fixed
       # times. The test of the schedule turns it back on.
       enabled: false
+  events:
+    resubmission:
+      # Tests resubmit failed publications themselves, on a clock they move;
+      # the database is shared, and a job on the real clock would hand other
+      # tests' publications to their listeners at times no test chose.
+      enabled: false
   rails:
     processor:
       # Tests hand the inbox's credits to billing themselves, so a credit a
@@ -27,3 +33,13 @@ axion:
       keys:
         - id: test-key-ed25519
           public-key: MCowBQYDK2VwAyEAJrQLj5P/89iXES9+vFgrIy29clF9CC/oPPsw3c5D0bs=
+
+spring:
+  modulith:
+    events:
+      staleness:
+        # Tests mark stale publications themselves. The monitor runs once at
+        # startup, then a year later: the database is shared, and a monitor
+        # on another test context's clock would fail a running test's
+        # publications.
+        check-interval: 365d
