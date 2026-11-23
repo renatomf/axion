@@ -191,7 +191,7 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | ↳ 1.37a | Risk rules | The `risk` module: `RiskApi` with the amount, daily amount and hourly count rules, held by conditional counters ([#214](https://github.com/renatomf/finaxis/pull/214)) |
 | ↳ 1.37b | Risk before charging | The decision applied to charge creation ([#216](https://github.com/renatomf/finaxis/pull/216)) |
 | 1.38 | Rails anti-corruption layer | The `rails` module: the callback endpoint on its own filter chain, its signature verification (RFC 9421, Ed25519), and the inbox that deduplicates credits by `EndToEndId` ([#218](https://github.com/renatomf/finaxis/pull/218)) |
-| 1.39 | Settlement | The inbox processor and the `PixCreditHandler` port; one transaction: charge `PAID` + payment + ledger entry; flagged and unmatched payments; a charge's `payments` in `GET /v1/charges/{id}` |
+| 1.39 | Settlement | The inbox processor and the `PixCreditHandler` port; one transaction: charge `PAID` + payment + ledger entry; flagged and unmatched payments; a charge's `payments` in `GET /v1/charges/{id}` ([#220](https://github.com/renatomf/finaxis/pull/220)) |
 | 1.40 | Late payments | The expiry job; a payment accepted after expiry credited and flagged; one accepted before it settles the expired charge |
 | 1.41 | Refunds | Reversal entries, partial and full refunds |
 | ↳ 1.41a | Refunds | Refunds of one payment and their table; reversal entries for full and partial refunds within the payment's amount |

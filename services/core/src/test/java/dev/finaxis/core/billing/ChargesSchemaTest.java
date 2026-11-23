@@ -243,6 +243,97 @@ class ChargesSchemaTest {
         assertRejected(row().transactionId(other.transactionId), "charges_transaction_id_key");
     }
 
+    @Test
+    void letsTheJobsRoleExpireAnActiveChargeOfAnyTenant() {
+        var row = row().tenant(UUID.randomUUID());
+        insert(row);
+        DatabaseRole.BILLING_JOBS.actAs(jdbc);
+
+        var updated = jdbc.sql("UPDATE billing.charges SET status = 'EXPIRED', updated_at = now() WHERE id = ?")
+                .param(row.id)
+                .update();
+
+        assertThat(updated).isOne();
+    }
+
+    @Test
+    void showsTheJobsRoleNoPaidCharge() {
+        var row = row().paid();
+        insert(row);
+        DatabaseRole.BILLING_JOBS.actAs(jdbc);
+
+        var visible = jdbc.sql("SELECT count(*) FROM billing.charges WHERE id = ?")
+                .param(row.id)
+                .query(Long.class)
+                .single();
+
+        assertThat(visible).isZero();
+    }
+
+    @Test
+    void leavesAnExpiredChargeUnchangedByTheJobsRole() {
+        var row = row().status("EXPIRED");
+        insert(row);
+        DatabaseRole.BILLING_JOBS.actAs(jdbc);
+
+        var updated = jdbc.sql("UPDATE billing.charges SET updated_at = now() WHERE id = ?")
+                .param(row.id)
+                .update();
+
+        assertThat(updated).isZero();
+    }
+
+    @Test
+    void deniesTheJobsRoleMovingAChargeToAnyStatusButExpired() {
+        var row = row();
+        insert(row);
+        DatabaseRole.BILLING_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> jdbc.sql("UPDATE billing.charges SET status = 'REFUNDED' WHERE id = ?")
+                        .param(row.id)
+                        .update())
+                .rootCause()
+                .hasMessageContaining(RLS_VIOLATION);
+    }
+
+    @Test
+    void deniesTheJobsRoleChangingAnythingButTheStatus() {
+        var row = row();
+        insert(row);
+        DatabaseRole.BILLING_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> jdbc.sql("UPDATE billing.charges SET amount_minor = 1 WHERE id = ?")
+                        .param(row.id)
+                        .update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void deniesTheJobsRoleReadingWhatAChargeIsFor() {
+        insert(row());
+        DatabaseRole.BILLING_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> jdbc.sql("SELECT description FROM billing.charges LIMIT 1")
+                        .query(String.class)
+                        .list())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void deniesTheJobsRoleDeletingACharge() {
+        var row = row();
+        insert(row);
+        DatabaseRole.BILLING_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> jdbc.sql("DELETE FROM billing.charges WHERE id = ?")
+                        .param(row.id)
+                        .update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
     private long visibleCharges() {
         return jdbc.sql("SELECT count(*) FROM billing.charges")
                 .query(Long.class)
