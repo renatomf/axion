@@ -119,11 +119,27 @@ tasks.bootRun {
 
 tasks.test {
     // Run tests with the JUnit Platform (JUnit Jupiter). Without this line
-    // Gradle looks for JUnit 4 tests and would find none.
-    useJUnitPlatform()
+    // Gradle looks for JUnit 4 tests and would find none. The fault-injection
+    // suite needs the rails simulator's image, so it runs in its own task.
+    useJUnitPlatform { excludeTags("fault-injection") }
     // Contract tests read the OpenAPI documents: a change to them must rerun
     // the tests instead of leaving Gradle's cached result up to date.
     inputs.dir("openapi")
+}
+
+// The fault-injection suite (billing design, section 13.1): the core against
+// the rails simulator's image, built first with `just image rails-simulator`.
+// Not part of `check`, which runs without that image.
+val faultInjectionTest by tasks.registering(Test::class) {
+    description = "Runs the fault-injection suite against the rails simulator's image."
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform { includeTags("fault-injection") }
+    shouldRunAfter(tasks.test)
+    // The image is not an input Gradle can see: a rebuilt simulator must
+    // rerun the suite instead of leaving a cached result up to date.
+    outputs.upToDateWhen { false }
 }
 
 pitest {

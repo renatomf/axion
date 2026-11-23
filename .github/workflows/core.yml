@@ -1,6 +1,7 @@
 # Builds and tests the core service on every push and pull request.
 # `./gradlew build` runs every gate: formatting, Error Prone, NullAway,
-# zero warnings and the tests (see CONTRIBUTING.md).
+# zero warnings and the tests (see CONTRIBUTING.md). A second job runs the
+# fault-injection suite against the rails simulator's image.
 name: Core
 
 on:
@@ -52,6 +53,49 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: core-test-reports
+          path: services/core/build/reports/tests/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # The fault-injection suite (billing design, section 13.1): the core against
+  # the rails simulator's image, built here from this commit, so a change to
+  # either side is tested with the other as it is now.
+  fault-injection:
+    name: Fault injection
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: services/core
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-provider: basic
+
+      # The tag the suite runs (RailsSimulator.IMAGE_NAME), as `just image` builds it.
+      - name: Build rails simulator image
+        run: docker build --tag finaxis-rails-simulator:dev ../rails-simulator
+
+      - name: Run fault-injection suite
+        run: ./gradlew faultInjectionTest
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fault-injection-test-reports
           path: services/core/build/reports/tests/
           retention-days: 7
           if-no-files-found: ignore

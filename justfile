@@ -60,3 +60,7 @@ lint-api:
 # Build the container image of a service (core or rails-simulator)
 image service="core":
     docker build --tag finaxis-{{ service }}:dev services/{{ service }}
+
+# Run the core's fault-injection suite against a fresh image of the rails simulator
+fault-injection: (image "rails-simulator")
+    cd services/core && ./gradlew faultInjectionTest

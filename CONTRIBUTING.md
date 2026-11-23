@@ -37,9 +37,11 @@ cd services/core
 ./gradlew spotlessApply   # format the code before committing
 ./gradlew bootRun         # start the service with the local profile
 ./gradlew pitest          # mutation testing of the ledger, a few minutes; not part of build
+just fault-injection      # the fault-injection suite against the rails simulator's image, a few minutes; not part of build
 ```
 
 - **Tests** use JUnit, AssertJ and, for rules that must hold for every input, [jqwik](https://jqwik.net) properties. Tests that start the application run against a real PostgreSQL, and member authentication tests against a real Keycloak, both started by Testcontainers: Docker must be running; `just up` is not needed. Reports: `build/reports/tests/test/index.html`.
+- **Fault injection** runs the core against the rails simulator's container image and disturbs the payments' delivery through its chaos API ([billing design](docs/design-docs/2026-11-22-billing.md), section 13.1). `just fault-injection` builds the image, tagged `finaxis-rails-simulator:dev`, then runs `./gradlew faultInjectionTest`; with the image already built, the Gradle task alone is enough. Reports: `build/reports/tests/faultInjectionTest/index.html`.
 - **Mutation testing** ([PIT](https://pitest.org)) fails when the ledger's tests catch fewer than 90% of the mutations; survivors are listed in `build/reports/pitest/index.html`.
 - **Versions** are declared only in [`gradle/libs.versions.toml`](services/core/gradle/libs.versions.toml); Spring Boot's bill of materials manages the versions of its libraries. To upgrade Gradle, run `./gradlew wrapper --gradle-version <version> --gradle-distribution-sha256-sum <checksum>` with the checksum from [gradle.org/release-checksums](https://gradle.org/release-checksums/), then run it again so the wrapper JAR and scripts are updated too.
 
@@ -156,7 +158,7 @@ GitHub Actions runs on every pull request and on `main` ([`.github/workflows/`](
 
 | Workflow | Check |
 |---|---|
-| Core | `./gradlew build`: every quality gate and the tests |
+| Core | `./gradlew build`: every quality gate and the tests; the fault-injection suite against the rails simulator's image built from the same commit |
 | API contracts | Spectral lints the contracts |
 | Core image | Builds the image and scans it with Trivy, also weekly |
 | Gitleaks | Scans the full history for secrets |
