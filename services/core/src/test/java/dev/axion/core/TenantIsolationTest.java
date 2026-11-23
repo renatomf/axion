@@ -100,7 +100,8 @@ class TenantIsolationTest {
             Map.entry("listWebhookEndpoints", this::listWebhookEndpointsHidesAnotherTenantsEndpoints),
             Map.entry("getWebhookEndpoint", this::getWebhookEndpointHidesAnotherTenantsEndpoint),
             Map.entry("updateWebhookEndpoint", this::updateWebhookEndpointLeavesAnotherTenantsEndpointAsItWas),
-            Map.entry("deleteWebhookEndpoint", this::deleteWebhookEndpointLeavesAnotherTenantsEndpointInPlace));
+            Map.entry("deleteWebhookEndpoint", this::deleteWebhookEndpointLeavesAnotherTenantsEndpointInPlace),
+            Map.entry("rollWebhookEndpointSecret", this::rollWebhookEndpointSecretLeavesAnotherTenantsSecretInPlace));
 
     @Autowired
     TenantIsolationTest(
@@ -345,6 +346,26 @@ class TenantIsolationTest {
                 .isPresent();
 
         assertThat(request.sendWithKey(manager, own.publicId())).hasStatus(HttpStatus.NO_CONTENT);
+    }
+
+    private void rollWebhookEndpointSecretLeavesAnotherTenantsSecretInPlace(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookEndpointId own = endpoint(scene.caller().test());
+        IssuedApiKey manager = webhookManager(scene);
+
+        assertNotFound(request.sendWithKey(manager, "roll-1", "{}", others.publicId()));
+        assertThat(secrets(others)).isOne();
+
+        assertThat(request.sendWithKey(manager, "roll-2", "{}", own.publicId())).hasStatus(HttpStatus.OK);
+        assertThat(secrets(own)).isEqualTo(2);
+    }
+
+    private long secrets(WebhookEndpointId endpoint) {
+        return Objects.requireNonNull(owner.jdbc()
+                .sql("SELECT count(*) FROM webhooks.secrets WHERE endpoint_id = ?")
+                .param(endpoint.value())
+                .query(Long.class)
+                .single());
     }
 
     private IssuedApiKey webhookManager(Scene scene) {
