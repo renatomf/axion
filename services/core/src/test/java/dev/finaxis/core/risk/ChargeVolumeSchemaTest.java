@@ -7,8 +7,10 @@ import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.DatabaseRole;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.shared.TenantId;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -179,6 +181,68 @@ class ChargeVolumeSchemaTest {
                         .update())
                 .rootCause()
                 .hasMessageContaining(RLS_VIOLATION);
+    }
+
+    @Test
+    void showsTheJobsRoleOldWindowsOnly() {
+        var other = UUID.randomUUID();
+        insert(tenant, "HOURLY_COUNT", daysAgo(6), 0, 0);
+        insert(other, "HOURLY_COUNT", daysAgo(8), 0, 0);
+        DatabaseRole.RISK_JOBS.actAs(jdbc);
+
+        assertThat(jdbc.sql("SELECT tenant_id FROM risk.charge_volume WHERE tenant_id IN (?, ?)")
+                        .params(tenant, other)
+                        .query(UUID.class)
+                        .list())
+                .containsExactly(other);
+    }
+
+    @Test
+    void hidesRecentWindowsFromTheJobsRoleEvenWithATenantBound() {
+        insert(tenant, "DAILY_AMOUNT", daysAgo(1), 0, 0);
+        DatabaseRole.RISK_JOBS.actAs(jdbc, new TenantId(tenant));
+
+        assertThat(visibleWindows()).isZero();
+        assertThat(deleteTheTenantsWindows()).isZero();
+    }
+
+    @Test
+    void letsTheJobsRoleDeleteOldWindowsOnly() {
+        insert(tenant, "DAILY_AMOUNT", daysAgo(6), 0, 0);
+        insert(tenant, "DAILY_AMOUNT", daysAgo(8), 0, 0);
+        DatabaseRole.RISK_JOBS.actAs(jdbc);
+
+        assertThat(deleteTheTenantsWindows()).isOne();
+    }
+
+    @Test
+    void deniesTheJobsRoleCreatingAWindow() {
+        DatabaseRole.RISK_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> insert(tenant, "DAILY_AMOUNT", daysAgo(8), 0, 0))
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void deniesTheJobsRoleChangingAWindow() {
+        insert(tenant, "DAILY_AMOUNT", daysAgo(8), 0, 0);
+        DatabaseRole.RISK_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() ->
+                        jdbc.sql("UPDATE risk.charge_volume SET count = 0").update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    private static Instant daysAgo(int days) {
+        return Instant.now().minus(Duration.ofDays(days)).truncatedTo(ChronoUnit.HOURS);
+    }
+
+    private int deleteTheTenantsWindows() {
+        return jdbc.sql("DELETE FROM risk.charge_volume WHERE tenant_id = ?")
+                .param(tenant)
+                .update();
     }
 
     private long visibleWindows() {

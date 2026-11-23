@@ -14,7 +14,8 @@ public enum DatabaseRole {
     IDEMPOTENCY,
     IDEMPOTENCY_JOBS,
     BILLING,
-    RISK;
+    RISK,
+    RISK_JOBS;
 
     /** Acts as this role until the current transaction ends. */
     public void actAs(JdbcClient jdbc) {
