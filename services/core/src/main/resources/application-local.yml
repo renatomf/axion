@@ -27,6 +27,13 @@ finaxis:
     # The realm of the Keycloak started by `just up auth`. KEYCLOAK_PORT comes
     # from the same .env file as the database settings.
     issuer: http://localhost:${KEYCLOAK_PORT:8180}/realms/finaxis
+  rails:
+    signing:
+      # The public half of the key pair `just up` generates for the rails
+      # simulator, from the same .env file.
+      keys:
+        - id: ${RAILS_SIMULATOR_SIGNING_KEY_ID}
+          public-key: ${RAILS_SIMULATOR_SIGNING_PUBLIC_KEY}
 
 management:
   endpoint:
