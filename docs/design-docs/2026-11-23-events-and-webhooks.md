@@ -412,3 +412,27 @@ A job verifies every chain each night, as `axion_audit_checks`, and publishes th
 ### 9.4 What is audited
 
 The domain events marked in section 3.3: key, member and endpoint changes, settlements, flagged payments and refunds. The rule for a new event is the question an investigator would ask: who gave access, who moved money, who changed where the money's notifications go. Operations that only read are not audited in phase 1; revealing masked personal data, which the overview audits (section 4.4), arrives with the screen that reveals it.
+
+## 10. Live notifications
+
+The console's BFF opens one stream per member session and tenant:
+
+```
+GET /internal/tenants/{tenant_id}/events/stream
+Accept: text/event-stream
+Last-Event-ID: evt_01jdr3b6f7g8h9j0k1m2n3p4q5
+```
+
+```
+id: evt_01jdr4c7…
+event: charge.paid
+data: {"specversion":"1.0","id":"evt_01jdr4c7…","type":"charge.paid",…}
+```
+
+- Each message is the public event of section 5.1, rendered by the same catalog, so the console writes `data.object` into its query cache as it would a response (overview, section 9.6).
+- A member receives only the types their permissions allow: charge and payment events need `charges:read`, and `webhook_endpoint.disabled` needs `webhooks:manage`. The tenant comes from the path and the membership, as for every `/internal` route.
+- `notifications` keeps, in memory, the streams open on this instance and, per tenant, the last 200 events or 5 minutes of them. A reconnecting client sends `Last-Event-ID` and receives what it missed if it is still kept; otherwise it receives a `reset` message, and the console refetches its queries.
+- A comment line every 15 seconds keeps proxies from closing an idle stream. At most 5 streams per member and 200 per tenant; the next is `429`.
+- Phase 1 runs one instance of the core, so an in-memory fan-out reaches every stream. With several instances, each would publish the events it handles through PostgreSQL `LISTEN`/`NOTIFY` to the others; that change stays inside `notifications`.
+
+The live stream is a convenience, not a record: a member who missed an event sees its result in the next query. It therefore keeps no table and does not deduplicate beyond the event ID, which the console already uses as the message's identity.
