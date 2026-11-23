@@ -1,6 +1,7 @@
 package dev.finaxis.core.billing;
 
 import static dev.finaxis.core.billing.BillingFixtures.brl;
+import static dev.finaxis.core.billing.BillingFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -91,9 +92,7 @@ class ReadChargeTest {
     }
 
     private ChargeView create(TenantId tenant, Environment environment, ChargeRequest request) {
-        return TenantContext.call(tenant, environment, () -> switch (billing.createCharge(request)) {
-            case CreateChargeResult.Created created -> created.charge();
-        });
+        return TenantContext.call(tenant, environment, () -> created(billing.createCharge(request)));
     }
 
     private Optional<ChargeView> read(TenantId tenant, Environment environment, ChargeId charge) {

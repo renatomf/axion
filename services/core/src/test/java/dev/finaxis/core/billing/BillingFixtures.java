@@ -23,6 +23,15 @@ public final class BillingFixtures {
         return Money.ofMinor(minorUnits, Charge.CURRENCY);
     }
 
+    /** The charge a creation returned; fails the test if risk denied it. */
+    public static ChargeView created(CreateChargeResult result) {
+        return switch (result) {
+            case CreateChargeResult.Created created -> created.charge();
+            case CreateChargeResult.LimitExceeded denied ->
+                throw new AssertionError("Risk denied the charge by " + denied.rule());
+        };
+    }
+
     /** A charge of R$ 100.00, created at {@link #CREATED_AT} and expiring 30 minutes later. */
     public static Charge activeCharge() {
         return Charge.create(new ChargeId(UUID.randomUUID()), brl(10000), CREATED_AT, EXPIRES_AT);

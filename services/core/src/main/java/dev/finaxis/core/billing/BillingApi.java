@@ -14,7 +14,8 @@ public interface BillingApi {
     /**
      * Creates an active charge with its transaction ID and its BR Code, and opens the tenant's
      * ledger account if it is not open yet, so the account exists before any payment can arrive
-     * for it (section 4.3).
+     * for it (section 4.3). Risk decides first: a charge it denies is {@link
+     * CreateChargeResult.LimitExceeded} and writes nothing.
      *
      * @throws IllegalStateException if no tenant is bound, a bug in the caller
      */

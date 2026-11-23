@@ -1,6 +1,7 @@
 package dev.finaxis.core.billing.application;
 
 import static dev.finaxis.core.billing.BillingFixtures.brl;
+import static dev.finaxis.core.billing.BillingFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -8,10 +9,10 @@ import dev.finaxis.core.ModuleRoles;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.billing.ChargeRequest;
 import dev.finaxis.core.billing.ChargeView;
-import dev.finaxis.core.billing.CreateChargeResult;
 import dev.finaxis.core.billing.domain.TransactionId;
 import dev.finaxis.core.billing.persistence.JdbcCharges;
 import dev.finaxis.core.ledger.LedgerApi;
+import dev.finaxis.core.risk.RiskApi;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.tenancy.NewOrganization;
@@ -42,6 +43,7 @@ class TransactionIdDrawTest {
 
     private final JdbcCharges charges;
     private final LedgerApi ledger;
+    private final RiskApi risk;
     private final TenancyApi tenancy;
     private final ModuleRoles roles;
     private final BillingProperties properties;
@@ -56,6 +58,7 @@ class TransactionIdDrawTest {
     TransactionIdDrawTest(
             JdbcCharges charges,
             LedgerApi ledger,
+            RiskApi risk,
             TenancyApi tenancy,
             ModuleRoles roles,
             BillingProperties properties,
@@ -64,6 +67,7 @@ class TransactionIdDrawTest {
             PlatformTransactionManager transactions) {
         this.charges = charges;
         this.ledger = ledger;
+        this.risk = risk;
         this.tenancy = tenancy;
         this.roles = roles;
         this.properties = properties;
@@ -107,6 +111,7 @@ class TransactionIdDrawTest {
         return new BillingService(
                 charges,
                 ledger,
+                risk,
                 tenancy,
                 roles,
                 properties,
@@ -120,9 +125,7 @@ class TransactionIdDrawTest {
         return TenantContext.call(
                 organization.test(),
                 Environment.TEST,
-                () -> transaction.execute(status -> switch (billing.createCharge(ChargeRequest.of(brl(10_000)))) {
-                    case CreateChargeResult.Created created -> created.charge();
-                }));
+                () -> transaction.execute(status -> created(billing.createCharge(ChargeRequest.of(brl(10_000))))));
     }
 
     private static String newTransactionId() {

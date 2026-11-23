@@ -1,12 +1,14 @@
 package dev.finaxis.core.billing;
 
 import static dev.finaxis.core.billing.BillingFixtures.brl;
+import static dev.finaxis.core.billing.BillingFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.PostgresTestConfiguration;
 import dev.finaxis.core.billing.application.BillingService;
+import dev.finaxis.core.risk.RiskRule;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.shared.TenantId;
@@ -16,6 +18,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -34,6 +37,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
 class CreateChargeTest {
+
+    // The test environment's limit of one charge, in centavos (application.yml).
+    private static final long TEST_AMOUNT_LIMIT = 100_000;
 
     private final BillingApi billing;
     private final TenancyApi tenancy;
@@ -194,6 +200,60 @@ class CreateChargeTest {
     }
 
     @Test
+    void countsTheChargeInTheTenantsWindows() {
+        create(organization.test(), Environment.TEST, ChargeRequest.of(brl(10_000)));
+        create(organization.test(), Environment.TEST, ChargeRequest.of(brl(5_000)));
+
+        assertThat(windows(organization.test()))
+                .containsExactlyInAnyOrder(
+                        Map.of("rule", "DAILY_AMOUNT", "total_minor", 15_000L, "count", 2),
+                        Map.of("rule", "HOURLY_COUNT", "total_minor", 15_000L, "count", 2));
+    }
+
+    @Test
+    void deniesAChargeARiskRuleRefusesAndWritesNothing() {
+        var result = TenantContext.call(
+                organization.test(),
+                Environment.TEST,
+                () -> billing.createCharge(ChargeRequest.of(brl(TEST_AMOUNT_LIMIT + 1))));
+
+        assertThat(result).isEqualTo(new CreateChargeResult.LimitExceeded(RiskRule.AMOUNT));
+        assertThat(count(
+                        "SELECT count(*) FROM billing.charges WHERE tenant_id = ?",
+                        organization.test().value()))
+                .isZero();
+        assertThat(count(
+                        "SELECT count(*) FROM ledger.accounts WHERE tenant_id = ?",
+                        organization.test().value()))
+                .isZero();
+    }
+
+    @Test
+    void createsAChargeAtTheAmountLimit() {
+        var charge = create(organization.test(), Environment.TEST, ChargeRequest.of(brl(TEST_AMOUNT_LIMIT)));
+
+        assertThat(charge.amount()).isEqualTo(brl(TEST_AMOUNT_LIMIT));
+    }
+
+    @Test
+    void givesItsShareOfTheWindowsBackWhenTheCallersTransactionRollsBack() {
+        create(organization.test(), Environment.TEST, ChargeRequest.of(brl(10_000)));
+
+        TenantContext.run(
+                organization.test(),
+                Environment.TEST,
+                () -> transaction.executeWithoutResult(status -> {
+                    billing.createCharge(ChargeRequest.of(brl(5_000)));
+                    status.setRollbackOnly();
+                }));
+
+        assertThat(windows(organization.test()))
+                .containsExactlyInAnyOrder(
+                        Map.of("rule", "DAILY_AMOUNT", "total_minor", 10_000L, "count", 1),
+                        Map.of("rule", "HOURLY_COUNT", "total_minor", 10_000L, "count", 1));
+    }
+
+    @Test
     void countsTheChargesItCreated() {
         double before = chargesCreated();
 
@@ -229,10 +289,11 @@ class CreateChargeTest {
         return TenantContext.call(tenant, environment, () -> created(billing.createCharge(request)));
     }
 
-    private static ChargeView created(CreateChargeResult result) {
-        return switch (result) {
-            case CreateChargeResult.Created created -> created.charge();
-        };
+    private List<Map<String, @Nullable Object>> windows(TenantId tenant) {
+        return owner.sql("SELECT rule, total_minor, count FROM risk.charge_volume WHERE tenant_id = ?")
+                .param(tenant.value())
+                .query()
+                .listOfRows();
     }
 
     private double chargesCreated() {

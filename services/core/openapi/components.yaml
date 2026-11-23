@@ -38,6 +38,12 @@ schemas:
         minItems: 1
         items:
           $ref: "#/schemas/FieldError"
+      rule:
+        description: >-
+          The limit a charge would break. Present only when `code` is
+          `limit_exceeded` on creating a charge.
+        type: string
+        enum: [amount, daily_amount, hourly_count]
     examples:
       - title: Unauthorized
         status: 401

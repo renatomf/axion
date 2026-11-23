@@ -16,6 +16,9 @@ import dev.finaxis.core.billing.persistence.JdbcCharges;
 import dev.finaxis.core.ledger.AccountRequest;
 import dev.finaxis.core.ledger.AccountType;
 import dev.finaxis.core.ledger.LedgerApi;
+import dev.finaxis.core.risk.ChargeDecision;
+import dev.finaxis.core.risk.RiskApi;
+import dev.finaxis.core.risk.RiskRule;
 import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.shared.UuidV7Generator;
 import dev.finaxis.core.tenancy.TenancyApi;
@@ -49,6 +52,7 @@ public class BillingService implements BillingApi {
 
     private final JdbcCharges charges;
     private final LedgerApi ledger;
+    private final RiskApi risk;
     private final TenancyApi tenancy;
     private final ModuleRoles roles;
     private final BillingProperties properties;
@@ -61,17 +65,19 @@ public class BillingService implements BillingApi {
     public BillingService(
             JdbcCharges charges,
             LedgerApi ledger,
+            RiskApi risk,
             TenancyApi tenancy,
             ModuleRoles roles,
             BillingProperties properties,
             Clock clock,
             MeterRegistry meters) {
-        this(charges, ledger, tenancy, roles, properties, clock, meters, new SecureRandom());
+        this(charges, ledger, risk, tenancy, roles, properties, clock, meters, new SecureRandom());
     }
 
     BillingService(
             JdbcCharges charges,
             LedgerApi ledger,
+            RiskApi risk,
             TenancyApi tenancy,
             ModuleRoles roles,
             BillingProperties properties,
@@ -80,6 +86,7 @@ public class BillingService implements BillingApi {
             SecureRandom random) {
         this.charges = charges;
         this.ledger = ledger;
+        this.risk = risk;
         this.tenancy = tenancy;
         this.roles = roles;
         this.properties = properties;
@@ -96,6 +103,9 @@ public class BillingService implements BillingApi {
     @Transactional
     public CreateChargeResult createCharge(ChargeRequest request) {
         var binding = bound("Creating a charge");
+        if (risk.assessCharge(binding.tenant(), request.amount()) instanceof ChargeDecision.Denied(RiskRule rule)) {
+            return new CreateChargeResult.LimitExceeded(rule);
+        }
         TenantView tenant = tenancy.tenant(binding.tenant())
                 .orElseThrow(() -> new IllegalStateException(
                         "Unknown tenant " + binding.tenant().value()));

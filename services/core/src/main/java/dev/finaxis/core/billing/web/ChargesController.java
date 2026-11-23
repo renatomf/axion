@@ -7,6 +7,7 @@ import dev.finaxis.core.billing.ChargeFilter;
 import dev.finaxis.core.billing.ChargeId;
 import dev.finaxis.core.billing.ChargeStatus;
 import dev.finaxis.core.billing.CreateChargeResult;
+import dev.finaxis.core.risk.RiskRule;
 import dev.finaxis.core.shared.PublicId;
 import dev.finaxis.core.tenancy.Permission;
 import jakarta.validation.Valid;
@@ -55,6 +56,7 @@ class ChargesController {
                 yield ResponseEntity.created(URI.create(PATH + "/" + charge.id()))
                         .body(charge);
             }
+            case CreateChargeResult.LimitExceeded denied -> throw limitExceeded(denied.rule());
         };
     }
 
@@ -93,6 +95,20 @@ class ChargesController {
         } catch (IllegalArgumentException malformed) {
             throw notFound();
         }
+    }
+
+    // Thrown, not returned, so the idempotency step stores the refusal with the key and a retry
+    // gets it again (billing design, section 4.3).
+    private static ErrorResponseException limitExceeded(RiskRule rule) {
+        String detail = switch (rule) {
+            case AMOUNT -> "The amount exceeds the limit of one charge.";
+            case DAILY_AMOUNT -> "The charge would exceed the amount of charges allowed today.";
+            case HOURLY_COUNT -> "The charge would exceed the number of charges allowed this hour.";
+        };
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, detail);
+        problem.setProperty("code", "limit_exceeded");
+        problem.setProperty("rule", rule.name().toLowerCase(Locale.ROOT));
+        return new ErrorResponseException(HttpStatus.UNPROCESSABLE_CONTENT, problem, null);
     }
 
     private static ErrorResponseException notFound() {

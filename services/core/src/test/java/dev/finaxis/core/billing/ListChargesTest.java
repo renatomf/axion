@@ -1,6 +1,7 @@
 package dev.finaxis.core.billing;
 
 import static dev.finaxis.core.billing.BillingFixtures.brl;
+import static dev.finaxis.core.billing.BillingFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -154,11 +155,10 @@ class ListChargesTest {
 
     private List<ChargeView> create(int count) {
         return IntStream.range(0, count)
-                .mapToObj(i ->
-                        TenantContext.call(organization.test(), Environment.TEST, () -> switch (billing.createCharge(
-                                ChargeRequest.of(brl(100 + i)))) {
-                            case CreateChargeResult.Created created -> created.charge();
-                        }))
+                .mapToObj(i -> TenantContext.call(
+                        organization.test(),
+                        Environment.TEST,
+                        () -> created(billing.createCharge(ChargeRequest.of(brl(100 + i))))))
                 .toList();
     }
 

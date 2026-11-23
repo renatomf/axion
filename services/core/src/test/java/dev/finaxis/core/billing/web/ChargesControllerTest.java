@@ -139,6 +139,8 @@ class ChargesControllerTest {
                 .isEqualTo(true);
     }
 
+    // The amount of the second body is the test environment's limit of one charge; the contract's
+    // own largest amount is refused by that limit.
     @Test
     void acceptsEveryFieldAtItsLimits() {
         String metadata = IntStream.range(0, 20)
@@ -147,7 +149,7 @@ class ChargesControllerTest {
         for (String body : List.of("""
                 {"amount": 1, "currency": "BRL", "expires_in": 60}
                 """, """
-                {"amount": 100000000, "currency": "BRL", "expires_in": 604800, "description": "%s", "metadata": {%s}}
+                {"amount": 100000, "currency": "BRL", "expires_in": 604800, "description": "%s", "metadata": {%s}}
                 """.formatted("😀".repeat(140), metadata))) {
             assertThat(create(body)).as(body).hasStatus(HttpStatus.CREATED);
         }
@@ -190,6 +192,57 @@ class ChargesControllerTest {
                     assertThat(problem).extractingPath("$.errors[*].field").isEqualTo(List.of(field));
                 }));
         assertThat(charges()).isZero();
+    }
+
+    @Test
+    void refusesAChargeOverTheAmountLimitNamingTheRule() {
+        MvcTestResult result = create("""
+                {"amount": 100000000, "currency": "BRL"}
+                """);
+
+        assertThat(result)
+                .hasStatus(HttpStatus.UNPROCESSABLE_CONTENT)
+                .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .bodyJson()
+                .satisfies(problem -> {
+                    assertThat(problem).extractingPath("$.code").isEqualTo("limit_exceeded");
+                    assertThat(problem).extractingPath("$.rule").isEqualTo("amount");
+                });
+        assertThat(charges()).isZero();
+    }
+
+    @Test
+    void refusesAChargeOverTheDailyAmountNamingTheRule() {
+        String atTheLimit = """
+                {"amount": 100000, "currency": "BRL"}
+                """;
+        for (int i = 0; i < 10; i++) {
+            assertThat(create(key, "order-" + i, atTheLimit)).hasStatus(HttpStatus.CREATED);
+        }
+
+        MvcTestResult result = create(key, "order-10", """
+                {"amount": 1, "currency": "BRL"}
+                """);
+
+        assertThat(result)
+                .hasStatus(HttpStatus.UNPROCESSABLE_CONTENT)
+                .bodyJson()
+                .extractingPath("$.rule")
+                .isEqualTo("daily_amount");
+        assertThat(charges()).isEqualTo(10);
+    }
+
+    @Test
+    void replaysARefusalByTheLimits() {
+        String overLimit = """
+                {"amount": 100001, "currency": "BRL"}
+                """;
+        MvcTestResult first = create(overLimit);
+        MvcTestResult retry = create(overLimit);
+
+        assertThat(retry).hasStatus(HttpStatus.UNPROCESSABLE_CONTENT).hasHeader("Idempotent-Replayed", "true");
+        assertThat(retry.getResponse().getContentAsByteArray())
+                .isEqualTo(first.getResponse().getContentAsByteArray());
     }
 
     @Test

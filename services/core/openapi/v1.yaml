@@ -179,8 +179,14 @@ paths:
         "422":
           description: >-
             Some fields are invalid or unknown (`validation_failed`, with
-            `errors`), or the `Idempotency-Key` was used for another request
-            (`idempotency_key_reused`).
+            `errors`), the charge breaks one of the tenant's limits
+            (`limit_exceeded`, with `rule`), or the `Idempotency-Key` was
+            used for another request (`idempotency_key_reused`). The limits
+            bound what an integration can create: `amount` per charge,
+            `daily_amount` of the charges created on a business date in
+            `America/Sao_Paulo`, and `hourly_count` of the charges created in
+            a clock hour in UTC. A refused charge is not created and counts
+            toward no limit.
           content:
             application/problem+json:
               schema:
