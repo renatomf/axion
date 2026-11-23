@@ -9,6 +9,8 @@ import dev.axion.core.PostgresTestConfiguration;
 import dev.axion.core.events.Probes.Probe;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -18,12 +20,15 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.modulith.events.config.StalenessProperties;
+import org.springframework.modulith.events.core.EventPublicationRegistry;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Publications whose listener failed, handed to it again on the schedule of the events and webhooks
- * design, section 4.5. The clock stands still until a test moves it; the registry reads it too.
+ * Publications whose listener failed, or whose process stopped, handed to the listener again as the
+ * events and webhooks design, section 4.5, plans. A stopped process is played by a row left as it
+ * would leave it. The clock stands still until a test moves it; the registry reads it too.
  */
 @SpringBootTest
 @Import({PostgresTestConfiguration.class, Probes.class, RegistryRecoveryTest.Configuration.class})
@@ -46,6 +51,9 @@ class RegistryRecoveryTest {
     private final TransactionTemplate transaction;
     private final Probes probes;
     private final FailedPublicationResubmission resubmission;
+    private final InterruptedPublicationResubmission interrupted;
+    private final EventPublicationRegistry registry;
+    private final StalenessProperties staleness;
     private final MutableClock clock;
     private final JdbcClient owner;
 
@@ -55,12 +63,18 @@ class RegistryRecoveryTest {
             PlatformTransactionManager transactions,
             Probes probes,
             FailedPublicationResubmission resubmission,
+            InterruptedPublicationResubmission interrupted,
+            EventPublicationRegistry registry,
+            StalenessProperties staleness,
             MutableClock clock,
             DatabaseOwner owner) {
         this.events = events;
         this.transaction = new TransactionTemplate(transactions);
         this.probes = probes;
         this.resubmission = resubmission;
+        this.interrupted = interrupted;
+        this.registry = registry;
+        this.staleness = staleness;
         this.clock = clock;
         this.owner = owner.jdbc();
     }
@@ -107,6 +121,46 @@ class RegistryRecoveryTest {
         assertThat(row(probe)).isEqualTo(new Row("FAILED", 10));
     }
 
+    @Test
+    void handsBackOnStartWhatAStoppedProcessLeftRunning() {
+        var probe = Probe.next();
+        var published = clock.instant().minusSeconds(1);
+        strand(probe, "PROCESSING", published, published, 1);
+
+        interrupted.resubmitPublishedBefore(clock.instant());
+
+        awaitRow(probe, new Row("COMPLETED", 2));
+        assertThat(probes.handlings(probe)).hasSize(1);
+    }
+
+    @Test
+    void leavesOnStartWhatThisProcessPublishedAndWhatIsDead() {
+        var startedAt = clock.instant();
+        var own = Probe.next();
+        var dead = Probe.next();
+        strand(own, "PROCESSING", startedAt, startedAt, 1);
+        strand(dead, "FAILED", startedAt.minus(Duration.ofDays(1)), startedAt.minus(Duration.ofHours(2)), 10);
+
+        interrupted.resubmitPublishedBefore(startedAt);
+
+        assertThat(row(own)).isEqualTo(new Row("PROCESSING", 1));
+        assertThat(row(dead)).isEqualTo(new Row("FAILED", 10));
+    }
+
+    @Test
+    void failsAPublicationLostAfterItsResubmissionAndHandsItBack() {
+        var probe = Probe.next();
+        var resubmitted = clock.instant().minus(Duration.ofMinutes(11));
+        strand(probe, "RESUBMITTED", resubmitted.minus(Duration.ofMinutes(1)), resubmitted, 2);
+
+        registry.markStalePublicationsFailed(staleness);
+        assertThat(row(probe)).isEqualTo(new Row("FAILED", 2));
+        resubmission.resubmitDue();
+
+        awaitRow(probe, new Row("COMPLETED", 3));
+        assertThat(probes.handlings(probe)).hasSize(1);
+    }
+
     private void publish(Probe probe) {
         transaction.executeWithoutResult(status -> events.publishEvent(probe));
     }
@@ -114,6 +168,38 @@ class RegistryRecoveryTest {
     private void awaitRow(Probe probe, Row expected) {
         await().atMost(Duration.ofSeconds(5))
                 .untilAsserted(() -> assertThat(row(probe)).isEqualTo(expected));
+    }
+
+    /** Leaves a probe's publication in the registry as a stopped process would. */
+    private void strand(Probe probe, String status, Instant published, Instant lastAttempt, int attempts) {
+        owner.sql("""
+                        INSERT INTO events.event_publication
+                               (id, listener_id, event_type, serialized_event, publication_date, status,
+                                completion_attempts, last_resubmission_date)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """)
+                .params(
+                        UUID.randomUUID(),
+                        listenerId(),
+                        Probe.class.getName(),
+                        "{\"id\":\"" + probe.id() + "\"}",
+                        published.atOffset(ZoneOffset.UTC),
+                        status,
+                        attempts,
+                        lastAttempt.atOffset(ZoneOffset.UTC))
+                .update();
+    }
+
+    // The registry names a listener by its method; a probe published through it shows the name.
+    private String listenerId() {
+        var probe = Probe.next();
+        publish(probe);
+        await().atMost(Duration.ofSeconds(5))
+                .until(() -> !probes.handlings(probe).isEmpty());
+        return owner.sql("SELECT listener_id FROM events.event_publication WHERE serialized_event::jsonb ->> 'id' = ?")
+                .param(probe.id().toString())
+                .query(String.class)
+                .single();
     }
 
     private Row row(Probe probe) {
