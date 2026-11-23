@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.axion.core.billing.ChargeRequest;
 import dev.axion.core.billing.domain.Charge;
 import dev.axion.core.shared.Money;
+import dev.axion.core.web.CodePointLength;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;

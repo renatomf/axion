@@ -1,4 +1,4 @@
-package dev.axion.core.billing.web;
+package dev.axion.core.web;
 
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.ConstraintValidatorContext;
