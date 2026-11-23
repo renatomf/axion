@@ -65,9 +65,11 @@ class PublicationMetricsTest {
         insert("FAILED", 10, published.minus(Duration.ofDays(365)));
         insert("FAILED", 2, published);
 
+        // Read before the gauge, whose clock can then only be later.
+        double sincePublished = Duration.between(published, clock.instant()).toMillis() / 1000.0;
+
         double age = gauge(PublicationMetrics.OLDEST_INCOMPLETE);
 
-        double sincePublished = Duration.between(published, clock.instant()).toMillis() / 1000.0;
         assertThat(age).isBetween(sincePublished, sincePublished + 60);
     }
 
