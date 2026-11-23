@@ -565,3 +565,64 @@ Public IDs: `evt_` for events, `we_` for webhook endpoints, `whd_` for deliverie
 Metrics: `axion_events_publications_incomplete`, `axion_events_publication_oldest_incomplete_seconds`, `axion_events_publications_failed`, `axion_webhooks_attempts_total{result}`, `axion_webhooks_attempt_duration_seconds`, `axion_webhooks_queue_oldest_due_seconds`, `axion_webhooks_endpoints_disabled_total`, `axion_audit_chain_verified{chain}`, `axion_notifications_streams`. Alerts: any failed publication; the oldest due delivery older than 5 minutes; a chain that fails verification.
 
 Logs carry the event's, endpoint's, delivery's and attempt's IDs and the correlation ID of the event; never a URL's path or query, which may hold a tenant's token, never a secret, never a body.
+
+## 13. Testing
+
+| Suite | What it proves | PR |
+|---|---|---|
+| Event publication (Modulith `Scenario`) | Each change of the catalog publishes its event in its transaction; a rolled-back change publishes nothing; every event serializes and reads back | 1.44a |
+| Registry recovery | An event whose listener fails is resubmitted with backoff and handled once it succeeds; one whose process stops after the commit is handled after the restart | 1.44b |
+| Idempotent consumers | The same event handed twice, also concurrently, has one effect | 1.44b |
+| Address policy (unit, jqwik) | Every address of each refused range, in every IPv4 and IPv6 form, is refused; addresses outside them are accepted | 1.45a |
+| URL validation | Each rule of section 7.1, including names that resolve to a private address | 1.45a |
+| Endpoints | The operations and their limits; the secret returned once, encrypted at rest, undecryptable for another endpoint; isolation and step-up | 1.45b |
+| Delivery (a local HTTP server) | One delivery per subscribed endpoint; the request of section 8.3; a lease that expires is claimed again; an endpoint at its limit does not slow another; DNS rebinding, a name resolving first to a public and then to a private address, is refused at connection; a redirect is not followed | 1.46a |
+| Signing | Standard Webhooks' test vectors; two signatures during a grace period; the body signed as sent | 1.46b |
+| Retries and disabling | The schedule of section 8.5 with a fixed clock; `410` ends a delivery; the two conditions of section 8.6 | 1.47a |
+| Delivery log and replay | Attempts listed; a replay signed afresh with the same body; the replay limit | 1.47b |
+| Public events (contract) | Every type of the catalog rendered and validated against its schema in `v1.yaml`, strictly | 1.46a |
+| Audit chain | Appends serialized per chain; a changed, deleted or reordered record fails verification; a duplicate event adds no record | 1.48a |
+| Audited events | Each audited event of section 3.3 recorded with its actor | 1.48b |
+| Live stream | A member receives their tenant's events within a second, only those their permissions allow; `Last-Event-ID` resumes; the stream limits | 1.49 |
+| Fault injection | An endpoint that fails for an hour receives the event once it recovers; the core killed after a settlement's commit delivers its webhook after the restart; settlement's latency does not change while every endpoint times out | 1.47a |
+
+## 14. Trade-offs and alternatives
+
+| Alternative | Why it was rejected |
+|---|---|
+| **An outbox table of our own** instead of Modulith's registry | The same guarantee with more code to own; Modulith's registry is what the overview fixes, and phase 5 externalizes from it to Kafka without changing publishers |
+| **Kafka now** | A broker to run, secure and test for one process that talks to itself; phase 5 adds it when there is a consumer outside the core |
+| **Webhooks sent from the listener** | Three days of retries would live in the registry, one slow endpoint would hold a listener thread for each of its events, and there would be no per-endpoint delivery to log or replay |
+| **The row lock held during the request** (`SKIP LOCKED` alone) | One open transaction and connection per request in flight, for up to ten seconds each; the lease costs one column and accepts a duplicate after a crash, which receivers already handle |
+| **Ordered delivery per resource** | Every later event of a charge would wait behind a failing one; the snapshot in each event makes order unnecessary for receivers that compare state |
+| **Thin events** (the ID only) | Smaller and never stale, but every receiver must call back, with an API key it might not otherwise need, and the live stream would cost one request per message |
+| **Stripe's `Stripe-Signature` format** | Equally safe, but proprietary; Standard Webhooks is open, has libraries for receivers, and handles rotation the same way |
+| **Ed25519 signatures** (Standard Webhooks `v1a`) | Receivers would hold only a public key; but HMAC is what the overview fixes and what most receivers expect. `v1a` can be added beside `v1` without a breaking change |
+| **Validating the URL only at registration** | DNS rebinding turns the check into a formality |
+| **An egress proxy** (such as Smokescreen) for webhooks | The strongest boundary, enforced outside the core; but one more service to run for a single caller. The resolver check is the same rule, and the proxy is the natural step when `webhooks` is extracted |
+| **Hashed signing secrets** | HMAC needs the secret to sign, so it can only be encrypted |
+| **One global audit chain** | Proves order across tenants, but serializes every audited action of the platform behind one row, and a tenant's records cannot be verified alone |
+| **Audit records as `jsonb`** | Indexable, but PostgreSQL normalizes `jsonb`, so the stored bytes would not be the hashed ones |
+| **WebSockets for the console** | Two-way, which the console does not need; SSE reconnects by itself, resumes with `Last-Event-ID` and passes through the BFF as plain HTTP |
+
+## 15. Security considerations
+
+Events and webhooks carry money's news out of the core and requests into other networks. The threats are forged webhooks, notifications sent to the wrong place, the core used to reach what it should not, tampering with the record of who did what, and one tenant's failures used to exhaust the core.
+
+| STRIDE | Threat | Mitigation |
+|---|---|---|
+| **Spoofing** | Someone sends a tenant's server a forged `charge.paid` | Every request is signed with the endpoint's secret over the ID, timestamp and body; receivers reject old timestamps and repeated IDs; the guide makes verification the first step |
+| **Spoofing** | A tenant registers an endpoint or reads a log in another tenant | The tenant comes from the credential; policies are forced on every table; another tenant's resource is `404`; the isolation harness covers each operation |
+| **Tampering** | A request is altered on the way | HTTPS only, with certificate verification; the signature covers the body as sent |
+| **Tampering** | Someone with database access changes or deletes audit records | Hash chain per tenant; nightly verification; heads written to the log outside the database; no role but the owner may change records |
+| **Repudiation** | A tenant says a webhook never arrived, or arrived twice | Every attempt is recorded with its time, status and duration; deliveries keep the event's ID, which the tenant can match |
+| **Repudiation** | A member denies redirecting the webhooks | Endpoint changes need step-up and are audited with the member and the correlation ID |
+| **Information disclosure** | A webhook URL reaches the metadata service or an internal host (SSRF) | Validation at registration; the resolver checks every address at connection and the connection uses only checked ones; no redirects, no proxy; refusals do not reveal resolved addresses |
+| **Information disclosure** | A tenant's response bodies or URLs leak | At most 1 KiB of the response kept, shown escaped, deleted after 30 days; logs carry no URL path or query |
+| **Information disclosure** | A signing secret leaks | Shown once; encrypted with Tink, bound to its endpoint; the key-encryption key outside the database; never logged; a Gitleaks rule for its format; rolling with a grace period |
+| **Information disclosure** | A member streams another tenant's events, or events beyond their role | The tenant comes from the path through the membership; types are filtered by permissions |
+| **Denial of service** | A slow endpoint ties up delivery | Short timeouts, at most 4 deliveries in flight per endpoint, leases instead of open transactions; settlement never waits on a listener |
+| **Denial of service** | The core used to flood a third party's URL | A tenant's requests are bounded by its own events, at most 16 endpoints, and replays at most 10 a day each; a failing URL is disabled after three days |
+| **Denial of service** | Live streams exhaust connections | Per-member and per-tenant limits; heartbeats; the stream holds no transaction |
+| **Elevation of privilege** | A leaked key with `webhooks:manage` points the endpoints at an attacker | The key reads payment news it could already read with `charges:read`, never moves money; endpoint changes are audited; the console shows endpoints and their changes; key and member events never go to webhooks |
+| **Elevation of privilege** | A listener acts without a tenant, or with the wrong one | Listeners bind the event's tenant before any query; outside a binding the policies return nothing |
