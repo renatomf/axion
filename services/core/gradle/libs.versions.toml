@@ -15,6 +15,7 @@ nullaway = "0.14.4"
 jqwik = "1.10.2"
 bucket4j = "8.22.0"
 json-schema-validator = "3.0.9"
+tink = "1.24.0"
 pit-core = "1.30.1"
 pit-junit5-plugin = "1.2.3"
 gradle-pitest-plugin = "1.19.0"
@@ -58,6 +59,9 @@ spring-modulith-starter-test = { module = "org.springframework.modulith:spring-m
 archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
 # Nullness annotations (@NullMarked, @Nullable), the standard Spring itself uses.
 jspecify = { module = "org.jspecify:jspecify" }
+# Google's cryptography library: AEAD encryption of webhook signing secrets
+# at rest, with a key-encryption key that never reaches the database.
+tink = { module = "com.google.crypto.tink:tink", version.ref = "tink" }
 # Token-bucket rate limiting, in memory; the JDK 17+ build of its core module.
 bucket4j-core = { module = "com.bucket4j:bucket4j_jdk17-core", version.ref = "bucket4j" }
 # In-memory cache with a size bound and expiry, to hold the rate-limit buckets.
