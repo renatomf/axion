@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.MutableClock;
 import dev.finaxis.core.PostgresTestConfiguration;
+import dev.finaxis.core.billing.application.Settlement;
 import dev.finaxis.core.billing.domain.Charge;
 import dev.finaxis.core.ledger.AccountRequest;
 import dev.finaxis.core.ledger.AccountType;
@@ -21,6 +22,8 @@ import dev.finaxis.core.shared.Money;
 import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.TenancyApi;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import java.security.SecureRandom;
 import java.sql.Date;
 import java.time.Duration;
@@ -35,6 +38,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -76,6 +80,7 @@ class SettlementTest {
     private final BalanceVerifier verifier;
     private final JdbcClient owner;
     private final MutableClock clock;
+    private final MeterRegistry meters;
 
     private NewOrganization organization;
     private ChargeView charge;
@@ -88,7 +93,8 @@ class SettlementTest {
             LedgerApi ledger,
             BalanceVerifier verifier,
             DatabaseOwner owner,
-            MutableClock clock) {
+            MutableClock clock,
+            MeterRegistry meters) {
         this.settlement = settlement;
         this.billing = billing;
         this.tenancy = tenancy;
@@ -96,6 +102,7 @@ class SettlementTest {
         this.verifier = verifier;
         this.owner = owner.jdbc();
         this.clock = clock;
+        this.meters = meters;
     }
 
     /** A charge of R$ 100.00 of a new tenant, expiring in 30 minutes. */
@@ -305,6 +312,51 @@ class SettlementTest {
                 .containsExactlyInAnyOrder("SETTLED null", "FLAGGED CHARGE_ALREADY_PAID");
         assertThat(read().status()).isEqualTo(ChargeStatus.PAID);
         assertThat(available()).isEqualTo(brl(20_000));
+    }
+
+    @Test
+    void countsEachPaymentByWhatItDidToItsCharge() {
+        double settled = payments("settled", "none");
+        double mismatched = payments("flagged", "amount_mismatch");
+
+        settlement.handle(credit(9_999, charge.createdAt()));
+        settlement.handle(credit(10_000, charge.createdAt()));
+
+        assertThat(payments("settled", "none")).isEqualTo(settled + 1);
+        assertThat(payments("flagged", "amount_mismatch")).isEqualTo(mismatched + 1);
+    }
+
+    @Test
+    void timesSettlementFromTheRailsAcceptanceOfThePayment() {
+        Timer lag = meters.get(Settlement.SETTLEMENT_LAG).timer();
+        long settled = lag.count();
+        double waited = lag.totalTime(TimeUnit.SECONDS);
+        PixCredit credit = credit(10_000, clock.instant());
+        clock.advance(Duration.ofSeconds(45));
+
+        settlement.handle(credit);
+
+        assertThat(lag.count()).isEqualTo(settled + 1);
+        assertThat(lag.totalTime(TimeUnit.SECONDS)).isEqualTo(waited + 45);
+    }
+
+    @Test
+    void countsNothingForACreditRecordedAlready() {
+        PixCredit credit = credit(10_000, charge.createdAt());
+        settlement.handle(credit);
+        double settled = payments("settled", "none");
+
+        settlement.handle(credit);
+
+        assertThat(payments("settled", "none")).isEqualTo(settled);
+    }
+
+    private double payments(String outcome, String reason) {
+        return meters.get(Settlement.PAYMENTS)
+                .tag("outcome", outcome)
+                .tag("reason", reason)
+                .counter()
+                .count();
     }
 
     private ChargeView createAnotherCharge(Duration expiresIn) {

@@ -2,6 +2,8 @@ package dev.finaxis.core.billing.application;
 
 import dev.finaxis.core.ModuleRoles;
 import dev.finaxis.core.billing.PaymentId;
+import dev.finaxis.core.billing.PaymentOutcome;
+import dev.finaxis.core.billing.ReviewReason;
 import dev.finaxis.core.billing.domain.Charge;
 import dev.finaxis.core.billing.domain.IncomingPayment;
 import dev.finaxis.core.billing.domain.Payment;
@@ -26,15 +28,25 @@ import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.shared.UuidV7Generator;
 import dev.finaxis.core.tenancy.TenancyApi;
 import dev.finaxis.core.tenancy.TenantView;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -44,6 +56,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @Service
 public class Settlement implements PixCreditHandler {
+
+    public static final String PAYMENTS = "finaxis.billing.payments";
+
+    public static final String SETTLEMENT_LAG = "finaxis.billing.settlement.lag";
 
     private static final String ROLE = "finaxis_billing";
 
@@ -58,6 +74,8 @@ public class Settlement implements PixCreditHandler {
     private final TransactionTemplate transactions;
     private final Clock clock;
     private final UuidV7Generator ids;
+    private final Map<String, Counter> recorded = new HashMap<>();
+    private final Timer lag;
 
     public Settlement(
             JdbcCharges charges,
@@ -67,7 +85,8 @@ public class Settlement implements PixCreditHandler {
             PlatformAccounts platform,
             ModuleRoles roles,
             TransactionTemplate transactions,
-            Clock clock) {
+            Clock clock,
+            MeterRegistry meters) {
         this.charges = charges;
         this.payments = payments;
         this.ledger = ledger;
@@ -77,6 +96,15 @@ public class Settlement implements PixCreditHandler {
         this.transactions = transactions;
         this.clock = clock;
         this.ids = new UuidV7Generator(clock);
+        // Registered at zero, so a rate is defined before the first payment of each kind.
+        recorded.put(tags(PaymentOutcome.SETTLED, null), payments(meters, PaymentOutcome.SETTLED, null));
+        for (ReviewReason reason : ReviewReason.values()) {
+            recorded.put(tags(PaymentOutcome.FLAGGED, reason), payments(meters, PaymentOutcome.FLAGGED, reason));
+        }
+        this.lag = Timer.builder(SETTLEMENT_LAG)
+                .description("From the rails' acceptance of a payment to its settlement in the core")
+                .publishPercentileHistogram()
+                .register(meters);
     }
 
     /**
@@ -131,7 +159,35 @@ public class Settlement implements PixCreditHandler {
             return null;
         });
         log(receipt, credit);
+        observeOnCommit(receipt.payment(), now);
         return CreditResult.RECORDED;
+    }
+
+    // Counted once the transaction commits: a payment rolled back was never recorded.
+    private void observeOnCommit(Payment payment, Instant settledAt) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                Objects.requireNonNull(recorded.get(
+                                tags(payment.outcome(), payment.reviewReason().orElse(null))))
+                        .increment();
+                // The rails' clock may be slightly ahead of the core's.
+                Duration waited = Duration.between(payment.acceptedAt(), settledAt);
+                lag.record(waited.isNegative() ? Duration.ZERO : waited);
+            }
+        });
+    }
+
+    private static Counter payments(MeterRegistry meters, PaymentOutcome outcome, @Nullable ReviewReason reason) {
+        return Counter.builder(PAYMENTS)
+                .description("Payments recorded, by what they did to their charge")
+                .tag("outcome", outcome.name().toLowerCase(Locale.ROOT))
+                .tag("reason", reason == null ? "none" : reason.name().toLowerCase(Locale.ROOT))
+                .register(meters);
+    }
+
+    private static String tags(PaymentOutcome outcome, @Nullable ReviewReason reason) {
+        return outcome + "/" + reason;
     }
 
     // Settled or flagged, the money is in Finaxis's settlement account, so it is owed to the tenant
