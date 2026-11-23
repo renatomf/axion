@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.finaxis.core.DatabaseOwner;
 import dev.finaxis.core.MutableClock;
 import dev.finaxis.core.PostgresTestConfiguration;
+import dev.finaxis.core.billing.application.Refunds;
 import dev.finaxis.core.billing.domain.Charge;
 import dev.finaxis.core.ledger.AccountId;
 import dev.finaxis.core.ledger.AccountRequest;
@@ -27,6 +28,7 @@ import dev.finaxis.core.shared.Money;
 import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.TenancyApi;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.security.SecureRandom;
 import java.sql.Date;
 import java.time.Duration;
@@ -82,6 +84,7 @@ class RefundTest {
     private final BalanceVerifier verifier;
     private final JdbcClient owner;
     private final MutableClock clock;
+    private final MeterRegistry meters;
 
     private NewOrganization organization;
     private ChargeView charge;
@@ -94,7 +97,8 @@ class RefundTest {
             LedgerApi ledger,
             BalanceVerifier verifier,
             DatabaseOwner owner,
-            MutableClock clock) {
+            MutableClock clock,
+            MeterRegistry meters) {
         this.billing = billing;
         this.settlement = settlement;
         this.tenancy = tenancy;
@@ -102,6 +106,7 @@ class RefundTest {
         this.verifier = verifier;
         this.owner = owner.jdbc();
         this.clock = clock;
+        this.meters = meters;
     }
 
     /** A charge of R$ 100.00 of a new tenant, expiring in 30 minutes. */
@@ -332,6 +337,21 @@ class RefundTest {
         assertThat(read().status()).isEqualTo(ChargeStatus.REFUNDED);
         assertThat(payment(credit)).containsEntry("amount_refunded", 10_000L);
         assertThat(available()).isEqualTo(brl(0));
+    }
+
+    @Test
+    void countsTheRefundsMadeAndNotTheRefusedOnes() {
+        pay(10_000);
+        double before = refundsMade();
+
+        refunded(refund(Optional.empty(), Optional.of(brl(2_500))));
+        refund(Optional.empty(), Optional.of(brl(9_000)));
+
+        assertThat(refundsMade()).isEqualTo(before + 1);
+    }
+
+    private double refundsMade() {
+        return meters.get(Refunds.REFUNDS).counter().count();
     }
 
     private RefundResult refund(Optional<PaymentId> payment, Optional<Money> amount) {

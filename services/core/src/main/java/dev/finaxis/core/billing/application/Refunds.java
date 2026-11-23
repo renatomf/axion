@@ -27,12 +27,18 @@ import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.shared.UuidV7Generator;
 import dev.finaxis.core.tenancy.TenancyApi;
 import dev.finaxis.core.tenancy.TenantView;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Refunds one payment of a charge (billing design, section 10.3): the refund, its ledger entry and
@@ -41,9 +47,13 @@ import org.springframework.stereotype.Component;
  * the ledger's.
  */
 @Component
-class Refunds {
+public class Refunds {
+
+    public static final String REFUNDS = "finaxis.billing.refunds";
 
     private static final String ROLE = "finaxis_billing";
+
+    private static final Logger LOG = LoggerFactory.getLogger(Refunds.class);
 
     private final JdbcCharges charges;
     private final JdbcPayments payments;
@@ -54,6 +64,7 @@ class Refunds {
     private final ModuleRoles roles;
     private final Clock clock;
     private final UuidV7Generator ids;
+    private final Counter made;
 
     Refunds(
             JdbcCharges charges,
@@ -63,7 +74,8 @@ class Refunds {
             TenancyApi tenancy,
             PlatformAccounts platform,
             ModuleRoles roles,
-            Clock clock) {
+            Clock clock,
+            MeterRegistry meters) {
         this.charges = charges;
         this.payments = payments;
         this.refunds = refunds;
@@ -73,6 +85,10 @@ class Refunds {
         this.roles = roles;
         this.clock = clock;
         this.ids = new UuidV7Generator(clock);
+        // Registered at zero, so a rate is defined before the first refund.
+        this.made = Counter.builder(REFUNDS)
+                .description("Refunds made, counted when their transaction commits")
+                .register(meters);
     }
 
     /** Runs in the caller's transaction, with the tenant bound. */
@@ -113,8 +129,27 @@ class Refunds {
             }
             return null;
         });
+        observeOnCommit(charge, refund, request.correlationId());
         return new RefundResult.Refunded(new RefundView(
                 refund.id(), charge.id(), refund.payment(), refund.amount(), RefundStatus.SUCCEEDED, now));
+    }
+
+    // Logged and counted once the transaction commits: the caller's transaction, an idempotent
+    // request's, may still roll the refund back.
+    private void observeOnCommit(Charge charge, Refund refund, String correlationId) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                LOG.info(
+                        "Refund {} of request {} returned {} of payment {} of charge {}",
+                        refund.id().publicId(),
+                        correlationId,
+                        refund.amount(),
+                        refund.payment().publicId(),
+                        charge.id().publicId());
+                made.increment();
+            }
+        });
     }
 
     // A refund of a flagged payment leaves the charge as it was: the charge's status and
