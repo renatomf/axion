@@ -15,11 +15,14 @@ import dev.axion.core.webhooks.EndpointPage;
 import dev.axion.core.webhooks.EndpointRequest;
 import dev.axion.core.webhooks.EndpointStatus;
 import dev.axion.core.webhooks.EndpointView;
+import dev.axion.core.webhooks.RollSecretResult;
+import dev.axion.core.webhooks.RolledSecret;
 import dev.axion.core.webhooks.UpdateEndpointResult;
 import dev.axion.core.webhooks.WebhookEndpointCreated;
 import dev.axion.core.webhooks.WebhookEndpointDeleted;
 import dev.axion.core.webhooks.WebhookEndpointId;
 import dev.axion.core.webhooks.WebhookEndpointUpdated;
+import dev.axion.core.webhooks.WebhookSecretRolled;
 import dev.axion.core.webhooks.WebhooksApi;
 import dev.axion.core.webhooks.domain.EventTypes;
 import dev.axion.core.webhooks.domain.SigningSecret;
@@ -28,6 +31,7 @@ import dev.axion.core.webhooks.domain.WebhookUrlValidator;
 import dev.axion.core.webhooks.persistence.JdbcEndpoints;
 import java.security.SecureRandom;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -135,6 +139,40 @@ public class WebhooksService implements WebhooksApi {
         return deleted;
     }
 
+    @Override
+    @Transactional
+    public RollSecretResult rollSecret(WebhookEndpointId id, Duration grace) {
+        requireGrace(grace);
+        TenantId tenant = bound("Rolling a webhook secret");
+        Roll roll = roles.call(ROLE, () -> roll(tenant, id, grace));
+        if (roll.result() instanceof RollSecretResult.Rolled(RolledSecret rolled)) {
+            events.publishEvent(
+                    new WebhookSecretRolled(header(roll.at()), rolled.endpoint(), rolled.previousSecretExpiresAt()));
+        }
+        return roll.result();
+    }
+
+    // The endpoint's lock orders concurrent rolls, so only the first ends the current secret and the
+    // others find its grace period.
+    private Roll roll(TenantId tenant, WebhookEndpointId id, Duration grace) {
+        Optional<EndpointView> locked = endpoints.lock(tenant, id);
+        Instant now = now();
+        if (locked.isEmpty()) {
+            return new Roll(new RollSecretResult.EndpointNotFound(), now);
+        }
+        Optional<Instant> graceEnd = endpoints.secretGraceEnd(tenant, id, now);
+        if (graceEnd.isPresent()) {
+            return new Roll(new RollSecretResult.GracePeriodActive(graceEnd.get()), now);
+        }
+        Instant expiresAt = now.plus(grace);
+        endpoints.endCurrentSecret(tenant, id, expiresAt);
+        SigningSecret secret = SigningSecret.generate(random);
+        endpoints.insertSecret(ids.next(), tenant, id, cipher.encrypt(secret, id), now);
+        return new Roll(new RollSecretResult.Rolled(new RolledSecret(locked.get(), secret, expiresAt)), now);
+    }
+
+    private record Roll(RollSecretResult result, Instant at) {}
+
     // Locked, so concurrent changes apply one after another and each event's previous endpoint is the
     // one it changed.
     private Optional<Change> change(TenantId tenant, WebhookEndpointId id, EndpointChanges changes) {
@@ -219,6 +257,13 @@ public class WebhooksService implements WebhooksApi {
         requireUrlLength(request.url());
         requireDescription(request.description());
         requireEnabledEvents(request.enabledEvents());
+    }
+
+    private static void requireGrace(Duration grace) {
+        if (grace.isNegative() || grace.compareTo(MAX_SECRET_GRACE) > 0) {
+            throw new IllegalArgumentException(
+                    "Grace period must be between zero and " + MAX_SECRET_GRACE + ": " + grace);
+        }
     }
 
     private static void requireUrlLength(String url) {

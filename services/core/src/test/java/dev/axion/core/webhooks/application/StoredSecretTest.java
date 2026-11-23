@@ -11,11 +11,14 @@ import dev.axion.core.shared.TenantId;
 import dev.axion.core.webhooks.CreateEndpointResult;
 import dev.axion.core.webhooks.CreatedEndpoint;
 import dev.axion.core.webhooks.EndpointRequest;
+import dev.axion.core.webhooks.RollSecretResult;
+import dev.axion.core.webhooks.RolledSecret;
 import dev.axion.core.webhooks.TestDns;
 import dev.axion.core.webhooks.WebhookEndpointId;
 import dev.axion.core.webhooks.WebhooksApi;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.Optional;
 import java.util.Set;
@@ -76,6 +79,20 @@ class StoredSecretTest {
                 .isInstanceOf(GeneralSecurityException.class);
     }
 
+    @Test
+    void storesARolledSecretEncryptedBesideThePreviousOne() throws GeneralSecurityException {
+        CreatedEndpoint created = create();
+        WebhookEndpointId id = created.endpoint().id();
+
+        var result = TestCaller.call(tenant, Environment.TEST, () -> webhooks.rollSecret(id, Duration.ofHours(1)));
+        RolledSecret rolled = ((RollSecretResult.Rolled) result).secret();
+
+        assertThat(cipher.decrypt(ciphertext(id, "expires_at IS NULL"), id).text())
+                .isEqualTo(rolled.secret());
+        assertThat(cipher.decrypt(ciphertext(id, "expires_at IS NOT NULL"), id).text())
+                .isEqualTo(created.secret());
+    }
+
     private CreatedEndpoint create() {
         var request = new EndpointRequest("https://orders.example.com/axion", Optional.empty(), Set.of("charge.paid"));
         var result = TestCaller.call(tenant, Environment.TEST, () -> webhooks.create(request));
@@ -83,7 +100,11 @@ class StoredSecretTest {
     }
 
     private byte[] ciphertext(WebhookEndpointId endpoint) {
-        return owner.sql("SELECT ciphertext FROM webhooks.secrets WHERE endpoint_id = ?")
+        return ciphertext(endpoint, "true");
+    }
+
+    private byte[] ciphertext(WebhookEndpointId endpoint, String condition) {
+        return owner.sql("SELECT ciphertext FROM webhooks.secrets WHERE endpoint_id = ? AND " + condition)
                 .param(endpoint.value())
                 .query(byte[].class)
                 .single();
