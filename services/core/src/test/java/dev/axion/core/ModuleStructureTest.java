@@ -30,6 +30,7 @@ class ModuleStructureTest {
                         "idempotency",
                         "billing",
                         "risk",
-                        "rails");
+                        "rails",
+                        "events");
     }
 }
