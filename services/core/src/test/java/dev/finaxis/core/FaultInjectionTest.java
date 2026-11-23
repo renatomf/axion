@@ -11,6 +11,7 @@ import dev.finaxis.core.billing.ChargeRequest;
 import dev.finaxis.core.billing.ChargeStatus;
 import dev.finaxis.core.billing.ChargeView;
 import dev.finaxis.core.billing.PaymentOutcome;
+import dev.finaxis.core.billing.ReviewReason;
 import dev.finaxis.core.ledger.AccountRequest;
 import dev.finaxis.core.ledger.AccountType;
 import dev.finaxis.core.ledger.LedgerApi;
@@ -134,6 +135,32 @@ class FaultInjectionTest {
         assertThat(detail(charge).payments()).hasSize(1);
         assertThat(entriesOf(endToEndId)).isOne();
         assertThat(available()).isEqualTo(brl(10_000));
+    }
+
+    @Test
+    void settlesByFirstNotified() throws InterruptedException {
+        ChargeView charge = charge(10_000, ChargeRequest.DEFAULT_EXPIRES_IN);
+        RAILS.addRule("""
+                {"fault": "reorder", "match": {"transactionId": "%s"}, "times": 2}""".formatted(charge.transactionId()));
+
+        String paidFirst = RAILS.pay(charge.brCode());
+        String paidSecond = RAILS.pay(charge.brCode());
+
+        ChargeDetail both =
+                await(() -> detail(charge), detail -> detail.payments().size() == 2);
+        assertThat(both.charge().status()).isEqualTo(ChargeStatus.PAID);
+        assertThat(both.payments())
+                .satisfiesExactly(
+                        settling -> {
+                            assertThat(settling.endToEndId()).isEqualTo(paidSecond);
+                            assertThat(settling.outcome()).isEqualTo(PaymentOutcome.SETTLED);
+                        },
+                        flagged -> {
+                            assertThat(flagged.endToEndId()).isEqualTo(paidFirst);
+                            assertThat(flagged.outcome()).isEqualTo(PaymentOutcome.FLAGGED);
+                            assertThat(flagged.reviewReason()).contains(ReviewReason.CHARGE_ALREADY_PAID);
+                        });
+        assertThat(available()).isEqualTo(brl(20_000));
     }
 
     private ChargeView charge(long amount, Duration expiresIn) {
