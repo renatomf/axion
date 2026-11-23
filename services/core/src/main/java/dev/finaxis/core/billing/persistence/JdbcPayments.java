@@ -97,6 +97,29 @@ public class JdbcPayments {
                 .update();
     }
 
+    /** The ledger entry that credited the payment to the tenant, which its refunds reverse. */
+    public EntryId entryOf(PaymentId payment) {
+        return new EntryId(jdbc.sql("SELECT entry_id FROM billing.payments WHERE id = :id")
+                .param("id", payment.value())
+                .query(UUID.class)
+                .single());
+    }
+
+    /** Adds a refund's amount to what refunds returned of the payment. */
+    public void addRefunded(PaymentId payment, Money amount) {
+        int updated = jdbc.sql("""
+                        UPDATE billing.payments
+                           SET amount_refunded = amount_refunded + :amount
+                         WHERE id = :id
+                        """)
+                .param("id", payment.value())
+                .param("amount", amount.minorUnits())
+                .update();
+        if (updated != 1) {
+            throw new IllegalStateException("Payment " + payment.value() + " was not updated");
+        }
+    }
+
     private static Payment payment(ResultSet row) throws SQLException {
         return new Payment(
                 new PaymentId(row.getObject("id", UUID.class)),

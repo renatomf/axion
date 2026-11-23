@@ -41,4 +41,13 @@ public interface BillingApi {
      * @throws IllegalStateException if no tenant is bound, a bug in the caller
      */
     ChargePage charges(ChargeFilter filter, ChargeCursor cursor, int limit);
+
+    /**
+     * Refunds one payment of the tenant's charge, in full or in part, by a ledger entry that
+     * reverses the payment's (billing design, section 10). Refunds of one charge are made one at a
+     * time, so two cannot both take what remains of a payment. A refused refund writes nothing.
+     *
+     * @throws IllegalStateException if no tenant is bound, a bug in the caller
+     */
+    RefundResult refund(ChargeId charge, RefundRequest request);
 }

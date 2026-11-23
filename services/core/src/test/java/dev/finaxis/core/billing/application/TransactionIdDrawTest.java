@@ -44,6 +44,7 @@ class TransactionIdDrawTest {
 
     private final JdbcCharges charges;
     private final JdbcPayments payments;
+    private final Refunds refunds;
     private final LedgerApi ledger;
     private final RiskApi risk;
     private final TenancyApi tenancy;
@@ -60,6 +61,7 @@ class TransactionIdDrawTest {
     TransactionIdDrawTest(
             JdbcCharges charges,
             JdbcPayments payments,
+            Refunds refunds,
             LedgerApi ledger,
             RiskApi risk,
             TenancyApi tenancy,
@@ -70,6 +72,7 @@ class TransactionIdDrawTest {
             PlatformTransactionManager transactions) {
         this.charges = charges;
         this.payments = payments;
+        this.refunds = refunds;
         this.ledger = ledger;
         this.risk = risk;
         this.tenancy = tenancy;
@@ -115,6 +118,7 @@ class TransactionIdDrawTest {
         return new BillingService(
                 charges,
                 payments,
+                refunds,
                 ledger,
                 risk,
                 tenancy,

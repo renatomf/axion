@@ -8,6 +8,7 @@ import dev.finaxis.core.billing.ChargeView;
 import dev.finaxis.core.billing.domain.BrCode;
 import dev.finaxis.core.billing.domain.Charge;
 import dev.finaxis.core.billing.domain.Payment;
+import dev.finaxis.core.billing.domain.Refund;
 import dev.finaxis.core.billing.domain.TransactionId;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.Money;
@@ -108,13 +109,42 @@ public class JdbcCharges {
                            FOR UPDATE
                         """)
                 .param("transactionId", transactionId.value())
-                .query((row, rowNumber) -> new LockedCharge(
-                        new ChargeId(row.getObject("id", UUID.class)),
-                        Money.ofMinor(row.getLong("amount_minor"), Currency.getInstance(row.getString("currency"))),
-                        ChargeStatus.valueOf(row.getString("status")),
-                        instant(row, "created_at"),
-                        instant(row, "expires_at")))
+                .query((row, rowNumber) -> lockedCharge(row))
                 .optional();
+    }
+
+    /**
+     * Locks the tenant's charge until the transaction ends, so its refunds are made one at a time
+     * (billing design, section 10.3); empty for an unknown ID and for another tenant's charge alike.
+     */
+    public Optional<LockedCharge> lock(TenantContext.Binding tenant, ChargeId id) {
+        return jdbc.sql("""
+                        SELECT id, amount_minor, currency, status, expires_at, created_at
+                          FROM billing.charges
+                         WHERE tenant_id = :tenant AND id = :id
+                           FOR UPDATE
+                        """)
+                .param("tenant", tenant.tenant().value())
+                .param("id", id.value())
+                .query((row, rowNumber) -> lockedCharge(row))
+                .optional();
+    }
+
+    /** Moves the charge to the status a refund of its settling payment left it in, with what refunds returned. */
+    public void updateRefunded(ChargeId charge, ChargeStatus status, Money amountRefunded, Instant updatedAt) {
+        int updated = jdbc.sql("""
+                        UPDATE billing.charges
+                           SET status = :status, amount_refunded = :amountRefunded, updated_at = :updatedAt
+                         WHERE id = :id
+                        """)
+                .param("id", charge.value())
+                .param("status", status.name())
+                .param("amountRefunded", amountRefunded.minorUnits())
+                .param("updatedAt", updatedAt.atOffset(ZoneOffset.UTC))
+                .update();
+        if (updated != 1) {
+            throw new IllegalStateException("Charge " + charge.value() + " was not updated");
+        }
     }
 
     /** Moves the charge to the status a payment left it in; {@code paidAt} is set in the paid states. */
@@ -154,13 +184,27 @@ public class JdbcCharges {
                 .update();
     }
 
-    /** A charge's row as settlement locked it, before its payments are read. */
+    /** A charge's row as it was locked, before its payments and refunds are read. */
     public record LockedCharge(ChargeId id, Money amount, ChargeStatus status, Instant createdAt, Instant expiresAt) {
 
         /** The charge, with the payments it had received. */
         public Charge with(List<Payment> payments) {
             return new Charge(id, amount, createdAt, expiresAt, status, payments, List.of());
         }
+
+        /** The charge, with the payments it had received and the refunds made of them. */
+        public Charge with(List<Payment> payments, List<Refund> refunds) {
+            return new Charge(id, amount, createdAt, expiresAt, status, payments, refunds);
+        }
+    }
+
+    private static LockedCharge lockedCharge(ResultSet row) throws SQLException {
+        return new LockedCharge(
+                new ChargeId(row.getObject("id", UUID.class)),
+                Money.ofMinor(row.getLong("amount_minor"), Currency.getInstance(row.getString("currency"))),
+                ChargeStatus.valueOf(row.getString("status")),
+                instant(row, "created_at"),
+                instant(row, "expires_at"));
     }
 
     /**
