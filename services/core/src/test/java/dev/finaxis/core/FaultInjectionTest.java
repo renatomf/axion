@@ -214,6 +214,36 @@ class FaultInjectionTest {
         assertThat(available()).isEqualTo(brl(10_000));
     }
 
+    /**
+     * The payer pays in time, and the notification is held until the expiry job has expired the
+     * charge: the payment still settles it, as of its acceptance time.
+     */
+    @Test
+    void settlesLateNotification() throws InterruptedException {
+        ChargeView charge = charge(10_000, ChargeRequest.MIN_EXPIRES_IN);
+        Duration delay = EXPIRY.plusSeconds(15);
+        RAILS.addRule("""
+                {"fault": "delay", "duration": "%s", "match": {"transactionId": "%s"}, "times": 1}""".formatted(RailsSimulator.seconds(delay), charge.transactionId()));
+
+        String endToEndId = RAILS.pay(charge.brCode());
+        Instant acceptedAt = Instant.parse(JsonPath.read(RAILS.payment(endToEndId), "$.settledAt"));
+        assertThat(acceptedAt).isBefore(charge.expiresAt());
+
+        ChargeDetail expired =
+                await(EXPIRY, () -> detail(charge), detail -> detail.charge().status() == ChargeStatus.EXPIRED);
+        assertThat(expired.payments()).isEmpty();
+        ChargeDetail paid = await(
+                delay.plus(PATIENCE),
+                () -> detail(charge),
+                detail -> detail.charge().status() == ChargeStatus.PAID);
+        assertThat(paid.charge().paidAt()).isEqualTo(acceptedAt);
+        assertThat(paid.payments()).singleElement().satisfies(payment -> {
+            assertThat(payment.endToEndId()).isEqualTo(endToEndId);
+            assertThat(payment.outcome()).isEqualTo(PaymentOutcome.SETTLED);
+        });
+        assertThat(available()).isEqualTo(brl(10_000));
+    }
+
     private ChargeView charge(long amount, Duration expiresIn) {
         return TenantContext.call(
                 organization.test(),

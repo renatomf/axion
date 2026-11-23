@@ -126,7 +126,12 @@ public final class RailsSimulator {
     /** Takes the rails down for the duration. */
     public void startOutage(Duration duration) {
         send("PUT", "/chaos/outage", """
-                {"duration": "%s"}""".formatted(duration), 200);
+                {"duration": "%s"}""".formatted(seconds(duration)), 200);
+    }
+
+    /** The duration as the operator API reads it, in seconds: {@code PT120S}, not {@code PT2M}. */
+    public static String seconds(Duration duration) {
+        return "PT" + duration.toSeconds() + "S";
     }
 
     /** Removes every fault rule and ends any outage, so the next test starts without chaos. */
