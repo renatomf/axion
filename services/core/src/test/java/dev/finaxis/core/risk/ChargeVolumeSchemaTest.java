@@ -27,6 +27,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 @Import(PostgresTestConfiguration.class)
 class ChargeVolumeSchemaTest {
 
+    private static final String RLS_VIOLATION = "violates row-level security policy";
+
     private static final Instant HOUR = Instant.parse("2026-11-20T15:00:00Z");
 
     private final DatabaseOwner.Session session;
@@ -119,6 +121,70 @@ class ChargeVolumeSchemaTest {
                         .update())
                 .rootCause()
                 .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void showsTheModuleRoleNoWindowWithNoTenantBound() {
+        insert(tenant, "DAILY_AMOUNT", HOUR, 0, 0);
+        DatabaseRole.RISK.actAs(jdbc);
+
+        assertThat(visibleWindows()).isZero();
+    }
+
+    @Test
+    void hidesAnotherTenantsWindowFromTheModuleRole() {
+        insert(UUID.randomUUID(), "DAILY_AMOUNT", HOUR, 0, 0);
+        DatabaseRole.RISK.actAs(jdbc, new TenantId(tenant));
+
+        assertThat(visibleWindows()).isZero();
+    }
+
+    @Test
+    void addsNothingToAnotherTenantsWindowAsTheModuleRole() {
+        var other = UUID.randomUUID();
+        insert(other, "HOURLY_COUNT", HOUR, 0, 0);
+        DatabaseRole.RISK.actAs(jdbc, new TenantId(tenant));
+
+        assertThat(jdbc.sql("UPDATE risk.charge_volume SET count = count + 1 WHERE tenant_id = ?")
+                        .param(other)
+                        .update())
+                .isZero();
+    }
+
+    @Test
+    void deniesTheModuleRoleCreatingAWindowForAnotherTenant() {
+        DatabaseRole.RISK.actAs(jdbc, new TenantId(tenant));
+
+        assertThatThrownBy(() -> insert(UUID.randomUUID(), "DAILY_AMOUNT", HOUR, 0, 0))
+                .rootCause()
+                .hasMessageContaining(RLS_VIOLATION);
+    }
+
+    @Test
+    void deniesTheModuleRoleCreatingAWindowWithNoTenantBound() {
+        DatabaseRole.RISK.actAs(jdbc);
+
+        assertThatThrownBy(() -> insert(tenant, "DAILY_AMOUNT", HOUR, 0, 0))
+                .rootCause()
+                .hasMessageContaining(RLS_VIOLATION);
+    }
+
+    @Test
+    void deniesTheModuleRoleMovingAWindowToAnotherTenant() {
+        insert(tenant, "DAILY_AMOUNT", HOUR, 0, 0);
+        DatabaseRole.RISK.actAs(jdbc, new TenantId(tenant));
+
+        assertThatThrownBy(() -> jdbc.sql("UPDATE risk.charge_volume SET tenant_id = ? WHERE tenant_id = ?")
+                        .params(UUID.randomUUID(), tenant)
+                        .update())
+                .rootCause()
+                .hasMessageContaining(RLS_VIOLATION);
+    }
+
+    private long visibleWindows() {
+        return jdbc.sql("SELECT count(*) FROM risk.charge_volume")
+                .query(Long.class)
+                .single();
     }
 
     private void assertRejected(Runnable insert, String constraint) {
