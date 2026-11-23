@@ -208,7 +208,7 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | ↳ 1.44b | Idempotent consumers | Listeners on a bounded executor; each event handled once per consumer; failed publications resubmitted with backoff, then left for an operator ([#236](https://github.com/renatomf/axion/pull/236)) |
 | 1.45 | Webhook endpoints | `/v1/webhook_endpoints` with SSRF validation and secret management |
 | ↳ 1.45a | SSRF validation | URLs to private, loopback and metadata addresses refused ([#238](https://github.com/renatomf/axion/pull/238)) |
-| ↳ 1.45b | Webhook endpoint registration | Endpoints and secrets, their tables, role and policies; signing secrets encrypted with Tink and shown once; `POST` and `GET /v1/webhook_endpoints` and `GET …/{id}` |
+| ↳ 1.45b | Webhook endpoint registration | Endpoints and secrets, their tables, role and policies; signing secrets encrypted with Tink and shown once; `POST` and `GET /v1/webhook_endpoints` and `GET …/{id}` ([#242](https://github.com/renatomf/axion/pull/242)) |
 | ↳ 1.45c | Webhook endpoint changes | `PATCH` and `DELETE /v1/webhook_endpoints/{id}`, a new URL validated again; their events |
 | ↳ 1.45d | Webhook secret rolling | `POST …/{id}/secret/roll` with a grace period; the old secret removed when it ends |
 | ↳ 1.45e | Webhook endpoints in the console | The `/internal` mirror of every endpoint operation, with step-up for changes |
