@@ -76,6 +76,8 @@ class TenantIsolationTest {
             {"amount": 100, "currency": "BRL"}
             """;
 
+    private static final String ENDPOINT_URL = "https://orders.example.com/axion";
+
     private final MockMvcTester mvc;
     private final AccessApi access;
     private final TenancyApi tenancy;
@@ -96,7 +98,8 @@ class TenantIsolationTest {
             Map.entry("createRefund", this::createRefundRefundsNothingOfAnotherTenant),
             Map.entry("createWebhookEndpoint", this::createWebhookEndpointRegistersNothingForAnotherTenant),
             Map.entry("listWebhookEndpoints", this::listWebhookEndpointsHidesAnotherTenantsEndpoints),
-            Map.entry("getWebhookEndpoint", this::getWebhookEndpointHidesAnotherTenantsEndpoint));
+            Map.entry("getWebhookEndpoint", this::getWebhookEndpointHidesAnotherTenantsEndpoint),
+            Map.entry("updateWebhookEndpoint", this::updateWebhookEndpointLeavesAnotherTenantsEndpointAsItWas));
 
     @Autowired
     TenantIsolationTest(
@@ -316,6 +319,21 @@ class TenantIsolationTest {
         assertThat(request.sendWithKey(manager, own.publicId())).hasStatus(HttpStatus.OK);
     }
 
+    private void updateWebhookEndpointLeavesAnotherTenantsEndpointAsItWas(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookEndpointId own = endpoint(scene.caller().test());
+        IssuedApiKey manager = webhookManager(scene);
+        String patch = """
+                {"url": "https://attacker.example.com/hooks"}
+                """;
+
+        assertNotFound(request.sendBodyWithKey(manager, patch, others.publicId()));
+        assertThat(TestCaller.call(scene.other().test(), Environment.TEST, () -> webhooks.endpoint(others)))
+                .hasValueSatisfying(endpoint -> assertThat(endpoint.url()).isEqualTo(ENDPOINT_URL));
+
+        assertThat(request.sendBodyWithKey(manager, patch, own.publicId())).hasStatus(HttpStatus.OK);
+    }
+
     private IssuedApiKey webhookManager(Scene scene) {
         return AccessFixtures.issue(
                 access,
@@ -325,7 +343,7 @@ class TenantIsolationTest {
     }
 
     private WebhookEndpointId endpoint(TenantId tenant) {
-        var request = new EndpointRequest("https://orders.example.com/axion", Optional.empty(), Set.of("charge.paid"));
+        var request = new EndpointRequest(ENDPOINT_URL, Optional.empty(), Set.of("charge.paid"));
         var result = TestCaller.call(tenant, Environment.TEST, () -> webhooks.create(request));
         return ((CreateEndpointResult.Created) result).endpoint().endpoint().id();
     }
@@ -450,6 +468,18 @@ class TenantIsolationTest {
             MvcTestResult result = mvc.method(HttpMethod.valueOf(operation.method()))
                     .uri(operation.path(), pathVariables)
                     .header("Authorization", "Bearer " + key.secret())
+                    .exchange();
+            contract.assertConforms(result);
+            return result;
+        }
+
+        /** The operation of {@code /v1}, with a body and no {@code Idempotency-Key}, sent with a key. */
+        MvcTestResult sendBodyWithKey(IssuedApiKey key, String body, Object... pathVariables) {
+            MvcTestResult result = mvc.method(HttpMethod.valueOf(operation.method()))
+                    .uri(operation.path(), pathVariables)
+                    .header("Authorization", "Bearer " + key.secret())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(body)
                     .exchange();
             contract.assertConforms(result);
             return result;

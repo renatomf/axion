@@ -490,6 +490,70 @@ paths:
           $ref: "components.yaml#/responses/TooManyRequests"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
+    patch:
+      operationId: updateWebhookEndpoint
+      tags: [Webhook endpoints]
+      summary: Update a webhook endpoint
+      description: >-
+        Changes the endpoint's URL, description, event types or status with
+        a JSON merge patch (RFC 7396): a field left out keeps its value. A
+        new `url` is checked as at registration. Setting `status` to
+        `enabled` clears `disabled_reason`; setting it to `disabled`
+        disables an enabled endpoint `by_tenant` and leaves a disabled one
+        with its reason. Sending the same patch again changes nothing more.
+        Requires `webhooks:manage`.
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/UpdateWebhookEndpointRequest"
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWebhookEndpointRequest"
+      responses:
+        "200":
+          description: The endpoint as it is now, without its secret.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpoint"
+        "400":
+          description: >-
+            The body cannot be read, such as invalid JSON or a value of the
+            wrong type (`bad_request`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The key lacks `webhooks:manage` (`insufficient_permission`), or
+            its tenant is not active (`tenant_inactive`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "413":
+          $ref: "components.yaml#/responses/ContentTooLarge"
+        "422":
+          description: >-
+            The endpoint was not changed. Some fields are invalid, unknown or
+            null where they cannot be removed (`validation_failed`, with
+            `errors`; a refused `url` carries the rule it failed as
+            `reason`, never the addresses its name resolved to).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
 components:
   schemas:
     CreateChargeRequest:
@@ -929,6 +993,47 @@ components:
         - url: https://example.com/axion/webhooks
           description: Order service
           enabled_events: [charge.paid, charge.refunded]
+    UpdateWebhookEndpointRequest:
+      description: >-
+        A JSON merge patch of a webhook endpoint: a field left out keeps its
+        value, and `null` removes the description. The other fields cannot
+        be removed, so `null` is refused for them. A field not listed here
+        is refused.
+      type: object
+      additionalProperties: false
+      properties:
+        url:
+          description: >-
+            An `https` URL with a domain name, without user information or
+            a fragment.
+          type: string
+          maxLength: 2048
+        description:
+          description: >-
+            Up to 140 characters, for the tenant's own reference; `null`
+            removes it.
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 140
+        enabled_events:
+          description: >-
+            The event types the endpoint receives, 1 to 20, or `["*"]` for
+            every type, including those added later. Replaces the list the
+            endpoint has.
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/WebhookEventType"
+        status:
+          description: >-
+            `enabled` to receive events again; `disabled` to stop them.
+          type: string
+          enum: [enabled, disabled]
+      examples:
+        - status: disabled
+        - url: https://example.com/axion/v2/webhooks
+          description: null
     CreatedWebhookEndpoint:
       description: >-
         An endpoint just registered: the fields a read shows, and its
