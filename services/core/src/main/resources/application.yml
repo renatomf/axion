@@ -126,6 +126,11 @@ axion:
     # does not start without it. It never reaches the database; losing it
     # makes every endpoint's secret unreadable.
     secrets-key: ${AXION_WEBHOOK_SECRETS_KEY}
+    delivery:
+      # Sends the due webhook deliveries, a pass every second (events and
+      # webhooks design, section 8.2). Off only where something else drains
+      # the queue, as the tests do.
+      enabled: true
 
 logging:
   structured:

@@ -37,6 +37,11 @@ axion:
     # 32 zero bytes: encrypts the secrets of test endpoints only, and protects
     # nothing.
     secrets-key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+    delivery:
+      # Tests drain the queue themselves: the database is shared, and a pass
+      # on the real clock would send other tests' deliveries at times no test
+      # chose.
+      enabled: false
 
 spring:
   modulith:

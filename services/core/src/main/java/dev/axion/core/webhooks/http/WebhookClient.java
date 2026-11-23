@@ -47,9 +47,6 @@ public final class WebhookClient implements AutoCloseable {
     private static final ContentType CLOUD_EVENT =
             ContentType.create("application/cloudevents+json", StandardCharsets.UTF_8);
 
-    // At most 4 deliveries in flight per endpoint (section 8.2), so as many connections per receiver.
-    private static final int CONNECTIONS_PER_RECEIVER = 4;
-
     private final CloseableHttpClient client;
     private final Timeouts timeouts;
     private final Clock clock;
@@ -73,8 +70,10 @@ public final class WebhookClient implements AutoCloseable {
                                 .setConnectTimeout(Timeout.of(timeouts.connect()))
                                 .setSocketTimeout(Timeout.of(timeouts.response()))
                                 .build())
+                        // Endpoints of several tenants may share a host; the queue, not the pool, bounds
+                        // what each endpoint holds (section 8.2).
                         .setMaxConnTotal(connections)
-                        .setMaxConnPerRoute(CONNECTIONS_PER_RECEIVER)
+                        .setMaxConnPerRoute(connections)
                         .build())
                 .disableRedirectHandling()
                 .disableCookieManagement()

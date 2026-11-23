@@ -1,0 +1,289 @@
+package dev.axion.core.webhooks.application;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+
+import dev.axion.core.DatabaseOwner;
+import dev.axion.core.MutableClock;
+import dev.axion.core.PostgresTestConfiguration;
+import dev.axion.core.TestCaller;
+import dev.axion.core.billing.BillingApi;
+import dev.axion.core.billing.BillingFixtures;
+import dev.axion.core.billing.ChargeRequest;
+import dev.axion.core.shared.Environment;
+import dev.axion.core.shared.TenantId;
+import dev.axion.core.tenancy.TenancyApi;
+import dev.axion.core.webhooks.CreateEndpointResult;
+import dev.axion.core.webhooks.EndpointRequest;
+import dev.axion.core.webhooks.TestDeliveries;
+import dev.axion.core.webhooks.TestDns;
+import dev.axion.core.webhooks.TestReceiver;
+import dev.axion.core.webhooks.WebhookEndpointId;
+import dev.axion.core.webhooks.WebhooksApi;
+import dev.axion.core.webhooks.http.CheckedDnsResolver;
+import dev.axion.core.webhooks.http.WebhookClient;
+import java.net.InetAddress;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
+/**
+ * {@link DeliveryQueue} against a real PostgreSQL and a local HTTPS receiver (events and webhooks
+ * design, sections 8.2 and 8.3). The tests' clock stands in a past no other test uses, so a pass
+ * claims only the deliveries these tests made due.
+ */
+@SpringBootTest
+@Import({PostgresTestConfiguration.class, TestDns.class, DeliveryQueueTest.Receiving.class})
+class DeliveryQueueTest {
+
+    private static final Instant START = Instant.parse("2025-06-02T12:00:00Z");
+
+    @TestConfiguration(proxyBeanMethods = false)
+    static class Receiving {
+
+        @Bean
+        @Primary
+        MutableClock mutableClock() {
+            return new MutableClock(START);
+        }
+
+        @Bean
+        TestReceiver testReceiver() {
+            return TestReceiver.start();
+        }
+
+        // The receiver's name resolves to the loopback address, which only these tests may reach.
+        @Bean
+        @Primary
+        WebhookClient testWebhookClient(TestReceiver receiver, MutableClock clock) {
+            return new WebhookClient(
+                    new CheckedDnsResolver(TestReceiver.loopbackDns(), InetAddress::isLoopbackAddress),
+                    receiver.trust(),
+                    WebhookClient.Timeouts.DEFAULT,
+                    DeliveryQueue.IN_FLIGHT,
+                    clock);
+        }
+    }
+
+    private final DeliveryQueue queue;
+    private final WebhooksApi webhooks;
+    private final TestReceiver receiver;
+    private final MutableClock clock;
+    private final JdbcClient owner;
+    private final TestDeliveries deliveries;
+    private final TenantId tenant = new TenantId(UUID.randomUUID());
+
+    @Autowired
+    DeliveryQueueTest(
+            DeliveryQueue queue, WebhooksApi webhooks, TestReceiver receiver, MutableClock clock, DatabaseOwner owner) {
+        this.queue = queue;
+        this.webhooks = webhooks;
+        this.receiver = receiver;
+        this.clock = clock;
+        this.owner = owner.jdbc();
+        this.deliveries = new TestDeliveries(this.owner);
+    }
+
+    // What a test left pending would be claimed by the next one's passes.
+    @AfterEach
+    void cancelWhatIsLeft() {
+        owner.sql("""
+                        UPDATE webhooks.deliveries SET status = 'CANCELED', next_attempt_at = NULL, leased_until = NULL
+                         WHERE status = 'PENDING' AND next_attempt_at < '2026-01-01'
+                        """).update();
+    }
+
+    @Test
+    void sendsADueDeliveryAsStoredAndRecordsItsSuccess() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        WebhookEndpointId endpoint = endpoint(path);
+        UUID delivery = deliveries.pending(tenant, endpoint, clock.instant(), null);
+
+        drainAndWait();
+
+        assertThat(receiver.requests(path)).singleElement().satisfies(request -> {
+            assertThat(request.body()).isEqualTo(deliveries.body(delivery));
+            assertThat(request.headers()).containsKey("webhook-id");
+        });
+        assertThat(deliveries.status(delivery)).isEqualTo("SUCCEEDED");
+        assertThat(deliveries.attemptCount(delivery)).isOne();
+        assertThat(deliveries.leased(delivery)).isFalse();
+    }
+
+    @Test
+    void recordsADeliveryThatFailedAsDead() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        receiver.answer(path, new TestReceiver.Answer.Status(500));
+        UUID delivery = deliveries.pending(tenant, endpoint(path), clock.instant(), null);
+
+        drainAndWait();
+
+        assertThat(deliveries.status(delivery)).isEqualTo("DEAD");
+        assertThat(deliveries.attemptCount(delivery)).isOne();
+    }
+
+    @Test
+    void sendsNothingBeforeItIsDue() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        UUID delivery =
+                deliveries.pending(tenant, endpoint(path), clock.instant().plusSeconds(60), null);
+
+        drainAndWait();
+
+        assertThat(receiver.requests(path)).isEmpty();
+        assertThat(deliveries.status(delivery)).isEqualTo("PENDING");
+    }
+
+    @Test
+    void claimsAgainADeliveryWhoseLeasePassedAndNoneStillHeld() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        WebhookEndpointId endpoint = endpoint(path);
+        Instant now = clock.instant();
+        UUID dropped = deliveries.pending(tenant, endpoint, now.minusSeconds(60), now.minusSeconds(1));
+        UUID held = deliveries.pending(tenant, endpoint, now.minusSeconds(60), now.plusSeconds(20));
+
+        drainAndWait();
+
+        assertThat(receiver.requests(path)).hasSize(1);
+        assertThat(deliveries.status(dropped)).isEqualTo("SUCCEEDED");
+        assertThat(deliveries.status(held)).isEqualTo("PENDING");
+    }
+
+    @Test
+    void holdsAtMostFourDeliveriesOfOneEndpointAndServesTheOthersMeanwhile() throws Exception {
+        String slowPath = "/" + UUID.randomUUID();
+        receiver.answer(slowPath, new TestReceiver.Answer.Late(Duration.ofSeconds(2), 204));
+        WebhookEndpointId slow = endpoint(slowPath);
+        List<UUID> slowOnes = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            slowOnes.add(deliveries.pending(tenant, slow, clock.instant().minusSeconds(60 - i), null));
+        }
+        String fastPath = "/" + UUID.randomUUID();
+        UUID fast = deliveries.pending(tenant, endpoint(fastPath), clock.instant(), null);
+
+        List<Future<?>> first = queue.drain();
+        List<Future<?>> second = queue.drain();
+
+        assertThat(first).hasSize(5);
+        assertThat(second).isEmpty();
+        await().atMost(Duration.ofSeconds(1))
+                .until(() -> deliveries.status(fast).equals("SUCCEEDED"));
+        assertThat(slowOnes.stream().filter(deliveries::leased)).hasSize(4);
+        waitFor(first);
+        assertThat(slowOnes.stream().map(deliveries::status))
+                .containsExactly("SUCCEEDED", "SUCCEEDED", "SUCCEEDED", "SUCCEEDED", "PENDING", "PENDING");
+    }
+
+    @Test
+    void sendsEachDeliveryOnceWhenPassesRunConcurrently() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        List<WebhookEndpointId> endpoints = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            endpoints.add(endpoint(path));
+        }
+        List<UUID> due = new ArrayList<>();
+        for (WebhookEndpointId endpoint : endpoints) {
+            for (int i = 0; i < 4; i++) {
+                due.add(deliveries.pending(tenant, endpoint, clock.instant(), null));
+            }
+        }
+
+        List<Future<?>> sends = new ArrayList<>();
+        try (var passes = Executors.newVirtualThreadPerTaskExecutor()) {
+            var first = passes.submit(queue::drain);
+            var second = passes.submit(queue::drain);
+            sends.addAll(first.get());
+            sends.addAll(second.get());
+        }
+        waitFor(sends);
+
+        assertThat(receiver.requests(path)).hasSize(16);
+        assertThat(due.stream().map(deliveries::status)).containsOnly("SUCCEEDED");
+    }
+
+    @Test
+    void dropsTheResultOfADeliveryCanceledDuringItsAttempt() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        receiver.answer(path, new TestReceiver.Answer.Late(Duration.ofMillis(500), 204));
+        WebhookEndpointId endpoint = endpoint(path);
+        UUID delivery = deliveries.pending(tenant, endpoint, clock.instant(), null);
+
+        List<Future<?>> sends = queue.drain();
+        TestCaller.run(tenant, Environment.TEST, () -> webhooks.delete(endpoint));
+        waitFor(sends);
+
+        assertThat(receiver.requests(path)).hasSize(1);
+        assertThat(deliveries.status(delivery)).isEqualTo("CANCELED");
+    }
+
+    @Test
+    void deliversTheEventOfACommittedChange(
+            @Autowired TenancyApi tenancy, @Autowired BillingApi billing, @Autowired JsonMapper json) throws Exception {
+        TenantId organization = tenancy.createOrganization("Padaria São João", "subject-" + UUID.randomUUID())
+                .test();
+        String path = "/" + UUID.randomUUID();
+        endpoint(organization, path, Set.of("charge.created"));
+
+        var charge = BillingFixtures.created(TestCaller.call(
+                organization,
+                Environment.TEST,
+                () -> billing.createCharge(ChargeRequest.of(BillingFixtures.brl(10_000)))));
+        await().atMost(Duration.ofSeconds(5)).until(() -> pendingDeliveries(organization) == 1);
+        drainAndWait();
+
+        assertThat(receiver.requests(path)).singleElement().satisfies(request -> {
+            JsonNode event = json.readTree(request.body());
+            assertThat(event.path("type").asString()).isEqualTo("charge.created");
+            assertThat(event.path("subject").asString())
+                    .isEqualTo(charge.id().publicId().toString());
+            assertThat(request.headers())
+                    .containsEntry("webhook-id", event.path("id").asString());
+        });
+    }
+
+    private void drainAndWait() throws InterruptedException, ExecutionException {
+        waitFor(queue.drain());
+    }
+
+    private static void waitFor(List<Future<?>> sends) throws InterruptedException, ExecutionException {
+        for (Future<?> send : sends) {
+            send.get();
+        }
+    }
+
+    private long pendingDeliveries(TenantId owner) {
+        return this.owner
+                .sql("SELECT count(*) FROM webhooks.deliveries WHERE tenant_id = ? AND status = 'PENDING'")
+                .param(owner.value())
+                .query(Long.class)
+                .single();
+    }
+
+    private WebhookEndpointId endpoint(String path) {
+        return endpoint(tenant, path, Set.of("*"));
+    }
+
+    private WebhookEndpointId endpoint(TenantId owner, String path, Set<String> types) {
+        var request = new EndpointRequest(receiver.url(path).toString(), Optional.empty(), types);
+        var result = TestCaller.call(owner, Environment.TEST, () -> webhooks.create(request));
+        return ((CreateEndpointResult.Created) result).endpoint().endpoint().id();
+    }
+}

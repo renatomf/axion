@@ -214,6 +214,77 @@ class WebhookDeliveriesSchemaTest {
         assertThat(canceled).isZero();
     }
 
+    @Test
+    void letsTheJobsRoleReadWhatADeliverySends() {
+        insertDelivery(endpoint, event, "PENDING", 0, "now()", null);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThat(jdbc.sql("""
+                        SELECT convert_from(e.body, 'UTF8') FROM webhooks.deliveries d
+                          JOIN webhooks.events e ON e.id = d.event_id
+                         WHERE d.endpoint_id = ? AND d.status = 'PENDING'
+                        """).param(endpoint).query(String.class).single()).isEqualTo("{}");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SUCCEEDED", "DEAD"})
+    void letsTheJobsRoleFinishAPendingDelivery(String status) {
+        insertDelivery(endpoint, event, "PENDING", 0, "now()", "now()");
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        int finished = jdbc.sql("""
+                        UPDATE webhooks.deliveries
+                           SET status = ?, attempt_count = attempt_count + 1, next_attempt_at = NULL,
+                               leased_until = NULL
+                         WHERE endpoint_id = ?
+                        """).params(status, endpoint).update();
+
+        assertThat(finished).isOne();
+    }
+
+    @Test
+    void deniesTheJobsRoleCancellingADelivery() {
+        insertDelivery(endpoint, event, "PENDING", 0, "now()", null);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> jdbc.sql("""
+                                UPDATE webhooks.deliveries SET status = 'CANCELED', next_attempt_at = NULL
+                                 WHERE endpoint_id = ?
+                                """).param(endpoint).update())
+                .rootCause()
+                .hasMessageContaining(RLS_VIOLATION);
+    }
+
+    @Test
+    void deniesTheJobsRoleChangingAFinishedDelivery() {
+        insertDelivery(endpoint, event, "SUCCEEDED", 1, null, null);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        int changed = jdbc.sql("""
+                        UPDATE webhooks.deliveries SET status = 'PENDING', next_attempt_at = now()
+                         WHERE endpoint_id = ?
+                        """).param(endpoint).update();
+
+        assertThat(changed).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "INSERT INTO webhooks.deliveries (id, tenant_id, endpoint_id, event_id, status, attempt_count,"
+                        + " next_attempt_at, created_at) SELECT gen_random_uuid(), tenant_id, endpoint_id, event_id,"
+                        + " 'PENDING', 0, now(), now() FROM webhooks.deliveries",
+                "DELETE FROM webhooks.deliveries",
+                "UPDATE webhooks.deliveries SET endpoint_id = gen_random_uuid()",
+                "UPDATE webhooks.events SET body = '\\x00'"
+            })
+    void deniesTheJobsRoleWhatSendingDoesNotNeed(String statement) {
+        insertDelivery(endpoint, event, "PENDING", 0, "now()", null);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> jdbc.sql(statement).update()).rootCause().hasMessageContaining("permission denied");
+    }
+
     private void insertEvent(UUID id) {
         insertEvent(id, tenant);
     }
