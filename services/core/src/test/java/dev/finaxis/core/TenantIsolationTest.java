@@ -80,7 +80,8 @@ class TenantIsolationTest {
             "revokeApiKey", this::revokeApiKeyLeavesAnotherTenantsKeyWorking,
             "rollApiKey", this::rollApiKeyLeavesAnotherTenantsKeyUnrolled,
             "createCharge", this::createChargeCreatesNothingForAnotherTenant,
-            "getCharge", this::getChargeHidesAnotherTenantsCharge);
+            "getCharge", this::getChargeHidesAnotherTenantsCharge,
+            "listCharges", this::listChargesHidesAnotherTenantsCharges);
 
     @Autowired
     TenantIsolationTest(
@@ -209,6 +210,19 @@ class TenantIsolationTest {
 
         assertNotFound(request.sendWithKey(scene.callerKey(), others.publicId()));
         assertThat(request.sendWithKey(scene.callerKey(), own.publicId())).hasStatus(HttpStatus.OK);
+    }
+
+    private void listChargesHidesAnotherTenantsCharges(Request request, Scene scene) {
+        ChargeId others = charge(scene.other().test());
+        ChargeId own = charge(scene.caller().test());
+
+        MvcTestResult result = request.sendWithKey(scene.callerKey());
+        assertThat(result).hasStatus(HttpStatus.OK);
+        assertThat(result)
+                .body()
+                .asString()
+                .contains(own.publicId().toString())
+                .doesNotContain(others.publicId().toString());
     }
 
     private ChargeId charge(TenantId tenant) {
