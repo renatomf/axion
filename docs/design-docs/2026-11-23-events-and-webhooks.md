@@ -436,3 +436,132 @@ data: {"specversion":"1.0","id":"evt_01jdr4c7…","type":"charge.paid",…}
 - Phase 1 runs one instance of the core, so an in-memory fan-out reaches every stream. With several instances, each would publish the events it handles through PostgreSQL `LISTEN`/`NOTIFY` to the others; that change stays inside `notifications`.
 
 The live stream is a convenience, not a record: a member who missed an event sees its result in the next query. It therefore keeps no table and does not deduplicate beyond the event ID, which the console already uses as the message's identity.
+
+## 11. Schema
+
+The `events`, `webhooks` and `audit` schemas follow the conventions of the other modules: UUIDv7 keys, `timestamptz`, enumerations as `text` with a `CHECK`, a forced tenant policy on every tenant table (tenancy design, section 5.4), and access through `JdbcClient`.
+
+```
+events.event_publication                 -- Modulith 2.1's table, unchanged (section 4.2)
+
+webhooks.endpoints
+  id                uuid primary key
+  tenant_id         uuid not null
+  url               text not null            -- https, at most 2,048 characters (CHECK)
+  description       text null                -- 1–140 characters (CHECK)
+  enabled_events    text[] not null          -- 1–20 types, or {*} (CHECK)
+  status            text not null            -- ENABLED | DISABLED (CHECK)
+  disabled_reason   text null                -- FAILING | BY_TENANT, set exactly when DISABLED (CHECK)
+  failing_since     timestamptz null
+  created_at        timestamptz not null
+  updated_at        timestamptz not null
+  deleted_at        timestamptz null
+  index (tenant_id, id)
+
+webhooks.secrets
+  id                uuid primary key
+  endpoint_id       uuid not null references endpoints
+  tenant_id         uuid not null
+  ciphertext        bytea not null           -- Tink AEAD, the endpoint's ID as associated data
+  expires_at        timestamptz null         -- the end of a rolled secret's grace period
+  created_at        timestamptz not null
+  index (endpoint_id)
+
+webhooks.events
+  id                uuid primary key         -- the domain event's ID
+  tenant_id         uuid not null
+  type              text not null
+  body              bytea not null           -- the CloudEvent as sent (section 5.1)
+  occurred_at       timestamptz not null
+
+webhooks.deliveries
+  id                uuid primary key
+  tenant_id         uuid not null
+  endpoint_id       uuid not null references endpoints
+  event_id          uuid not null references events
+  status            text not null            -- PENDING | SUCCEEDED | DEAD | CANCELED (CHECK)
+  attempt_count     integer not null         -- 0 to 9 scheduled attempts (CHECK)
+  next_attempt_at   timestamptz null         -- set exactly when PENDING (CHECK)
+  leased_until      timestamptz null
+  created_at        timestamptz not null
+  unique (endpoint_id, event_id)
+  index (next_attempt_at) where status = 'PENDING'
+  index (endpoint_id, id)
+
+webhooks.attempts
+  id                uuid primary key
+  tenant_id         uuid not null
+  delivery_id       uuid not null references deliveries
+  replay            boolean not null
+  started_at        timestamptz not null
+  duration_ms       integer not null
+  status_code       integer null             -- 100–599 (CHECK)
+  failure           text null                -- TIMEOUT | CONNECTION_REFUSED | ADDRESS_REFUSED | TLS_ERROR | REDIRECT | …; exactly one of status_code and failure (CHECK)
+  response_excerpt  text null                -- at most 1 KiB
+  index (delivery_id, started_at)
+
+audit.records                            -- section 9.1
+audit.chain_heads
+  tenant_id         uuid primary key         -- one chain per tenant (section 9.1)
+  sequence          bigint not null
+  hash              bytea not null
+
+<schema>.consumed_events                 -- section 4.4, in each consuming module that needs it
+```
+
+- `unique (endpoint_id, event_id)` repeats the rule that an event is delivered once to each endpoint, whatever the listener's retries.
+- Deleted endpoints keep their row, with `deleted_at`, until their deliveries' retention ends; they receive nothing and are never listed.
+- Roles: `axion_events` owns the publications job; `axion_webhooks` manages endpoints, secrets, events and deliveries for the tenant bound; `axion_webhooks_jobs` drains the queue, disables endpoints and removes old rows (section 8.2); `axion_audit` appends (section 9.2); `axion_audit_checks` reads every chain. No role may update or delete an attempt or an audit record.
+
+## 12. API
+
+### 12.1 Modules
+
+```java
+// events
+public interface EventCatalog {
+    Optional<PublicEvent> render(DomainEvent event);    // empty for events with no public type
+    Set<String> publicTypes();
+}
+
+// webhooks: endpoints and the delivery log, for the controllers of /v1 and /internal
+public interface WebhooksApi {
+    CreateEndpointResult create(Caller caller, EndpointRequest request);   // Created, InvalidUrl or LimitReached
+    …
+}
+
+// audit
+public interface AuditApi {
+    Verification verify(ChainId chain);
+}
+```
+
+`webhooks`, `audit` and `notifications` receive domain events and nothing else from other modules. Their APIs serve their own controllers and jobs: `WebhooksApi` the endpoint and log operations, `AuditApi` the check.
+
+Public IDs: `evt_` for events, `we_` for webhook endpoints, `whd_` for deliveries, `wha_` for attempts.
+
+### 12.2 HTTP
+
+| Operation | Permission | Notes |
+|---|---|---|
+| `POST /v1/webhook_endpoints` | `webhooks:manage` | Section 6.3; idempotent; returns the secret once |
+| `GET /v1/webhook_endpoints` | `webhooks:manage` | Newest first; a cursor on the endpoint's ID |
+| `GET /v1/webhook_endpoints/{id}` | `webhooks:manage` | |
+| `PATCH /v1/webhook_endpoints/{id}` | `webhooks:manage` | A JSON merge patch of the four fields of section 6.3 |
+| `DELETE /v1/webhook_endpoints/{id}` | `webhooks:manage` | |
+| `POST /v1/webhook_endpoints/{id}/secret/roll` | `webhooks:manage` | `grace_period_seconds`, 0 to 604,800; idempotent; returns the new secret once |
+| `GET /v1/webhook_endpoints/{id}/deliveries` | `webhooks:manage` | Newest first; filters on `status` and `type` |
+| `GET /v1/webhook_endpoints/{id}/deliveries/{delivery_id}` | `webhooks:manage` | With its attempts |
+| `POST /v1/webhook_endpoints/{id}/deliveries/{delivery_id}/replay` | `webhooks:manage` | Idempotent; `202 Accepted`, the attempt follows in the log |
+| `GET /internal/tenants/{tenant_id}/events/stream` | `@NoPermissionRequired` | Section 10; types filtered by the member's permissions |
+
+- `/internal/tenants/{tenant_id}/webhook_endpoints/…` mirrors each `/v1` operation for the console; creating, updating, deleting and rolling there need step-up.
+- Another tenant's endpoint or delivery is `404`, like an unknown one; the isolation harness covers every operation.
+- Every `POST` takes `Idempotency-Key`, as the lint requires; `PATCH` and `DELETE` are idempotent by their nature.
+- The `webhooks` section of `v1.yaml` describes each public event (section 5.2).
+
+### 12.3 Observability
+
+Metrics: `axion_events_publications_incomplete`, `axion_events_publication_oldest_incomplete_seconds`, `axion_events_publications_failed`, `axion_webhooks_attempts_total{result}`, `axion_webhooks_attempt_duration_seconds`, `axion_webhooks_queue_oldest_due_seconds`, `axion_webhooks_endpoints_disabled_total`, `axion_audit_chain_verified{chain}`, `axion_notifications_streams`. Alerts: any failed publication; the oldest due delivery older than 5 minutes; a chain that fails verification.
+
+Logs carry the event's, endpoint's, delivery's and attempt's IDs and the correlation ID of the event; never a URL's path or query, which may hold a tenant's token, never a secret, never a body.
