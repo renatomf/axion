@@ -6,9 +6,12 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.security.core.context.SecurityContext;
@@ -23,6 +26,7 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
  * Authenticates a {@code /rails} request by the rails' signature (billing design, section 7.1): it
  * reads the body in full, at most {@value #MAX_BODY} bytes, verifies it, and hands the verified
  * bytes on as a {@link SignedMessage}. A refusal is a {@code 401} with no detail, whatever failed.
+ * A key past its budget gets {@code 429 rate_limited} with {@code Retry-After}, which the rails honor.
  */
 // Not a bean: Spring Boot would also register it with the servlet container, for every path.
 final class SignedMessageFilter extends OncePerRequestFilter {
@@ -34,11 +38,13 @@ final class SignedMessageFilter extends OncePerRequestFilter {
     private static final Logger LOG = LoggerFactory.getLogger(SignedMessageFilter.class);
 
     private final SignatureVerifier verifier;
+    private final SigningKeyRateLimits limits;
     private final HandlerExceptionResolver resolver;
     private final SecurityContextHolderStrategy contexts = SecurityContextHolder.getContextHolderStrategy();
 
-    SignedMessageFilter(SignatureVerifier verifier, HandlerExceptionResolver resolver) {
+    SignedMessageFilter(SignatureVerifier verifier, SigningKeyRateLimits limits, HandlerExceptionResolver resolver) {
         this.verifier = verifier;
+        this.limits = limits;
         this.resolver = resolver;
     }
 
@@ -56,6 +62,11 @@ final class SignedMessageFilter extends OncePerRequestFilter {
         }
         switch (verifier.verify(request, body)) {
             case Verification.Verified(var keyId) -> {
+                Optional<Duration> retryAfter = limits.tryAcquire(keyId);
+                if (retryAfter.isPresent()) {
+                    rateLimited(request, response, retryAfter.get());
+                    return;
+                }
                 SecurityContext context = contexts.createEmptyContext();
                 context.setAuthentication(new PreAuthenticatedAuthenticationToken(keyId, null, List.of()));
                 contexts.setContext(context);
@@ -68,6 +79,17 @@ final class SignedMessageFilter extends OncePerRequestFilter {
                 reject(request, response, HttpStatus.UNAUTHORIZED, "Authentication is required.");
             }
         }
+    }
+
+    private void rateLimited(HttpServletRequest request, HttpServletResponse response, Duration retryAfter) {
+        ProblemDetail problem =
+                ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, "Too many requests; retry later.");
+        problem.setProperty("code", "rate_limited");
+        var rejection = new ErrorResponseException(HttpStatus.TOO_MANY_REQUESTS, problem, null);
+        // Whole seconds, rounded up, and never 0: a retry at once would be refused again.
+        long seconds = Math.max(1, retryAfter.plusSeconds(1).minusNanos(1).toSeconds());
+        rejection.getHeaders().set(HttpHeaders.RETRY_AFTER, Long.toString(seconds));
+        resolver.resolveException(request, response, null, rejection);
     }
 
     private void reject(HttpServletRequest request, HttpServletResponse response, HttpStatus status, String detail) {

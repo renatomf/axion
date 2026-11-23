@@ -35,7 +35,8 @@ class RailsSecurityConfiguration {
         http.authorizeHttpRequests(requests -> requests.anyRequest().authenticated());
 
         var verifier = new SignatureVerifier(signing.publicKeys(), clock);
-        http.addFilterBefore(new SignedMessageFilter(verifier, resolver), AnonymousAuthenticationFilter.class);
+        var limits = new SigningKeyRateLimits(clock);
+        http.addFilterBefore(new SignedMessageFilter(verifier, limits, resolver), AnonymousAuthenticationFilter.class);
 
         // The same headers as every other response of the core, which serves no HTML.
         http.headers(headers -> headers.contentSecurityPolicy(
