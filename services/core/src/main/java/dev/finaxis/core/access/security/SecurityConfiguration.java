@@ -22,7 +22,7 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
 /**
  * The core's HTTP security, denied by default. Three chains, tried in order: {@code /internal/**}
  * for members' access tokens, {@code /v1/**} for API keys, and everything else, where only the
- * health endpoint is open.
+ * health endpoint is open. The rails module adds its own chain for {@code /rails/**}, ahead of these.
  */
 @Configuration(proxyBeanMethods = false)
 class SecurityConfiguration {

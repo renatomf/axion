@@ -72,8 +72,8 @@ Code follows the [comment standard](docs/architecture/engineering-standards.md#c
 
 | Profile | Active when | Differences |
 |---|---|---|
-| default | No profile is set, as in the container image | Database from `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME` (`finaxis_app`), `SPRING_DATASOURCE_PASSWORD`; migrations as the schemas' owner from `SPRING_FLYWAY_USER`, `SPRING_FLYWAY_PASSWORD`; Keycloak realm from `FINAXIS_MEMBERS_ISSUER`, required |
-| `local` | `./gradlew bootRun`, or `SPRING_PROFILES_ACTIVE=local` | The PostgreSQL of `just up` and the Keycloak of `just up auth`, with the settings of `infra/compose/.env`; detailed health; plain-text logs |
+| default | No profile is set, as in the container image | Database from `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME` (`finaxis_app`), `SPRING_DATASOURCE_PASSWORD`; migrations as the schemas' owner from `SPRING_FLYWAY_USER`, `SPRING_FLYWAY_PASSWORD`; Keycloak realm from `FINAXIS_MEMBERS_ISSUER`, required; the rails' public signing key from `FINAXIS_RAILS_SIGNING_KEY_ID` and `FINAXIS_RAILS_SIGNING_PUBLIC_KEY`, required |
+| `local` | `./gradlew bootRun`, or `SPRING_PROFILES_ACTIVE=local` | The PostgreSQL of `just up` and the Keycloak of `just up auth`, with the settings of `infra/compose/.env`, including the rails simulator's public key; detailed health; plain-text logs |
 
 The service listens on port 8080. Only the health endpoint is exposed (`/actuator/health`, `/liveness`, `/readiness`); exposing another Actuator endpoint is a security decision and needs a reason in the pull request.
 

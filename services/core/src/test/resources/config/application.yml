@@ -8,3 +8,11 @@ finaxis:
     # The core contacts the realm only when a request carries a bearer
     # token; tests that send one start a real Keycloak and override this.
     issuer: http://keycloak.invalid/realms/finaxis
+  rails:
+    signing:
+      # The public key of RFC 9421, appendix B.1.4, whose private half is
+      # published: no test signs with it. Tests that send the rails' messages
+      # generate a pair of their own and replace this list.
+      keys:
+        - id: test-key-ed25519
+          public-key: MCowBQYDK2VwAyEAJrQLj5P/89iXES9+vFgrIy29clF9CC/oPPsw3c5D0bs=

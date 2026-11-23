@@ -57,6 +57,21 @@ finaxis:
     # The platform's city, which a payer's app shows before the payer
     # confirms. Finaxis is the receiving participant.
     merchant-city: SAO PAULO
+  rails:
+    # Finaxis's ISPB on the rails, the receiving participant every credit
+    # must name. Fictitious, as the rails simulator's (its application.yml,
+    # simulator.participants.receiver). Quoted: an ISPB is a code, not a
+    # number.
+    ispb: "99990001"
+    signing:
+      # The public keys the Pix rails sign their messages with, by key ID
+      # (rails simulator design, sections 6.3 and 6.4): X.509 DER in base64.
+      # No default: each environment sets FINAXIS_RAILS_SIGNING_KEY_ID and
+      # FINAXIS_RAILS_SIGNING_PUBLIC_KEY, and the core does not start without
+      # them. A rotation lists the old key and the new one.
+      keys:
+        - id: ${FINAXIS_RAILS_SIGNING_KEY_ID}
+          public-key: ${FINAXIS_RAILS_SIGNING_PUBLIC_KEY}
   risk:
     # The limits of each environment's charges (billing design, section 6),
     # revised with the load tests. Amounts are in centavos. They bound what an
