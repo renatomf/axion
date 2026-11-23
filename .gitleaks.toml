@@ -22,9 +22,10 @@ keywords = ["sk_live_", "sk_test_"]
 
 # The Ed25519 test key of RFC 9421 (appendix B.1.4), published in the RFC so
 # that implementations can reproduce its signatures. The simulator's signer
-# test does; the key signs nothing else.
+# test does; the key signs nothing else. The path accepts any package root, as
+# the history holds the test under an earlier one.
 [[allowlists]]
 description = "RFC 9421 test-key-ed25519"
 condition = "AND"
-paths = ['''^services/rails-simulator/src/test/java/dev/axion/simulator/delivery/MessageSignerTest\.java$''']
+paths = ['''^services/rails-simulator/src/test/java/dev/[a-z]+/simulator/delivery/MessageSignerTest\.java$''']
 regexes = ['''MC4CAQAwBQYDK2VwBCIEIJ\+DYvh6SEqVTm50DFtMDoQikTmiCqirVv9mWG9qfSnF''']
