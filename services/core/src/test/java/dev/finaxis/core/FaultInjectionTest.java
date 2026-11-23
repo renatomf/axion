@@ -298,6 +298,62 @@ class FaultInjectionTest {
         assertThat(available()).isEqualTo(brl(100L * OUTAGE_PAYMENTS));
     }
 
+    /**
+     * Settlement fails at commit, after the payment and its entry were written: nothing of the attempt
+     * remains, and the processor's retry settles the charge once. No fault of the rails can stop the
+     * core between two statements, so the failure is a trigger the test adds to the core's database.
+     */
+    @Test
+    void rollsBackFailedSettlement() throws Exception {
+        ChargeView charge = charge(10_000, ChargeRequest.DEFAULT_EXPIRES_IN);
+        String endToEndId;
+        try (var _ = failAtCommit(charge)) {
+            endToEndId = RAILS.pay(charge.brCode());
+
+            await(() -> attemptsOf(endToEndId), attempts -> attempts > 0);
+            assertThat(detail(charge).charge().status()).isEqualTo(ChargeStatus.ACTIVE);
+            assertThat(detail(charge).payments()).isEmpty();
+            assertThat(entriesOf(endToEndId)).isZero();
+        }
+
+        ChargeDetail paid =
+                await(() -> detail(charge), detail -> detail.charge().status() == ChargeStatus.PAID);
+        assertThat(paid.payments()).hasSize(1);
+        assertThat(entriesOf(endToEndId)).isOne();
+        assertThat(available()).isEqualTo(brl(10_000));
+    }
+
+    /**
+     * Fails every commit that records a payment of the charge, until closed. Deferred, so it fires
+     * at commit, once the payment and its entry are written.
+     */
+    private AutoCloseable failAtCommit(ChargeView charge) {
+        owner.jdbc().sql("""
+                CREATE FUNCTION billing.fail_at_commit() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    RAISE EXCEPTION 'injected failure at commit';
+                END
+                $$""").update();
+        owner.jdbc().sql("""
+                CREATE CONSTRAINT TRIGGER fail_at_commit AFTER INSERT ON billing.payments
+                    DEFERRABLE INITIALLY DEFERRED
+                    FOR EACH ROW WHEN (NEW.charge_id = '%s')
+                    EXECUTE FUNCTION billing.fail_at_commit()""".formatted(charge.id().value())).update();
+        return () -> {
+            owner.jdbc().sql("DROP TRIGGER fail_at_commit ON billing.payments").update();
+            owner.jdbc().sql("DROP FUNCTION billing.fail_at_commit()").update();
+        };
+    }
+
+    /** How often the core's processor failed to hand the credit to billing. */
+    private int attemptsOf(String endToEndId) {
+        return owner.jdbc()
+                .sql("SELECT coalesce(max(attempts), 0) FROM rails.pix_credits WHERE end_to_end_id = ?")
+                .param(endToEndId)
+                .query(Integer.class)
+                .single();
+    }
+
     private ChargeView charge(long amount, Duration expiresIn) {
         return TenantContext.call(
                 organization.test(),
