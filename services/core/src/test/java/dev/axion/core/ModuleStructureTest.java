@@ -31,6 +31,7 @@ class ModuleStructureTest {
                         "billing",
                         "risk",
                         "rails",
-                        "events");
+                        "events",
+                        "webhooks");
     }
 }
