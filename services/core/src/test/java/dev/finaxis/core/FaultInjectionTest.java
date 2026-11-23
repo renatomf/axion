@@ -116,6 +116,26 @@ class FaultInjectionTest {
         assertThat(available()).isEqualTo(brl(10_000));
     }
 
+    @Test
+    void survivesLostAcknowledgment() throws InterruptedException {
+        ChargeView charge = charge(10_000, ChargeRequest.DEFAULT_EXPIRES_IN);
+        RAILS.addRule("""
+                {"fault": "lost_response", "match": {"transactionId": "%s"}, "times": 1}""".formatted(charge.transactionId()));
+
+        String endToEndId = RAILS.pay(charge.brCode());
+
+        await(() -> detail(charge), detail -> detail.charge().status() == ChargeStatus.PAID);
+        await(() -> deliveries(endToEndId), delivered(1));
+        String payment = RAILS.payment(endToEndId);
+        List<Integer> answers = JsonPath.read(payment, "$.deliveries[0].attempts[*].responseStatus");
+        assertThat(answers).containsExactly(202, 202);
+        List<String> outcomes = JsonPath.read(payment, "$.deliveries[0].attempts[*].outcome");
+        assertThat(outcomes).containsExactly("retried", "delivered");
+        assertThat(detail(charge).payments()).hasSize(1);
+        assertThat(entriesOf(endToEndId)).isOne();
+        assertThat(available()).isEqualTo(brl(10_000));
+    }
+
     private ChargeView charge(long amount, Duration expiresIn) {
         return TenantContext.call(
                 organization.test(),
