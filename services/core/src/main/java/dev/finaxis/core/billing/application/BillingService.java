@@ -181,7 +181,7 @@ public class BillingService implements BillingApi {
     }
 
     // A liability: money Finaxis owes the tenant (platform overview, section 6.3).
-    private static AccountRequest availableAccount(TenantView tenant) {
+    static AccountRequest availableAccount(TenantView tenant) {
         return new AccountRequest(
                 tenant.id().value(),
                 "tenant:" + tenant.id().value() + ":available",

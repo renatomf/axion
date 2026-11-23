@@ -7,6 +7,7 @@ import dev.finaxis.core.billing.ChargeStatus;
 import dev.finaxis.core.billing.ChargeView;
 import dev.finaxis.core.billing.domain.BrCode;
 import dev.finaxis.core.billing.domain.Charge;
+import dev.finaxis.core.billing.domain.Payment;
 import dev.finaxis.core.billing.domain.TransactionId;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.Money;
@@ -77,6 +78,69 @@ public class JdbcCharges {
                 .param("createdAt", charge.createdAt().atOffset(ZoneOffset.UTC))
                 .update();
         return inserted == 1;
+    }
+
+    /**
+     * The tenant of the charge with the transaction ID, whichever tenant is bound, or none: a credit
+     * names no tenant (billing design, section 7.3). Unique across tenants, so there is at most one.
+     */
+    public Optional<TenantId> tenantOf(TransactionId transactionId) {
+        // The function answers null for an ID no charge has; the filter turns that into no row.
+        return jdbc.sql("""
+                        SELECT tenant FROM billing.find_charge_tenant(:transactionId) AS tenant
+                         WHERE tenant IS NOT NULL
+                        """)
+                .param("transactionId", transactionId.value())
+                .query(UUID.class)
+                .optional()
+                .map(TenantId::new);
+    }
+
+    /**
+     * Locks the bound tenant's charge with the transaction ID until the transaction ends, so the
+     * credits of one charge are settled one at a time (billing design, section 8.1).
+     */
+    public Optional<LockedCharge> lockByTransactionId(TransactionId transactionId) {
+        return jdbc.sql("""
+                        SELECT id, amount_minor, currency, status, expires_at, created_at
+                          FROM billing.charges
+                         WHERE transaction_id = :transactionId
+                           FOR UPDATE
+                        """)
+                .param("transactionId", transactionId.value())
+                .query((row, rowNumber) -> new LockedCharge(
+                        new ChargeId(row.getObject("id", UUID.class)),
+                        Money.ofMinor(row.getLong("amount_minor"), Currency.getInstance(row.getString("currency"))),
+                        ChargeStatus.valueOf(row.getString("status")),
+                        instant(row, "created_at"),
+                        instant(row, "expires_at")))
+                .optional();
+    }
+
+    /** Moves the charge to the status a payment left it in; {@code paidAt} is set in the paid states. */
+    public void updateStatus(ChargeId charge, ChargeStatus status, @Nullable Instant paidAt, Instant updatedAt) {
+        int updated = jdbc.sql("""
+                        UPDATE billing.charges
+                           SET status = :status, paid_at = :paidAt, updated_at = :updatedAt
+                         WHERE id = :id
+                        """)
+                .param("id", charge.value())
+                .param("status", status.name())
+                .param("paidAt", paidAt == null ? null : paidAt.atOffset(ZoneOffset.UTC), Types.TIMESTAMP_WITH_TIMEZONE)
+                .param("updatedAt", updatedAt.atOffset(ZoneOffset.UTC))
+                .update();
+        if (updated != 1) {
+            throw new IllegalStateException("Charge " + charge.value() + " was not updated");
+        }
+    }
+
+    /** A charge's row as settlement locked it, before its payments are read. */
+    public record LockedCharge(ChargeId id, Money amount, ChargeStatus status, Instant createdAt, Instant expiresAt) {
+
+        /** The charge, with the payments it had received. */
+        public Charge with(List<Payment> payments) {
+            return new Charge(id, amount, createdAt, expiresAt, status, payments, List.of());
+        }
     }
 
     /**

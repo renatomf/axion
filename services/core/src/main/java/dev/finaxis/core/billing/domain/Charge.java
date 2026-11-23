@@ -87,8 +87,7 @@ public record Charge(
      * @throws IllegalArgumentException if the charge already has a payment with its EndToEndId, a bug in the caller
      */
     public Receipt receive(IncomingPayment incoming, Instant now) {
-        boolean known = payments.stream().anyMatch(p -> p.endToEndId().equals(incoming.endToEndId()));
-        if (known) {
+        if (hasReceived(incoming.endToEndId())) {
             throw new IllegalArgumentException(
                     "Charge " + id.value() + " already has payment " + incoming.endToEndId());
         }
@@ -141,6 +140,11 @@ public record Charge(
                 : status;
         return new RefundDecision.Refunded(
                 new Charge(id, amount, createdAt, expiresAt, newStatus, payments, withRefund), refund);
+    }
+
+    /** Whether the charge has a payment with the EndToEndId, so the credit was recorded already. */
+    public boolean hasReceived(String endToEndId) {
+        return payments.stream().anyMatch(p -> p.endToEndId().equals(endToEndId));
     }
 
     /** The payment that settled the charge, if one did. */
