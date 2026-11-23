@@ -24,9 +24,13 @@ import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.TenancyApi;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
@@ -65,6 +69,9 @@ class FaultInjectionTest {
 
     /** The shortest a charge lasts, then a pass of the expiry job, every 30 seconds, and a margin. */
     private static final Duration EXPIRY = ChargeRequest.MIN_EXPIRES_IN.plusSeconds(45);
+
+    /** The payments of the outage scenario: as many charges as a test tenant may create in an hour. */
+    private static final int OUTAGE_PAYMENTS = 200;
 
     @DynamicPropertySource
     static void rails(DynamicPropertyRegistry registry) {
@@ -244,6 +251,53 @@ class FaultInjectionTest {
         assertThat(available()).isEqualTo(brl(10_000));
     }
 
+    /**
+     * Payers pay 200 codes; their notifications are postponed past the start of a one-minute outage,
+     * so the rails hold every one of them until it ends. Then they drain at once, and each payment
+     * settles its charge once.
+     */
+    @Test
+    void drainsAfterOutage() throws Exception {
+        List<ChargeView> charges = new ArrayList<>();
+        for (int i = 0; i < OUTAGE_PAYMENTS; i++) {
+            charges.add(charge(100, ChargeRequest.DEFAULT_EXPIRES_IN));
+        }
+        Duration delay = Duration.ofSeconds(30);
+        RAILS.addRule("""
+                {"fault": "delay", "duration": "%s", "match": {}, "times": %d}""".formatted(RailsSimulator.seconds(delay), OUTAGE_PAYMENTS));
+
+        Instant start = Instant.now();
+        try (var payers = Executors.newFixedThreadPool(8)) {
+            for (Future<String> payment : payers.invokeAll(charges.stream()
+                    .<Callable<String>>map(charge -> () -> RAILS.pay(charge.brCode()))
+                    .toList())) {
+                payment.get();
+            }
+        }
+        Duration outage = Duration.ofMinutes(1);
+        RAILS.startOutage(outage);
+        assertThat(Duration.between(start, Instant.now()))
+                .as("the payments were made before their notifications were due")
+                .isLessThan(delay);
+
+        sleepUntil(start.plus(outage).minusSeconds(5));
+        assertThat(credits()).as("credits received during the outage").isZero();
+        await(outage.plus(PATIENCE), this::paidCharges, paid -> paid == OUTAGE_PAYMENTS);
+        assertThat(credits()).isEqualTo(OUTAGE_PAYMENTS);
+        assertThat(pendingCredits()).isZero();
+        assertThat(owner.jdbc()
+                        .sql("""
+                                SELECT count(*) FROM ledger.entries e
+                                  JOIN rails.pix_credits c ON c.end_to_end_id = e.source_id
+                                  JOIN billing.charges ch ON ch.transaction_id = c.transaction_id
+                                 WHERE e.source_type = 'pix_credit' AND ch.tenant_id = ?""")
+                        .param(organization.test().value())
+                        .query(Long.class)
+                        .single())
+                .isEqualTo(OUTAGE_PAYMENTS);
+        assertThat(available()).isEqualTo(brl(100L * OUTAGE_PAYMENTS));
+    }
+
     private ChargeView charge(long amount, Duration expiresIn) {
         return TenantContext.call(
                 organization.test(),
@@ -285,6 +339,35 @@ class FaultInjectionTest {
         return owner.jdbc()
                 .sql("SELECT count(*) FROM ledger.entries WHERE source_type = 'pix_credit' AND source_id = ?")
                 .param(endToEndId)
+                .query(Long.class)
+                .single();
+    }
+
+    private long paidCharges() {
+        return owner.jdbc()
+                .sql("SELECT count(*) FROM billing.charges WHERE tenant_id = ? AND status = 'PAID'")
+                .param(organization.test().value())
+                .query(Long.class)
+                .single();
+    }
+
+    /** The tenant's credits in the core's inbox. */
+    private long credits() {
+        return creditsWhere("true");
+    }
+
+    /** The tenant's credits in the inbox still to hand to billing. */
+    private long pendingCredits() {
+        return creditsWhere("c.status = 'received'");
+    }
+
+    private long creditsWhere(String condition) {
+        return owner.jdbc()
+                .sql("""
+                        SELECT count(*) FROM rails.pix_credits c
+                          JOIN billing.charges ch ON ch.transaction_id = c.transaction_id
+                         WHERE ch.tenant_id = ? AND\s""" + condition)
+                .param(organization.test().value())
                 .query(Long.class)
                 .single();
     }
