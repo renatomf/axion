@@ -57,6 +57,19 @@ finaxis:
     # The platform's city, which a payer's app shows before the payer
     # confirms. Finaxis is the receiving participant.
     merchant-city: SAO PAULO
+  risk:
+    # The limits of each environment's charges (billing design, section 6),
+    # revised with the load tests. Amounts are in centavos. They bound what an
+    # abused or broken integration can create, not what a tenant may sell.
+    limits:
+      test:
+        amount: 100000          # R$ 1,000.00 per charge
+        daily-amount: 1000000   # R$ 10,000.00 per business date
+        hourly-count: 200       # charges per clock hour
+      live:
+        amount: 1000000         # R$ 10,000.00 per charge
+        daily-amount: 20000000  # R$ 200,000.00 per business date
+        hourly-count: 1000      # charges per clock hour
 
 logging:
   structured:
