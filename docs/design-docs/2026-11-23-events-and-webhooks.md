@@ -246,3 +246,39 @@ A secret is `whsec_` followed by 32 random bytes in base64, the format of Standa
 | Roll secret | Section 6.2 |
 
 Each operation publishes its event of section 3.3 for the audit trail. On `/internal`, every change needs step-up, as the overview requires for changing webhook URLs (section 4.3).
+
+## 7. SSRF defenses
+
+A webhook is a request the core makes to an address someone else chose. Checking the URL when it is registered is not enough: the name can resolve to a public address at registration and to `169.254.169.254` a minute later (DNS rebinding). The core therefore checks twice, with one rule, `PublicAddressPolicy`, in `webhooks`.
+
+### 7.1 At registration
+
+A URL is accepted only if:
+
+- its scheme is `https`, it has a host, and it has no user information and no fragment;
+- its host is a DNS name, not an IP literal, and not `localhost` or a name under `.localhost`, `.local`, `.internal` or `.home.arpa`;
+- its port is 443 or between 1024 and 65535;
+- its host resolves, and every address it resolves to is public.
+
+An address is public unless it is in one of these ranges, for IPv4 and IPv6 alike, including IPv4 addresses written in IPv6 forms (mapped `::ffff:0:0/96`, translated `64:ff9b::/96`, 6to4 `2002::/16`):
+
+| Range | Why |
+|---|---|
+| `0.0.0.0/8`, `::/128` | Unspecified: "this host" on many stacks |
+| `127.0.0.0/8`, `::1/128` | Loopback |
+| `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `fc00::/7` | Private networks |
+| `100.64.0.0/10` | Carrier-grade NAT, used inside cloud networks |
+| `169.254.0.0/16`, `fe80::/10` | Link-local, including the cloud metadata services at `169.254.169.254` and `fd00:ec2::254` (the latter also in `fc00::/7`) |
+| `192.0.0.0/24`, `192.0.2.0/24`, `198.18.0.0/15`, `198.51.100.0/24`, `203.0.113.0/24`, `2001:db8::/32` | Protocol assignments, benchmarking and documentation |
+| `224.0.0.0/4`, `240.0.0.0/4`, `ff00::/8` | Multicast, reserved and broadcast |
+
+A refused URL is `422 validation_failed` on `url`, with a reason that names the rule (`must_be_https`, `must_be_public`) but never the addresses the name resolved to: the core does not answer DNS questions about its own network.
+
+### 7.2 At connection
+
+Deliveries use Spring's `RestClient` on Apache HttpClient 5, whose `DnsResolver` the core replaces: it resolves the host, drops every address the policy refuses, and fails the attempt when none is left. The connection is made to an address that was checked, so no second lookup can change it; TLS still verifies the certificate against the host name.
+
+- Redirects are never followed: a `3xx` is a failed attempt. A redirect is the simplest way around the check.
+- No proxy, no cookies, no authentication cache; every attempt is a new, plain request.
+- Connection timeout 5 seconds, whole-response timeout 10 seconds, at most 64 KiB of response body read, of which the first 1 KiB is kept for the delivery log.
+- In the `local` profile, `axion.webhooks.allowed-local-ports` lets a developer receive webhooks on `localhost` for chosen ports; the setting does not exist in the default profile, so no deployed core can enable it.
