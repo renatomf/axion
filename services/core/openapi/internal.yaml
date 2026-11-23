@@ -30,6 +30,10 @@ tags:
     description: >-
       The keys a tenant's systems authenticate with on the public API. A key's
       secret is shown once, when it is issued, and never again.
+  - name: Webhook endpoints
+    description: >-
+      The URLs a tenant's events are sent to, as the public API manages them,
+      for the console. Every change needs a recent authentication.
 paths:
   /internal/me:
     get:
@@ -241,6 +245,312 @@ paths:
           $ref: "components.yaml#/responses/TooManyRequests"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
+  /internal/tenants/{tenant_id}/webhook_endpoints:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      operationId: listTenantWebhookEndpoints
+      tags: [Webhook endpoints]
+      summary: The tenant's webhook endpoints
+      description: >-
+        The tenant's webhook endpoints, newest first, a page at a time,
+        never with their secrets, as `GET /v1/webhook_endpoints` lists them.
+        To read the next page, send the `id` of the last endpoint of this
+        one as `starting_after`, while `has_more` is `true`. Requires
+        `webhooks:manage`.
+      parameters:
+        - name: limit
+          in: query
+          description: How many endpoints a page holds, from 1 to 100.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: starting_after
+          in: query
+          description: >-
+            The `id` of the last endpoint of the previous page; the page
+            holds the endpoints created before it. Omitted, the page is the
+            first.
+          schema:
+            type: string
+            pattern: "^we_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+      responses:
+        "200":
+          description: A page of the tenant's webhook endpoints, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "v1.yaml#/components/schemas/WebhookEndpointList"
+        "400":
+          $ref: "components.yaml#/responses/BadRequest"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          $ref: "components.yaml#/responses/Forbidden"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "422":
+          description: >-
+            Some parameters are outside their rules (`validation_failed`,
+            with `errors` naming each one).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
+    post:
+      operationId: createTenantWebhookEndpoint
+      tags: [Webhook endpoints]
+      summary: Register a webhook endpoint
+      description: >-
+        Registers an HTTPS URL to receive the tenant's events of
+        `enabled_events`, as `POST /v1/webhook_endpoints` does, and returns
+        the secret that signs the requests sent to it. The secret is in this
+        response only: store it, or roll a new one if it is lost. The URL
+        must name a host on the public internet by a domain name, on port
+        443 or a port from 1024 to 65535, and every address the name
+        resolves to must be public. A tenant has at most 16 endpoints.
+        Requires `webhooks:manage` and an authentication in the last 5
+        minutes; otherwise the `403` has the code `step_up_required` and an
+        RFC 9470 `WWW-Authenticate` challenge.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "v1.yaml#/components/schemas/CreateWebhookEndpointRequest"
+      responses:
+        "201":
+          description: The endpoint was registered, with its secret.
+          headers:
+            Location:
+              description: >-
+                The endpoint's path,
+                `/internal/tenants/{tenant_id}/webhook_endpoints/{endpoint_id}`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "v1.yaml#/components/schemas/CreatedWebhookEndpoint"
+        "400":
+          $ref: "components.yaml#/responses/BadRequest"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The caller may not manage webhooks (`insufficient_permission`),
+            the tenant is not active (`tenant_inactive`), or the caller must
+            authenticate again (`step_up_required`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "422":
+          description: >-
+            The endpoint was not registered. Some fields are invalid or
+            unknown (`validation_failed`, with `errors`; a refused `url`
+            carries the rule it failed as `reason`, never the addresses its
+            name resolved to), or the tenant has 16 endpoints already
+            (`limit_exceeded`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
+  /internal/tenants/{tenant_id}/webhook_endpoints/{endpoint_id}:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/WebhookEndpointId"
+    get:
+      operationId: getTenantWebhookEndpoint
+      tags: [Webhook endpoints]
+      summary: One of the tenant's webhook endpoints
+      description: >-
+        The endpoint as it is now, without its secret, which only its
+        creation and a roll return. Requires `webhooks:manage`.
+      responses:
+        "200":
+          description: The webhook endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: "v1.yaml#/components/schemas/WebhookEndpoint"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          $ref: "components.yaml#/responses/Forbidden"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
+    patch:
+      operationId: updateTenantWebhookEndpoint
+      tags: [Webhook endpoints]
+      summary: Update a webhook endpoint
+      description: >-
+        Changes the endpoint's URL, description, event types or status with
+        a JSON merge patch (RFC 7396), as `PATCH /v1/webhook_endpoints/{id}`
+        does: a field left out keeps its value. A new `url` is checked as at
+        registration. Sending the same patch again changes nothing more.
+        Requires `webhooks:manage` and an authentication in the last 5
+        minutes; otherwise the `403` has the code `step_up_required` and an
+        RFC 9470 `WWW-Authenticate` challenge.
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "v1.yaml#/components/schemas/UpdateWebhookEndpointRequest"
+          application/json:
+            schema:
+              $ref: "v1.yaml#/components/schemas/UpdateWebhookEndpointRequest"
+      responses:
+        "200":
+          description: The endpoint as it is now, without its secret.
+          content:
+            application/json:
+              schema:
+                $ref: "v1.yaml#/components/schemas/WebhookEndpoint"
+        "400":
+          $ref: "components.yaml#/responses/BadRequest"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The caller may not manage webhooks (`insufficient_permission`),
+            the tenant is not active (`tenant_inactive`), or the caller must
+            authenticate again (`step_up_required`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "422":
+          description: >-
+            The endpoint was not changed. Some fields are invalid, unknown or
+            null where they cannot be removed (`validation_failed`, with
+            `errors`; a refused `url` carries the rule it failed as
+            `reason`, never the addresses its name resolved to).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
+    delete:
+      operationId: deleteTenantWebhookEndpoint
+      tags: [Webhook endpoints]
+      summary: Delete a webhook endpoint
+      description: >-
+        Deletes the endpoint, as `DELETE /v1/webhook_endpoints/{id}` does: it
+        receives no events from then on, is no longer read or listed, and no
+        longer counts toward the tenant's 16 endpoints. Deleting it again
+        answers `404`. Requires `webhooks:manage` and an authentication in
+        the last 5 minutes; otherwise the `403` has the code
+        `step_up_required` and an RFC 9470 `WWW-Authenticate` challenge.
+      responses:
+        "204":
+          description: The endpoint was deleted.
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The caller may not manage webhooks (`insufficient_permission`),
+            the tenant is not active (`tenant_inactive`), or the caller must
+            authenticate again (`step_up_required`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
+  /internal/tenants/{tenant_id}/webhook_endpoints/{endpoint_id}/secret/roll:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/WebhookEndpointId"
+    post:
+      operationId: rollTenantWebhookEndpointSecret
+      tags: [Webhook endpoints]
+      summary: Roll a webhook endpoint's secret
+      description: >-
+        Issues a new secret to sign the requests sent to the endpoint, as
+        `POST /v1/webhook_endpoints/{id}/secret/roll` does, and lets the
+        current one keep signing for a grace period, so the new secret can
+        be deployed before the old one stops. The new secret is in this
+        response only. The secret rolls again only once the grace period has
+        ended, so a retried request answers `409`. The body is optional.
+        Requires `webhooks:manage` and an authentication in the last 5
+        minutes; otherwise the `403` has the code `step_up_required` and an
+        RFC 9470 `WWW-Authenticate` challenge.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "v1.yaml#/components/schemas/RollWebhookEndpointSecretRequest"
+      responses:
+        "200":
+          description: The secret was rolled; the new secret is in this response only.
+          content:
+            application/json:
+              schema:
+                $ref: "v1.yaml#/components/schemas/RolledWebhookEndpoint"
+        "400":
+          $ref: "components.yaml#/responses/BadRequest"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The caller may not manage webhooks (`insufficient_permission`),
+            the tenant is not active (`tenant_inactive`), or the caller must
+            authenticate again (`step_up_required`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "409":
+          description: >-
+            The previous roll's grace period has not ended
+            (`grace_period_active`; `detail` says when it ends).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "422":
+          description: >-
+            The secret was not rolled: the grace period is invalid or a field
+            is unknown (`validation_failed`, with `errors`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
 components:
   parameters:
     KeyId:
@@ -253,6 +563,16 @@ components:
       schema:
         type: string
         pattern: "^key_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+    WebhookEndpointId:
+      name: endpoint_id
+      in: path
+      required: true
+      description: >-
+        One of the tenant's webhook endpoints. An endpoint of another tenant,
+        existing or not, answers `404`.
+      schema:
+        type: string
+        pattern: "^we_[0-7][0-9a-hjkmnp-tv-z]{25}$"
     TenantId:
       name: tenant_id
       in: path

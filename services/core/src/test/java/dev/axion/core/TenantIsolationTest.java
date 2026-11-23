@@ -101,7 +101,19 @@ class TenantIsolationTest {
             Map.entry("getWebhookEndpoint", this::getWebhookEndpointHidesAnotherTenantsEndpoint),
             Map.entry("updateWebhookEndpoint", this::updateWebhookEndpointLeavesAnotherTenantsEndpointAsItWas),
             Map.entry("deleteWebhookEndpoint", this::deleteWebhookEndpointLeavesAnotherTenantsEndpointInPlace),
-            Map.entry("rollWebhookEndpointSecret", this::rollWebhookEndpointSecretLeavesAnotherTenantsSecretInPlace));
+            Map.entry("rollWebhookEndpointSecret", this::rollWebhookEndpointSecretLeavesAnotherTenantsSecretInPlace),
+            Map.entry("listTenantWebhookEndpoints", this::listTenantWebhookEndpointsHidesAnotherTenantsEndpoints),
+            Map.entry("getTenantWebhookEndpoint", this::getTenantWebhookEndpointHidesAnotherTenantsEndpoint),
+            Map.entry("createTenantWebhookEndpoint", this::createTenantWebhookEndpointRegistersNothingForAnotherTenant),
+            Map.entry(
+                    "updateTenantWebhookEndpoint",
+                    this::updateTenantWebhookEndpointLeavesAnotherTenantsEndpointAsItWas),
+            Map.entry(
+                    "deleteTenantWebhookEndpoint",
+                    this::deleteTenantWebhookEndpointLeavesAnotherTenantsEndpointInPlace),
+            Map.entry(
+                    "rollTenantWebhookEndpointSecret",
+                    this::rollTenantWebhookEndpointSecretLeavesAnotherTenantsSecretInPlace));
 
     @Autowired
     TenantIsolationTest(
@@ -358,6 +370,87 @@ class TenantIsolationTest {
 
         assertThat(request.sendWithKey(manager, "roll-2", "{}", own.publicId())).hasStatus(HttpStatus.OK);
         assertThat(secrets(own)).isEqualTo(2);
+    }
+
+    private void listTenantWebhookEndpointsHidesAnotherTenantsEndpoints(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookEndpointId own = endpoint(scene.caller().test());
+
+        assertNotFound(request.send(scene, null, scene.other().test().publicId()));
+
+        MvcTestResult result = request.send(scene, null, scene.caller().test().publicId());
+        assertThat(result).hasStatus(HttpStatus.OK);
+        assertThat(result)
+                .body()
+                .asString()
+                .contains(own.publicId().toString())
+                .doesNotContain(others.publicId().toString());
+    }
+
+    private void createTenantWebhookEndpointRegistersNothingForAnotherTenant(Request request, Scene scene) {
+        String body = """
+                {"url": "https://orders.example.com/axion", "enabled_events": ["charge.paid"]}
+                """;
+
+        assertNotFound(request.send(scene, body, scene.other().test().publicId()));
+        assertThat(endpoints(scene.other().test())).isZero();
+
+        assertThat(request.send(scene, body, scene.caller().test().publicId())).hasStatus(HttpStatus.CREATED);
+        assertThat(endpoints(scene.caller().test())).isOne();
+    }
+
+    private void updateTenantWebhookEndpointLeavesAnotherTenantsEndpointAsItWas(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookEndpointId own = endpoint(scene.caller().test());
+        String patch = """
+                {"url": "https://attacker.example.com/hooks"}
+                """;
+
+        assertNotFound(request.send(scene, patch, scene.other().test().publicId(), others.publicId()));
+        assertNotFound(request.send(scene, patch, scene.caller().test().publicId(), others.publicId()));
+        assertThat(TestCaller.call(scene.other().test(), Environment.TEST, () -> webhooks.endpoint(others)))
+                .hasValueSatisfying(endpoint -> assertThat(endpoint.url()).isEqualTo(ENDPOINT_URL));
+
+        assertThat(request.send(scene, patch, scene.caller().test().publicId(), own.publicId()))
+                .hasStatus(HttpStatus.OK);
+    }
+
+    private void deleteTenantWebhookEndpointLeavesAnotherTenantsEndpointInPlace(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookEndpointId own = endpoint(scene.caller().test());
+
+        assertNotFound(request.send(scene, null, scene.other().test().publicId(), others.publicId()));
+        assertNotFound(request.send(scene, null, scene.caller().test().publicId(), others.publicId()));
+        assertThat(TestCaller.call(scene.other().test(), Environment.TEST, () -> webhooks.endpoint(others)))
+                .isPresent();
+
+        assertThat(request.send(scene, null, scene.caller().test().publicId(), own.publicId()))
+                .hasStatus(HttpStatus.NO_CONTENT);
+    }
+
+    private void rollTenantWebhookEndpointSecretLeavesAnotherTenantsSecretInPlace(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookEndpointId own = endpoint(scene.caller().test());
+
+        assertNotFound(request.send(scene, null, scene.other().test().publicId(), others.publicId()));
+        assertNotFound(request.send(scene, null, scene.caller().test().publicId(), others.publicId()));
+        assertThat(secrets(others)).isOne();
+
+        assertThat(request.send(scene, null, scene.caller().test().publicId(), own.publicId()))
+                .hasStatus(HttpStatus.OK);
+        assertThat(secrets(own)).isEqualTo(2);
+    }
+
+    private void getTenantWebhookEndpointHidesAnotherTenantsEndpoint(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookEndpointId own = endpoint(scene.caller().test());
+
+        assertNotFound(request.send(scene, null, scene.other().test().publicId(), others.publicId()));
+        // The caller's own tenant in the path, with the other tenant's endpoint.
+        assertNotFound(request.send(scene, null, scene.caller().test().publicId(), others.publicId()));
+
+        assertThat(request.send(scene, null, scene.caller().test().publicId(), own.publicId()))
+                .hasStatus(HttpStatus.OK);
     }
 
     private long secrets(WebhookEndpointId endpoint) {

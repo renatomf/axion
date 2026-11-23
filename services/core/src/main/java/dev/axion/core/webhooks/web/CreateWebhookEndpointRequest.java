@@ -13,7 +13,7 @@ import org.jspecify.annotations.Nullable;
 
 // The limits of EndpointRequest, checked here so that a breach is a 422 naming the field. The URL's
 // rules that need its name resolved are the module's; a refusal is a 422 on url too. No tenant
-// field: the tenant is the API key's.
+// field: the tenant is the caller's.
 record CreateWebhookEndpointRequest(
         @NotNull @CodePointLength(max = WebhooksApi.MAX_URL_LENGTH)
         String url,
