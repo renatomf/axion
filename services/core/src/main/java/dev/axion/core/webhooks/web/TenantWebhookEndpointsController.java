@@ -5,6 +5,7 @@ import dev.axion.core.access.RequiresPermission;
 import dev.axion.core.access.RequiresStepUp;
 import dev.axion.core.tenancy.Permission;
 import dev.axion.core.webhooks.CreateEndpointResult;
+import dev.axion.core.webhooks.UpdateEndpointResult;
 import dev.axion.core.webhooks.WebhooksApi;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -12,8 +13,11 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import java.net.URI;
 import org.jspecify.annotations.Nullable;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -69,5 +73,30 @@ class TenantWebhookEndpointsController {
         return webhooks.endpoint(EndpointIds.inPath(id))
                 .map(WebhookEndpointResponse::of)
                 .orElseThrow(WebhookProblems::notFound);
+    }
+
+    // A JSON merge patch, under its own media type or application/json, as on /v1.
+    @RequiresPermission(Permission.WEBHOOKS_MANAGE)
+    @RequiresStepUp
+    @PatchMapping(
+            path = PATH + "/{endpoint_id}",
+            consumes = {WebhookEndpointsController.MERGE_PATCH, MediaType.APPLICATION_JSON_VALUE})
+    WebhookEndpointResponse update(
+            @PathVariable("endpoint_id") String id, @Valid @RequestBody UpdateWebhookEndpointRequest request) {
+        return switch (webhooks.update(EndpointIds.inPath(id), request.toEndpointChanges())) {
+            case UpdateEndpointResult.Updated updated -> WebhookEndpointResponse.of(updated.endpoint());
+            case UpdateEndpointResult.EndpointNotFound unknown -> throw WebhookProblems.notFound();
+            case UpdateEndpointResult.InvalidUrl invalid -> throw WebhookProblems.invalidUrl(invalid.reason());
+        };
+    }
+
+    @RequiresPermission(Permission.WEBHOOKS_MANAGE)
+    @RequiresStepUp
+    @DeleteMapping(PATH + "/{endpoint_id}")
+    ResponseEntity<Void> delete(@PathVariable("endpoint_id") String id) {
+        if (webhooks.delete(EndpointIds.inPath(id)).isEmpty()) {
+            throw WebhookProblems.notFound();
+        }
+        return ResponseEntity.noContent().build();
     }
 }

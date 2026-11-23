@@ -196,6 +196,59 @@ class TenantWebhookEndpointsControllerTest {
         assertThat(webhooksOf(organization.test())).isZero();
     }
 
+    @Test
+    void updatesAnEndpointWithAMergePatch() {
+        EndpointView endpoint = create(organization.test());
+
+        MvcTestResult result = send(
+                HttpMethod.PATCH,
+                PATH + "/{endpoint_id}",
+                RECENT,
+                """
+                {"url": "https://orders.example.com/axion/v2", "description": "Order service"}
+                """,
+                organization.test().publicId(),
+                endpoint.id().publicId());
+
+        assertThat(result).hasStatus(HttpStatus.OK);
+        assertThat(result).bodyJson().extractingPath("$.url").isEqualTo("https://orders.example.com/axion/v2");
+        assertThat(result).bodyJson().extractingPath("$.description").isEqualTo("Order service");
+    }
+
+    @Test
+    void requiresARecentAuthenticationToUpdate() {
+        EndpointView endpoint = create(organization.test());
+
+        assertStepUpRequired(send(
+                HttpMethod.PATCH,
+                PATH + "/{endpoint_id}",
+                OLD,
+                """
+                {"url": "https://attacker.example.com/hooks"}
+                """,
+                organization.test().publicId(),
+                endpoint.id().publicId()));
+        assertThat(TestCaller.call(organization.test(), Environment.TEST, () -> webhooks.endpoint(endpoint.id())))
+                .hasValueSatisfying(unchanged -> assertThat(unchanged.url()).isEqualTo(endpoint.url()));
+    }
+
+    @Test
+    void deletesAnEndpointOnce() {
+        EndpointView endpoint = create(organization.test());
+
+        assertThat(send(HttpMethod.DELETE, PATH + "/{endpoint_id}", RECENT, organization.test(), endpoint))
+                .hasStatus(HttpStatus.NO_CONTENT);
+        assertNotFound(send(HttpMethod.DELETE, PATH + "/{endpoint_id}", RECENT, organization.test(), endpoint));
+    }
+
+    @Test
+    void requiresARecentAuthenticationToDelete() {
+        EndpointView endpoint = create(organization.test());
+
+        assertStepUpRequired(send(HttpMethod.DELETE, PATH + "/{endpoint_id}", OLD, organization.test(), endpoint));
+        assertThat(webhooksOf(organization.test())).isOne();
+    }
+
     private long webhooksOf(TenantId tenant) {
         return Objects.requireNonNull(owner.sql("SELECT count(*) FROM webhooks.endpoints WHERE tenant_id = ?")
                 .param(tenant.value())

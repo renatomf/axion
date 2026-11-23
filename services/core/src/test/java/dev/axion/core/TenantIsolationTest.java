@@ -104,8 +104,13 @@ class TenantIsolationTest {
             Map.entry("rollWebhookEndpointSecret", this::rollWebhookEndpointSecretLeavesAnotherTenantsSecretInPlace),
             Map.entry("listTenantWebhookEndpoints", this::listTenantWebhookEndpointsHidesAnotherTenantsEndpoints),
             Map.entry("getTenantWebhookEndpoint", this::getTenantWebhookEndpointHidesAnotherTenantsEndpoint),
+            Map.entry("createTenantWebhookEndpoint", this::createTenantWebhookEndpointRegistersNothingForAnotherTenant),
             Map.entry(
-                    "createTenantWebhookEndpoint", this::createTenantWebhookEndpointRegistersNothingForAnotherTenant));
+                    "updateTenantWebhookEndpoint",
+                    this::updateTenantWebhookEndpointLeavesAnotherTenantsEndpointAsItWas),
+            Map.entry(
+                    "deleteTenantWebhookEndpoint",
+                    this::deleteTenantWebhookEndpointLeavesAnotherTenantsEndpointInPlace));
 
     @Autowired
     TenantIsolationTest(
@@ -389,6 +394,35 @@ class TenantIsolationTest {
 
         assertThat(request.send(scene, body, scene.caller().test().publicId())).hasStatus(HttpStatus.CREATED);
         assertThat(endpoints(scene.caller().test())).isOne();
+    }
+
+    private void updateTenantWebhookEndpointLeavesAnotherTenantsEndpointAsItWas(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookEndpointId own = endpoint(scene.caller().test());
+        String patch = """
+                {"url": "https://attacker.example.com/hooks"}
+                """;
+
+        assertNotFound(request.send(scene, patch, scene.other().test().publicId(), others.publicId()));
+        assertNotFound(request.send(scene, patch, scene.caller().test().publicId(), others.publicId()));
+        assertThat(TestCaller.call(scene.other().test(), Environment.TEST, () -> webhooks.endpoint(others)))
+                .hasValueSatisfying(endpoint -> assertThat(endpoint.url()).isEqualTo(ENDPOINT_URL));
+
+        assertThat(request.send(scene, patch, scene.caller().test().publicId(), own.publicId()))
+                .hasStatus(HttpStatus.OK);
+    }
+
+    private void deleteTenantWebhookEndpointLeavesAnotherTenantsEndpointInPlace(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookEndpointId own = endpoint(scene.caller().test());
+
+        assertNotFound(request.send(scene, null, scene.other().test().publicId(), others.publicId()));
+        assertNotFound(request.send(scene, null, scene.caller().test().publicId(), others.publicId()));
+        assertThat(TestCaller.call(scene.other().test(), Environment.TEST, () -> webhooks.endpoint(others)))
+                .isPresent();
+
+        assertThat(request.send(scene, null, scene.caller().test().publicId(), own.publicId()))
+                .hasStatus(HttpStatus.NO_CONTENT);
     }
 
     private void getTenantWebhookEndpointHidesAnotherTenantsEndpoint(Request request, Scene scene) {

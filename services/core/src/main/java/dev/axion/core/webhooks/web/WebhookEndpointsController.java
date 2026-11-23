@@ -31,7 +31,7 @@ class WebhookEndpointsController {
 
     private static final String PATH = "/v1/webhook_endpoints";
 
-    private static final String MERGE_PATCH = "application/merge-patch+json";
+    static final String MERGE_PATCH = "application/merge-patch+json";
 
     private final WebhooksApi webhooks;
 
