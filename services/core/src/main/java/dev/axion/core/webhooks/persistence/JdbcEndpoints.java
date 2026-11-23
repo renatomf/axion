@@ -2,17 +2,30 @@ package dev.axion.core.webhooks.persistence;
 
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.webhooks.DisabledReason;
+import dev.axion.core.webhooks.EndpointStatus;
 import dev.axion.core.webhooks.EndpointView;
 import dev.axion.core.webhooks.WebhookEndpointId;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
 @Repository
 public class JdbcEndpoints {
+
+    private static final String SELECT = """
+            SELECT id, url, description, enabled_events, status, disabled_reason, created_at
+              FROM webhooks.endpoints
+            """;
 
     private final JdbcClient jdbc;
 
@@ -71,6 +84,47 @@ public class JdbcEndpoints {
                 .param("ciphertext", ciphertext)
                 .param("createdAt", utc(createdAt))
                 .update();
+    }
+
+    public Optional<EndpointView> find(TenantId tenant, WebhookEndpointId id) {
+        return jdbc.sql(SELECT + " WHERE tenant_id = :tenant AND id = :id")
+                .param("tenant", tenant.value())
+                .param("id", id.value())
+                .query(JdbcEndpoints::view)
+                .optional();
+    }
+
+    /**
+     * Newest first, by ID: a UUIDv7 starts with its creation time.
+     *
+     * @param after the last endpoint of the previous page; only older ones follow it
+     */
+    public List<EndpointView> list(TenantId tenant, Optional<WebhookEndpointId> after, int count) {
+        StringBuilder sql = new StringBuilder(SELECT).append(" WHERE tenant_id = :tenant");
+        Map<String, Object> params = new HashMap<>();
+        params.put("tenant", tenant.value());
+        after.ifPresent(last -> {
+            sql.append(" AND id < :after");
+            params.put("after", last.value());
+        });
+        sql.append(" ORDER BY id DESC LIMIT :count");
+        params.put("count", count);
+        return jdbc.sql(sql.toString())
+                .params(params)
+                .query(JdbcEndpoints::view)
+                .list();
+    }
+
+    private static EndpointView view(ResultSet row, int rowNumber) throws SQLException {
+        String[] types = (String[]) row.getArray("enabled_events").getArray();
+        return new EndpointView(
+                new WebhookEndpointId(row.getObject("id", UUID.class)),
+                row.getString("url"),
+                Optional.ofNullable(row.getString("description")),
+                Set.of(types),
+                EndpointStatus.valueOf(row.getString("status")),
+                Optional.ofNullable(row.getString("disabled_reason")).map(DisabledReason::valueOf),
+                row.getObject("created_at", OffsetDateTime.class).toInstant());
     }
 
     // Bound as an offset, so the JVM's time zone never shifts the stored instant.

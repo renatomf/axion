@@ -8,6 +8,8 @@ import dev.axion.core.shared.TenantId;
 import dev.axion.core.shared.UuidV7Generator;
 import dev.axion.core.webhooks.CreateEndpointResult;
 import dev.axion.core.webhooks.CreatedEndpoint;
+import dev.axion.core.webhooks.EndpointCursor;
+import dev.axion.core.webhooks.EndpointPage;
 import dev.axion.core.webhooks.EndpointRequest;
 import dev.axion.core.webhooks.EndpointStatus;
 import dev.axion.core.webhooks.EndpointView;
@@ -23,6 +25,7 @@ import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -75,6 +78,34 @@ public class WebhooksService implements WebhooksApi {
             events.publishEvent(new WebhookEndpointCreated(header(endpoint.createdAt()), endpoint));
         }
         return result;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public EndpointPage endpoints(EndpointCursor cursor, int limit) {
+        if (limit < 1 || limit > MAX_PAGE_SIZE) {
+            throw new IllegalArgumentException("Page size must be between 1 and " + MAX_PAGE_SIZE + ": " + limit);
+        }
+        TenantId tenant = bound("Listing webhook endpoints");
+        return roles.call(ROLE, () -> page(tenant, cursor, limit));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<EndpointView> endpoint(WebhookEndpointId id) {
+        TenantId tenant = bound("Reading a webhook endpoint");
+        return roles.call(ROLE, () -> endpoints.find(tenant, id));
+    }
+
+    // One endpoint more than the limit tells whether there is a next page, so no cursor leads to an empty one.
+    private EndpointPage page(TenantId tenant, EndpointCursor cursor, int limit) {
+        List<EndpointView> found = endpoints.list(tenant, cursor.after(), Math.addExact(limit, 1));
+        if (found.size() <= limit) {
+            return new EndpointPage(found, Optional.empty());
+        }
+        List<EndpointView> page = found.subList(0, limit);
+        return new EndpointPage(
+                page, Optional.of(EndpointCursor.after(page.getLast().id())));
     }
 
     private CreateEndpointResult createWithinLimit(TenantId tenant, EndpointRequest request) {
