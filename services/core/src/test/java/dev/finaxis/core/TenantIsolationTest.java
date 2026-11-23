@@ -13,6 +13,10 @@ import dev.finaxis.core.billing.BillingApi;
 import dev.finaxis.core.billing.BillingFixtures;
 import dev.finaxis.core.billing.ChargeId;
 import dev.finaxis.core.billing.ChargeRequest;
+import dev.finaxis.core.billing.ChargeView;
+import dev.finaxis.core.rails.CreditResult;
+import dev.finaxis.core.rails.PixCredit;
+import dev.finaxis.core.rails.PixCreditHandler;
 import dev.finaxis.core.shared.Environment;
 import dev.finaxis.core.shared.Money;
 import dev.finaxis.core.shared.TenantContext;
@@ -72,6 +76,7 @@ class TenantIsolationTest {
     private final TenancyApi tenancy;
     private final DatabaseOwner owner;
     private final BillingApi billing;
+    private final PixCreditHandler settlement;
 
     private final Map<String, Attempt> attempts = Map.of(
             "getCurrentMember", this::currentMemberShowsNoOtherOrganization,
@@ -81,16 +86,23 @@ class TenantIsolationTest {
             "rollApiKey", this::rollApiKeyLeavesAnotherTenantsKeyUnrolled,
             "createCharge", this::createChargeCreatesNothingForAnotherTenant,
             "getCharge", this::getChargeHidesAnotherTenantsCharge,
-            "listCharges", this::listChargesHidesAnotherTenantsCharges);
+            "listCharges", this::listChargesHidesAnotherTenantsCharges,
+            "createRefund", this::createRefundRefundsNothingOfAnotherTenant);
 
     @Autowired
     TenantIsolationTest(
-            MockMvcTester mvc, AccessApi access, TenancyApi tenancy, DatabaseOwner owner, BillingApi billing) {
+            MockMvcTester mvc,
+            AccessApi access,
+            TenancyApi tenancy,
+            DatabaseOwner owner,
+            BillingApi billing,
+            PixCreditHandler settlement) {
         this.mvc = mvc;
         this.access = new TenantBoundAccess(access, tenancy);
         this.tenancy = tenancy;
         this.owner = owner;
         this.billing = billing;
+        this.settlement = settlement;
     }
 
     @TestFactory
@@ -225,11 +237,52 @@ class TenantIsolationTest {
                 .doesNotContain(others.publicId().toString());
     }
 
+    private void createRefundRefundsNothingOfAnotherTenant(Request request, Scene scene) {
+        IssuedApiKey refunder = AccessFixtures.issue(
+                access,
+                AccessFixtures.admin(scene.caller(), Environment.TEST),
+                "Back office",
+                Set.of(Permission.REFUNDS_WRITE));
+        ChargeId others = paidCharge(scene.other().test());
+        ChargeId own = paidCharge(scene.caller().test());
+
+        assertNotFound(request.sendWithKey(refunder, "refund-1", "{}", others.publicId()));
+        assertThat(refunds(scene.other().test())).isZero();
+
+        assertThat(request.sendWithKey(refunder, "refund-2", "{}", own.publicId()))
+                .hasStatus(HttpStatus.CREATED);
+        assertThat(refunds(scene.caller().test())).isOne();
+    }
+
     private ChargeId charge(TenantId tenant) {
+        return created(tenant).id();
+    }
+
+    private ChargeView created(TenantId tenant) {
         var request = ChargeRequest.of(Money.ofMinor(100, Currency.getInstance("BRL")));
         return TenantContext.call(
-                        tenant, Environment.TEST, () -> BillingFixtures.created(billing.createCharge(request)))
-                .id();
+                tenant, Environment.TEST, () -> BillingFixtures.created(billing.createCharge(request)));
+    }
+
+    private ChargeId paidCharge(TenantId tenant) {
+        ChargeView charge = created(tenant);
+        var credit = new PixCredit(
+                BillingFixtures.endToEndId(),
+                "M99990011" + UUID.randomUUID().toString().replace("-", "").substring(0, 23),
+                charge.transactionId(),
+                charge.amount(),
+                Instant.now(),
+                "99990011");
+        assertThat(settlement.handle(credit)).isEqualTo(CreditResult.RECORDED);
+        return charge.id();
+    }
+
+    private long refunds(TenantId tenant) {
+        return Objects.requireNonNull(owner.jdbc()
+                .sql("SELECT count(*) FROM billing.refunds WHERE tenant_id = ?")
+                .param(tenant.value())
+                .query(Long.class)
+                .single());
     }
 
     private long charges(TenantId tenant) {
@@ -328,9 +381,9 @@ class TenantIsolationTest {
         }
 
         /** The operation of {@code /v1}, sent with an API key of the caller's tenant. */
-        MvcTestResult sendWithKey(IssuedApiKey key, String idempotencyKey, String body) {
+        MvcTestResult sendWithKey(IssuedApiKey key, String idempotencyKey, String body, Object... pathVariables) {
             MvcTestResult result = mvc.method(HttpMethod.valueOf(operation.method()))
-                    .uri(operation.path())
+                    .uri(operation.path(), pathVariables)
                     .header("Authorization", "Bearer " + key.secret())
                     .header("Idempotency-Key", idempotencyKey)
                     .contentType(MediaType.APPLICATION_JSON)

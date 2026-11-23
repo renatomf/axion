@@ -17,6 +17,7 @@ import dev.finaxis.core.billing.domain.Charge;
 import dev.finaxis.core.billing.domain.TransactionId;
 import dev.finaxis.core.billing.persistence.JdbcCharges;
 import dev.finaxis.core.billing.persistence.JdbcPayments;
+import dev.finaxis.core.billing.persistence.JdbcRefunds;
 import dev.finaxis.core.ledger.AccountRequest;
 import dev.finaxis.core.ledger.AccountType;
 import dev.finaxis.core.ledger.LedgerApi;
@@ -57,7 +58,8 @@ public class BillingService implements BillingApi {
 
     private final JdbcCharges charges;
     private final JdbcPayments payments;
-    private final Refunds refunds;
+    private final JdbcRefunds refunds;
+    private final Refunds refunding;
     private final LedgerApi ledger;
     private final RiskApi risk;
     private final TenancyApi tenancy;
@@ -72,7 +74,8 @@ public class BillingService implements BillingApi {
     public BillingService(
             JdbcCharges charges,
             JdbcPayments payments,
-            Refunds refunds,
+            JdbcRefunds refunds,
+            Refunds refunding,
             LedgerApi ledger,
             RiskApi risk,
             TenancyApi tenancy,
@@ -80,13 +83,26 @@ public class BillingService implements BillingApi {
             BillingProperties properties,
             Clock clock,
             MeterRegistry meters) {
-        this(charges, payments, refunds, ledger, risk, tenancy, roles, properties, clock, meters, new SecureRandom());
+        this(
+                charges,
+                payments,
+                refunds,
+                refunding,
+                ledger,
+                risk,
+                tenancy,
+                roles,
+                properties,
+                clock,
+                meters,
+                new SecureRandom());
     }
 
     BillingService(
             JdbcCharges charges,
             JdbcPayments payments,
-            Refunds refunds,
+            JdbcRefunds refunds,
+            Refunds refunding,
             LedgerApi ledger,
             RiskApi risk,
             TenancyApi tenancy,
@@ -98,6 +114,7 @@ public class BillingService implements BillingApi {
         this.charges = charges;
         this.payments = payments;
         this.refunds = refunds;
+        this.refunding = refunding;
         this.ledger = ledger;
         this.risk = risk;
         this.tenancy = tenancy;
@@ -131,8 +148,8 @@ public class BillingService implements BillingApi {
         return result;
     }
 
-    // One snapshot, so a payment committed between the two reads cannot appear beside a charge it
-    // has not paid yet.
+    // One snapshot, so a payment or a refund committed between the reads cannot appear beside a
+    // charge it has not changed yet.
     @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Optional<ChargeDetail> charge(ChargeId charge) {
@@ -140,7 +157,8 @@ public class BillingService implements BillingApi {
         return roles.call(
                 ROLE,
                 () -> charges.find(binding, charge)
-                        .map(found -> new ChargeDetail(found, payments.views(found.id(), MAX_DETAIL_PAYMENTS))));
+                        .map(found -> new ChargeDetail(
+                                found, payments.views(found.id(), MAX_DETAIL_PAYMENTS), refunds.views(found.id()))));
     }
 
     @Override
@@ -156,7 +174,7 @@ public class BillingService implements BillingApi {
     @Override
     @Transactional
     public RefundResult refund(ChargeId charge, RefundRequest request) {
-        return refunds.refund(bound("Refunding a charge"), charge, request);
+        return refunding.refund(bound("Refunding a charge"), charge, request);
     }
 
     // One charge more than the limit tells whether there is a next page, so no cursor leads to an empty one.

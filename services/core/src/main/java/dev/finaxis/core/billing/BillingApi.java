@@ -25,7 +25,7 @@ public interface BillingApi {
     int MAX_DETAIL_PAYMENTS = 100;
 
     /**
-     * The tenant's charge, with its first {@value #MAX_DETAIL_PAYMENTS} payments, read from one snapshot; empty
+     * The tenant's charge, with its first {@value #MAX_DETAIL_PAYMENTS} payments and its refunds, read from one snapshot; empty
      * for an unknown ID and for another tenant's charge alike (section 12.1).
      *
      * @throws IllegalStateException if no tenant is bound, a bug in the caller

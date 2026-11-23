@@ -72,13 +72,14 @@ class ReadChargeTest {
     }
 
     @Test
-    void readsNoPaymentOfAChargeNotPaidYet() {
+    void readsNoPaymentOrRefundOfAChargeNotPaidYet() {
         var created = create(organization.test(), Environment.TEST, ChargeRequest.of(brl(10_000)));
 
-        assertThat(detail(organization.test(), Environment.TEST, created.id())
-                        .orElseThrow()
-                        .payments())
-                .isEmpty();
+        ChargeDetail detail =
+                detail(organization.test(), Environment.TEST, created.id()).orElseThrow();
+
+        assertThat(detail.payments()).isEmpty();
+        assertThat(detail.refunds()).isEmpty();
     }
 
     @Test
@@ -119,6 +120,21 @@ class ReadChargeTest {
     }
 
     @Test
+    void readsTheRefundsMadeOfTheChargeOldestFirst() {
+        var created = create(organization.test(), Environment.TEST, ChargeRequest.of(brl(10_000)));
+        settlement.handle(credit(created, 10_000, created.createdAt().plusSeconds(1)));
+        RefundView first = refund(created, 2_500);
+        RefundView second = refund(created, 1_500);
+
+        ChargeDetail detail =
+                detail(organization.test(), Environment.TEST, created.id()).orElseThrow();
+
+        assertThat(detail.refunds()).containsExactly(first, second);
+        assertThat(detail.charge().amountRefunded()).isEqualTo(brl(4_000));
+        assertThat(detail.payments().getFirst().amountRefunded()).isEqualTo(brl(4_000));
+    }
+
+    @Test
     void findsNoChargeOfAnotherTenant() {
         var created = create(organization.test(), Environment.TEST, ChargeRequest.of(brl(10_000)));
         var other = tenancy.createOrganization("Other", "subject-" + UUID.randomUUID());
@@ -154,6 +170,13 @@ class ReadChargeTest {
 
     private Optional<ChargeDetail> detail(TenantId tenant, Environment environment, ChargeId charge) {
         return TenantContext.call(tenant, environment, () -> billing.charge(charge));
+    }
+
+    private RefundView refund(ChargeView charge, long minorUnits) {
+        var request = new RefundRequest(Optional.empty(), Optional.of(brl(minorUnits)), "req-" + UUID.randomUUID());
+        RefundResult result =
+                TenantContext.call(organization.test(), Environment.TEST, () -> billing.refund(charge.id(), request));
+        return ((RefundResult.Refunded) result).refund();
     }
 
     private PixCredit credit(ChargeView charge, long minorUnits, Instant acceptedAt) {
