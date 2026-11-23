@@ -110,7 +110,10 @@ class TenantIsolationTest {
                     this::updateTenantWebhookEndpointLeavesAnotherTenantsEndpointAsItWas),
             Map.entry(
                     "deleteTenantWebhookEndpoint",
-                    this::deleteTenantWebhookEndpointLeavesAnotherTenantsEndpointInPlace));
+                    this::deleteTenantWebhookEndpointLeavesAnotherTenantsEndpointInPlace),
+            Map.entry(
+                    "rollTenantWebhookEndpointSecret",
+                    this::rollTenantWebhookEndpointSecretLeavesAnotherTenantsSecretInPlace));
 
     @Autowired
     TenantIsolationTest(
@@ -423,6 +426,19 @@ class TenantIsolationTest {
 
         assertThat(request.send(scene, null, scene.caller().test().publicId(), own.publicId()))
                 .hasStatus(HttpStatus.NO_CONTENT);
+    }
+
+    private void rollTenantWebhookEndpointSecretLeavesAnotherTenantsSecretInPlace(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookEndpointId own = endpoint(scene.caller().test());
+
+        assertNotFound(request.send(scene, null, scene.other().test().publicId(), others.publicId()));
+        assertNotFound(request.send(scene, null, scene.caller().test().publicId(), others.publicId()));
+        assertThat(secrets(others)).isOne();
+
+        assertThat(request.send(scene, null, scene.caller().test().publicId(), own.publicId()))
+                .hasStatus(HttpStatus.OK);
+        assertThat(secrets(own)).isEqualTo(2);
     }
 
     private void getTenantWebhookEndpointHidesAnotherTenantsEndpoint(Request request, Scene scene) {

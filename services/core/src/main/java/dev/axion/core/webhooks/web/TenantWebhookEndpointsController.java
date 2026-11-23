@@ -5,6 +5,7 @@ import dev.axion.core.access.RequiresPermission;
 import dev.axion.core.access.RequiresStepUp;
 import dev.axion.core.tenancy.Permission;
 import dev.axion.core.webhooks.CreateEndpointResult;
+import dev.axion.core.webhooks.RollSecretResult;
 import dev.axion.core.webhooks.UpdateEndpointResult;
 import dev.axion.core.webhooks.WebhooksApi;
 import jakarta.validation.Valid;
@@ -12,6 +13,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import java.net.URI;
+import java.time.Duration;
 import org.jspecify.annotations.Nullable;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -98,5 +100,21 @@ class TenantWebhookEndpointsController {
             throw WebhookProblems.notFound();
         }
         return ResponseEntity.noContent().build();
+    }
+
+    // No idempotency key: a retry finds the grace period the first roll began and answers 409.
+    @RequiresPermission(Permission.WEBHOOKS_MANAGE)
+    @RequiresStepUp
+    @PostMapping(PATH + "/{endpoint_id}/secret/roll")
+    RolledWebhookEndpointResponse rollSecret(
+            @PathVariable("endpoint_id") String id,
+            @Valid @RequestBody(required = false) @Nullable RollWebhookSecretRequest request) {
+        Duration grace = request == null ? WebhooksApi.DEFAULT_SECRET_GRACE : request.gracePeriod();
+        return switch (webhooks.rollSecret(EndpointIds.inPath(id), grace)) {
+            case RollSecretResult.Rolled rolled -> RolledWebhookEndpointResponse.of(rolled.secret());
+            case RollSecretResult.EndpointNotFound unknown -> throw WebhookProblems.notFound();
+            case RollSecretResult.GracePeriodActive active ->
+                throw WebhookProblems.gracePeriodActive(active.graceEndsAt());
+        };
     }
 }

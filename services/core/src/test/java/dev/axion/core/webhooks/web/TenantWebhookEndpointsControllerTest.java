@@ -249,6 +249,43 @@ class TenantWebhookEndpointsControllerTest {
         assertThat(webhooksOf(organization.test())).isOne();
     }
 
+    @Test
+    void rollsTheSecretOnceUntilTheGracePeriodEnds() {
+        EndpointView endpoint = create(organization.test());
+        String roll = PATH + "/{endpoint_id}/secret/roll";
+
+        MvcTestResult rolled = send(HttpMethod.POST, roll, RECENT, organization.test(), endpoint);
+        MvcTestResult again = send(HttpMethod.POST, roll, RECENT, organization.test(), endpoint);
+
+        assertThat(rolled).hasStatus(HttpStatus.OK);
+        assertThat(rolled).bodyJson().extractingPath("$.secret").asString().startsWith("whsec_");
+        assertThat(rolled)
+                .bodyJson()
+                .extractingPath("$.previous_secret_expires_at")
+                .isNotNull();
+        assertThat(again)
+                .hasStatus(HttpStatus.CONFLICT)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("grace_period_active");
+    }
+
+    @Test
+    void requiresARecentAuthenticationToRoll() {
+        EndpointView endpoint = create(organization.test());
+
+        assertStepUpRequired(
+                send(HttpMethod.POST, PATH + "/{endpoint_id}/secret/roll", OLD, organization.test(), endpoint));
+        assertThat(secretsOf(endpoint)).isOne();
+    }
+
+    private long secretsOf(EndpointView endpoint) {
+        return Objects.requireNonNull(owner.sql("SELECT count(*) FROM webhooks.secrets WHERE endpoint_id = ?")
+                .param(endpoint.id().value())
+                .query(Long.class)
+                .single());
+    }
+
     private long webhooksOf(TenantId tenant) {
         return Objects.requireNonNull(owner.sql("SELECT count(*) FROM webhooks.endpoints WHERE tenant_id = ?")
                 .param(tenant.value())

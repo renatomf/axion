@@ -485,6 +485,72 @@ paths:
           $ref: "components.yaml#/responses/TooManyRequests"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
+  /internal/tenants/{tenant_id}/webhook_endpoints/{endpoint_id}/secret/roll:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/WebhookEndpointId"
+    post:
+      operationId: rollTenantWebhookEndpointSecret
+      tags: [Webhook endpoints]
+      summary: Roll a webhook endpoint's secret
+      description: >-
+        Issues a new secret to sign the requests sent to the endpoint, as
+        `POST /v1/webhook_endpoints/{id}/secret/roll` does, and lets the
+        current one keep signing for a grace period, so the new secret can
+        be deployed before the old one stops. The new secret is in this
+        response only. The secret rolls again only once the grace period has
+        ended, so a retried request answers `409`. The body is optional.
+        Requires `webhooks:manage` and an authentication in the last 5
+        minutes; otherwise the `403` has the code `step_up_required` and an
+        RFC 9470 `WWW-Authenticate` challenge.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "v1.yaml#/components/schemas/RollWebhookEndpointSecretRequest"
+      responses:
+        "200":
+          description: The secret was rolled; the new secret is in this response only.
+          content:
+            application/json:
+              schema:
+                $ref: "v1.yaml#/components/schemas/RolledWebhookEndpoint"
+        "400":
+          $ref: "components.yaml#/responses/BadRequest"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The caller may not manage webhooks (`insufficient_permission`),
+            the tenant is not active (`tenant_inactive`), or the caller must
+            authenticate again (`step_up_required`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "409":
+          description: >-
+            The previous roll's grace period has not ended
+            (`grace_period_active`; `detail` says when it ends).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "422":
+          description: >-
+            The secret was not rolled: the grace period is invalid or a field
+            is unknown (`validation_failed`, with `errors`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
 components:
   parameters:
     KeyId:
