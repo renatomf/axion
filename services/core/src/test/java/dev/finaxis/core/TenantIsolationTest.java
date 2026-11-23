@@ -9,13 +9,20 @@ import dev.finaxis.core.access.AccessApi;
 import dev.finaxis.core.access.AccessFixtures;
 import dev.finaxis.core.access.IssuedApiKey;
 import dev.finaxis.core.access.TenantBoundAccess;
+import dev.finaxis.core.billing.BillingApi;
+import dev.finaxis.core.billing.ChargeId;
+import dev.finaxis.core.billing.ChargeRequest;
+import dev.finaxis.core.billing.CreateChargeResult;
 import dev.finaxis.core.shared.Environment;
+import dev.finaxis.core.shared.Money;
+import dev.finaxis.core.shared.TenantContext;
 import dev.finaxis.core.shared.TenantId;
 import dev.finaxis.core.tenancy.NewOrganization;
 import dev.finaxis.core.tenancy.Permission;
 import dev.finaxis.core.tenancy.TenancyApi;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Currency;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -64,6 +71,7 @@ class TenantIsolationTest {
     private final AccessApi access;
     private final TenancyApi tenancy;
     private final DatabaseOwner owner;
+    private final BillingApi billing;
 
     private final Map<String, Attempt> attempts = Map.of(
             "getCurrentMember", this::currentMemberShowsNoOtherOrganization,
@@ -71,14 +79,18 @@ class TenantIsolationTest {
             "issueApiKey", this::issueApiKeyIssuesNoKeyForAnotherTenant,
             "revokeApiKey", this::revokeApiKeyLeavesAnotherTenantsKeyWorking,
             "rollApiKey", this::rollApiKeyLeavesAnotherTenantsKeyUnrolled,
-            "createCharge", this::createChargeCreatesNothingForAnotherTenant);
+            "createCharge", this::createChargeCreatesNothingForAnotherTenant,
+            "getCharge", this::getChargeHidesAnotherTenantsCharge,
+            "listCharges", this::listChargesHidesAnotherTenantsCharges);
 
     @Autowired
-    TenantIsolationTest(MockMvcTester mvc, AccessApi access, TenancyApi tenancy, DatabaseOwner owner) {
+    TenantIsolationTest(
+            MockMvcTester mvc, AccessApi access, TenancyApi tenancy, DatabaseOwner owner, BillingApi billing) {
         this.mvc = mvc;
         this.access = new TenantBoundAccess(access, tenancy);
         this.tenancy = tenancy;
         this.owner = owner;
+        this.billing = billing;
     }
 
     @TestFactory
@@ -192,6 +204,35 @@ class TenantIsolationTest {
         assertThat(charges(scene.other().test())).isZero();
     }
 
+    private void getChargeHidesAnotherTenantsCharge(Request request, Scene scene) {
+        ChargeId others = charge(scene.other().test());
+        ChargeId own = charge(scene.caller().test());
+
+        assertNotFound(request.sendWithKey(scene.callerKey(), others.publicId()));
+        assertThat(request.sendWithKey(scene.callerKey(), own.publicId())).hasStatus(HttpStatus.OK);
+    }
+
+    private void listChargesHidesAnotherTenantsCharges(Request request, Scene scene) {
+        ChargeId others = charge(scene.other().test());
+        ChargeId own = charge(scene.caller().test());
+
+        MvcTestResult result = request.sendWithKey(scene.callerKey());
+        assertThat(result).hasStatus(HttpStatus.OK);
+        assertThat(result)
+                .body()
+                .asString()
+                .contains(own.publicId().toString())
+                .doesNotContain(others.publicId().toString());
+    }
+
+    private ChargeId charge(TenantId tenant) {
+        var request = ChargeRequest.of(Money.ofMinor(100, Currency.getInstance("BRL")));
+        return TenantContext.call(tenant, Environment.TEST, () -> switch (billing.createCharge(request)) {
+                    case CreateChargeResult.Created created -> created.charge();
+                })
+                .id();
+    }
+
     private long charges(TenantId tenant) {
         return Objects.requireNonNull(owner.jdbc()
                 .sql("SELECT count(*) FROM billing.charges WHERE tenant_id = ?")
@@ -273,6 +314,16 @@ class TenantIsolationTest {
                 request = request.contentType(MediaType.APPLICATION_JSON).content(body);
             }
             MvcTestResult result = request.exchange();
+            contract.assertConforms(result);
+            return result;
+        }
+
+        /** The operation of {@code /v1}, with no body, sent with an API key of the caller's tenant. */
+        MvcTestResult sendWithKey(IssuedApiKey key, Object... pathVariables) {
+            MvcTestResult result = mvc.method(HttpMethod.valueOf(operation.method()))
+                    .uri(operation.path(), pathVariables)
+                    .header("Authorization", "Bearer " + key.secret())
+                    .exchange();
             contract.assertConforms(result);
             return result;
         }

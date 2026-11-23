@@ -10,6 +10,7 @@ import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -19,8 +20,11 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.exc.UnrecognizedPropertyException;
@@ -64,6 +68,18 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return handleExceptionInternal(ex, problem, headers, unprocessable, request);
     }
 
+    // 422 for a query or path parameter too, named as the request spells it, such as created[gte]. A
+    // value Spring cannot convert, such as a word for a number, stays a 400.
+    @Override
+    protected @Nullable ResponseEntity<Object> handleHandlerMethodValidationException(
+            HandlerMethodValidationException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        HttpStatus unprocessable = HttpStatus.UNPROCESSABLE_CONTENT;
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(unprocessable, "The request has invalid fields.");
+        problem.setProperty(CODE, VALIDATION_FAILED);
+        problem.setProperty("errors", parameterErrors(ex));
+        return handleExceptionInternal(ex, problem, headers, unprocessable, request);
+    }
+
     // A field the request does not define is refused as invalid, not ignored, so a misspelled
     // optional field is not silently dropped. The rest of an unreadable body stays a 400.
     @Override
@@ -102,6 +118,28 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return Stream.concat(fields, objects)
                 .sorted(Comparator.comparing(FieldProblem::field).thenComparing(FieldProblem::detail))
                 .toList();
+    }
+
+    private static List<FieldProblem> parameterErrors(HandlerMethodValidationException ex) {
+        return ex.getParameterValidationResults().stream()
+                .flatMap(result -> result.getResolvableErrors().stream()
+                        .map(error -> new FieldProblem(
+                                parameterName(result.getMethodParameter()), message(error.getDefaultMessage()))))
+                .sorted(Comparator.comparing(FieldProblem::field).thenComparing(FieldProblem::detail))
+                .toList();
+    }
+
+    private static String parameterName(MethodParameter parameter) {
+        RequestParam query = parameter.getParameterAnnotation(RequestParam.class);
+        if (query != null && !query.name().isEmpty()) {
+            return query.name();
+        }
+        PathVariable path = parameter.getParameterAnnotation(PathVariable.class);
+        if (path != null && !path.name().isEmpty()) {
+            return path.name();
+        }
+        @Nullable String name = parameter.getParameterName();
+        return name == null ? "arg" + parameter.getParameterIndex() : jsonPath(name);
     }
 
     // Java names to the contract's snake_case: items[0].unitPrice becomes items[0].unit_price.

@@ -31,6 +31,13 @@ spring:
     # of silently skipping it.
     validate-migration-naming: true
 
+server:
+  tomcat:
+    # Let filters such as created[gte] reach the application with their
+    # brackets unencoded, as curl -g sends them; Tomcat otherwise refuses the
+    # request with an HTML page, before any Problem Details can be written.
+    relaxed-query-chars: "[,]"
+
 finaxis:
   members:
     # The Keycloak realm that issues members' access tokens. No default:
