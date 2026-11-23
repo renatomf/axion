@@ -188,7 +188,7 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | ↳ 1.35b | Create charge endpoint | `POST /v1/charges` in `v1.yaml`, then the endpoint, idempotent ([#210](https://github.com/renatomf/finaxis/pull/210)) |
 | 1.36 | Read charges | `GET /v1/charges` (cursor pagination, filters by status and date), `GET /v1/charges/{id}` ([#212](https://github.com/renatomf/finaxis/pull/212)) |
 | 1.37 | Basic risk rules | Pre-charge decision: amount and velocity rules |
-| ↳ 1.37a | Risk rules | The `risk` module: `RiskApi` with the amount, daily amount and hourly count rules, held by conditional counters |
+| ↳ 1.37a | Risk rules | The `risk` module: `RiskApi` with the amount, daily amount and hourly count rules, held by conditional counters ([#214](https://github.com/renatomf/finaxis/pull/214)) |
 | ↳ 1.37b | Risk before charging | The decision applied to charge creation |
 | 1.38 | Rails anti-corruption layer | The `rails` module: the callback endpoint on its own filter chain, its signature verification (RFC 9421, Ed25519), and the inbox that deduplicates credits by `EndToEndId` |
 | 1.39 | Settlement | The inbox processor and the `PixCreditHandler` port; one transaction: charge `PAID` + payment + ledger entry; flagged and unmatched payments; a charge's `payments` in `GET /v1/charges/{id}` |
