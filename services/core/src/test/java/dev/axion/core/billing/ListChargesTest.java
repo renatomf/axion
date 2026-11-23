@@ -7,8 +7,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.axion.core.DatabaseOwner;
 import dev.axion.core.PostgresTestConfiguration;
+import dev.axion.core.TestCaller;
 import dev.axion.core.shared.Environment;
-import dev.axion.core.shared.TenantContext;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.tenancy.NewOrganization;
 import dev.axion.core.tenancy.TenancyApi;
@@ -155,7 +155,7 @@ class ListChargesTest {
 
     private List<ChargeView> create(int count) {
         return IntStream.range(0, count)
-                .mapToObj(i -> TenantContext.call(
+                .mapToObj(i -> TestCaller.call(
                         organization.test(),
                         Environment.TEST,
                         () -> created(billing.createCharge(ChargeRequest.of(brl(100 + i))))))
@@ -163,11 +163,11 @@ class ListChargesTest {
     }
 
     private ChargePage list(ChargeFilter filter, ChargeCursor cursor, int limit) {
-        return TenantContext.call(organization.test(), Environment.TEST, () -> billing.charges(filter, cursor, limit));
+        return TestCaller.call(organization.test(), Environment.TEST, () -> billing.charges(filter, cursor, limit));
     }
 
     private ChargePage list(TenantId tenant, Environment environment) {
-        return TenantContext.call(
+        return TestCaller.call(
                 tenant, environment, () -> billing.charges(ChargeFilter.all(), ChargeCursor.first(), 10));
     }
 

@@ -2,6 +2,7 @@ package dev.axion.core.billing.application;
 
 import dev.axion.core.ModuleRoles;
 import dev.axion.core.billing.BillingApi;
+import dev.axion.core.billing.ChargeCreated;
 import dev.axion.core.billing.ChargeCursor;
 import dev.axion.core.billing.ChargeDetail;
 import dev.axion.core.billing.ChargeFilter;
@@ -24,6 +25,8 @@ import dev.axion.core.ledger.LedgerApi;
 import dev.axion.core.risk.ChargeDecision;
 import dev.axion.core.risk.RiskApi;
 import dev.axion.core.risk.RiskRule;
+import dev.axion.core.shared.EventHeader;
+import dev.axion.core.shared.EventId;
 import dev.axion.core.shared.TenantContext;
 import dev.axion.core.shared.UuidV7Generator;
 import dev.axion.core.tenancy.TenancyApi;
@@ -38,6 +41,7 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -68,6 +72,7 @@ public class BillingService implements BillingApi {
     private final Clock clock;
     private final SecureRandom random;
     private final UuidV7Generator ids;
+    private final ApplicationEventPublisher events;
     private final Counter created;
 
     @Autowired
@@ -81,6 +86,7 @@ public class BillingService implements BillingApi {
             TenancyApi tenancy,
             ModuleRoles roles,
             BillingProperties properties,
+            ApplicationEventPublisher events,
             Clock clock,
             MeterRegistry meters) {
         this(
@@ -93,6 +99,7 @@ public class BillingService implements BillingApi {
                 tenancy,
                 roles,
                 properties,
+                events,
                 clock,
                 meters,
                 new SecureRandom());
@@ -108,6 +115,7 @@ public class BillingService implements BillingApi {
             TenancyApi tenancy,
             ModuleRoles roles,
             BillingProperties properties,
+            ApplicationEventPublisher events,
             Clock clock,
             MeterRegistry meters,
             SecureRandom random) {
@@ -120,6 +128,7 @@ public class BillingService implements BillingApi {
         this.tenancy = tenancy;
         this.roles = roles;
         this.properties = properties;
+        this.events = events;
         this.clock = clock;
         this.random = random;
         this.ids = new UuidV7Generator(clock);
@@ -143,9 +152,12 @@ public class BillingService implements BillingApi {
 
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         Charge charge = Charge.create(new ChargeId(ids.next()), request.amount(), now, now.plus(request.expiresIn()));
-        CreateChargeResult result = roles.call(ROLE, () -> insert(tenant, charge, request));
+        ChargeView created = roles.call(ROLE, () -> insert(tenant, charge, request));
+        events.publishEvent(new ChargeCreated(
+                EventHeader.ofCurrentWork(new EventId(ids.next()), now),
+                new ChargeDetail(created, List.of(), List.of())));
         countOnCommit();
-        return result;
+        return new CreateChargeResult.Created(created);
     }
 
     // One snapshot, so a payment or a refund committed between the reads cannot appear beside a
@@ -205,7 +217,7 @@ public class BillingService implements BillingApi {
 
     // The transaction ID is unique across tenants (billing design, section 5.2), so a taken one,
     // whoever holds it, is a new draw and a new BR Code.
-    private CreateChargeResult insert(TenantView tenant, Charge charge, ChargeRequest request) {
+    private ChargeView insert(TenantView tenant, Charge charge, ChargeRequest request) {
         for (int draw = 1; draw <= MAX_TRANSACTION_ID_DRAWS; draw++) {
             TransactionId transactionId = TransactionId.generate(random);
             BrCode brCode = BrCode.encode(
@@ -215,7 +227,7 @@ public class BillingService implements BillingApi {
                     charge.amount(),
                     transactionId);
             if (charges.insertIfTransactionIdFree(tenant.id(), charge, request, transactionId, brCode)) {
-                return new CreateChargeResult.Created(view(tenant, charge, request, transactionId, brCode));
+                return view(tenant, charge, request, transactionId, brCode);
             }
         }
         throw new IllegalStateException(

@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.axion.core.ModuleRoles;
 import dev.axion.core.PostgresTestConfiguration;
+import dev.axion.core.TestCaller;
 import dev.axion.core.billing.ChargeRequest;
 import dev.axion.core.billing.ChargeView;
 import dev.axion.core.billing.domain.TransactionId;
@@ -16,7 +17,6 @@ import dev.axion.core.billing.persistence.JdbcRefunds;
 import dev.axion.core.ledger.LedgerApi;
 import dev.axion.core.risk.RiskApi;
 import dev.axion.core.shared.Environment;
-import dev.axion.core.shared.TenantContext;
 import dev.axion.core.tenancy.NewOrganization;
 import dev.axion.core.tenancy.TenancyApi;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -31,6 +31,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Import;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -52,6 +53,7 @@ class TransactionIdDrawTest {
     private final TenancyApi tenancy;
     private final ModuleRoles roles;
     private final BillingProperties properties;
+    private final ApplicationEventPublisher events;
     private final Clock clock;
     private final MeterRegistry meters;
     private final TransactionTemplate transaction;
@@ -70,6 +72,7 @@ class TransactionIdDrawTest {
             TenancyApi tenancy,
             ModuleRoles roles,
             BillingProperties properties,
+            ApplicationEventPublisher events,
             Clock clock,
             MeterRegistry meters,
             PlatformTransactionManager transactions) {
@@ -82,6 +85,7 @@ class TransactionIdDrawTest {
         this.tenancy = tenancy;
         this.roles = roles;
         this.properties = properties;
+        this.events = events;
         this.clock = clock;
         this.meters = meters;
         this.transaction = new TransactionTemplate(transactions);
@@ -129,6 +133,7 @@ class TransactionIdDrawTest {
                 tenancy,
                 roles,
                 properties,
+                events,
                 clock,
                 meters,
                 new ScriptedRandom(List.of(transactionIds)));
@@ -136,7 +141,7 @@ class TransactionIdDrawTest {
 
     // The service is not a Spring proxy here, so the test opens its transaction.
     private ChargeView create(BillingService billing, NewOrganization organization) {
-        return TenantContext.call(
+        return TestCaller.call(
                 organization.test(),
                 Environment.TEST,
                 () -> transaction.execute(status -> created(billing.createCharge(ChargeRequest.of(brl(10_000))))));

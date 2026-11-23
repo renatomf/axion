@@ -7,10 +7,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.axion.core.DatabaseOwner;
 import dev.axion.core.PostgresTestConfiguration;
+import dev.axion.core.TestCaller;
 import dev.axion.core.billing.application.BillingService;
 import dev.axion.core.risk.RiskRule;
 import dev.axion.core.shared.Environment;
-import dev.axion.core.shared.TenantContext;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.tenancy.NewOrganization;
 import dev.axion.core.tenancy.TenancyApi;
@@ -194,7 +194,7 @@ class CreateChargeTest {
 
     @Test
     void leavesNoChargeOrAccountWhenTheCallersTransactionRollsBack() {
-        var charge = TenantContext.call(
+        var charge = TestCaller.call(
                 organization.test(),
                 Environment.TEST,
                 () -> transaction.execute(status -> {
@@ -226,7 +226,7 @@ class CreateChargeTest {
 
     @Test
     void deniesAChargeARiskRuleRefusesAndWritesNothing() {
-        var result = TenantContext.call(
+        var result = TestCaller.call(
                 organization.test(),
                 Environment.TEST,
                 () -> billing.createCharge(ChargeRequest.of(brl(TEST_AMOUNT_LIMIT + 1))));
@@ -253,7 +253,7 @@ class CreateChargeTest {
     void givesItsShareOfTheWindowsBackWhenTheCallersTransactionRollsBack() {
         create(organization.test(), Environment.TEST, ChargeRequest.of(brl(10_000)));
 
-        TenantContext.run(
+        TestCaller.run(
                 organization.test(),
                 Environment.TEST,
                 () -> transaction.executeWithoutResult(status -> {
@@ -281,7 +281,7 @@ class CreateChargeTest {
         }
         var calls = new ArrayList<Callable<CreateChargeResult>>();
         for (int i = 0; i < 100; i++) {
-            calls.add(() -> TenantContext.call(
+            calls.add(() -> TestCaller.call(
                     organization.test(), Environment.TEST, () -> billing.createCharge(ChargeRequest.of(brl(100)))));
         }
 
@@ -313,7 +313,7 @@ class CreateChargeTest {
     void countsNoChargeWhoseTransactionRolledBack() {
         double before = chargesCreated();
 
-        TenantContext.run(
+        TestCaller.run(
                 organization.test(),
                 Environment.TEST,
                 () -> transaction.executeWithoutResult(status -> {
@@ -332,7 +332,7 @@ class CreateChargeTest {
     }
 
     private ChargeView create(TenantId tenant, Environment environment, ChargeRequest request) {
-        return TenantContext.call(tenant, environment, () -> created(billing.createCharge(request)));
+        return TestCaller.call(tenant, environment, () -> created(billing.createCharge(request)));
     }
 
     private List<Map<String, @Nullable Object>> windows(TenantId tenant) {

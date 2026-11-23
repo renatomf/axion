@@ -7,6 +7,7 @@ import dev.axion.core.DatabaseOwner;
 import dev.axion.core.MutableClock;
 import dev.axion.core.OpenApiContract;
 import dev.axion.core.PostgresTestConfiguration;
+import dev.axion.core.TestCaller;
 import dev.axion.core.access.AccessApi;
 import dev.axion.core.access.AccessFixtures;
 import dev.axion.core.access.IssuedApiKey;
@@ -36,7 +37,6 @@ import dev.axion.core.rails.PixCreditHandler;
 import dev.axion.core.shared.BusinessCalendar;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.Money;
-import dev.axion.core.shared.TenantContext;
 import dev.axion.core.tenancy.NewOrganization;
 import dev.axion.core.tenancy.Permission;
 import dev.axion.core.tenancy.TenancyApi;
@@ -136,7 +136,7 @@ class RefundsControllerTest {
         organization =
                 tenancy.createOrganization("Padaria São João", UUID.randomUUID().toString());
         refunder = issued(Environment.TEST, Permission.REFUNDS_WRITE);
-        charge = TenantContext.call(
+        charge = TestCaller.call(
                 organization.test(),
                 Environment.TEST,
                 () -> BillingFixtures.created(
@@ -279,7 +279,7 @@ class RefundsControllerTest {
     void refusesARefundBeyondTheFiftiethOfACharge() {
         pay(10_000);
         for (int i = 0; i < Charge.MAX_REFUNDS; i++) {
-            RefundResult made = TenantContext.call(
+            RefundResult made = TestCaller.call(
                     organization.test(),
                     Environment.TEST,
                     () -> billing.refund(
@@ -516,7 +516,7 @@ class RefundsControllerTest {
 
     /** Moves part of the tenant's available balance to another of its accounts, as a payout's hold will. */
     private void hold(Money amount) {
-        TenantContext.run(organization.test(), Environment.TEST, () -> {
+        TestCaller.run(organization.test(), Environment.TEST, () -> {
             AccountId available = ledger.openAccount(account("available"));
             AccountId held = ledger.openAccount(account("held"));
             PostResult result = ledger.post(new EntryRequest(
@@ -540,7 +540,7 @@ class RefundsControllerTest {
     }
 
     private ChargeView read() {
-        return TenantContext.call(organization.test(), Environment.TEST, () -> billing.charge(charge.id()))
+        return TestCaller.call(organization.test(), Environment.TEST, () -> billing.charge(charge.id()))
                 .orElseThrow()
                 .charge();
     }
