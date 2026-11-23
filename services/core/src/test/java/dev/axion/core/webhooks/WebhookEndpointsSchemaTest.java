@@ -33,6 +33,9 @@ class WebhookEndpointsSchemaTest {
 
     private static final String RLS_VIOLATION = "violates row-level security policy";
 
+    // An hour back, so a secret that ends when it was created has ended before the transaction's now().
+    private static final Instant CREATED_AT = Instant.now().minusSeconds(3_600);
+
     private final DatabaseOwner.Session session;
     private final JdbcClient jdbc;
     private final UUID tenant = UUID.randomUUID();
@@ -170,7 +173,7 @@ class WebhookEndpointsSchemaTest {
         var row = endpoint();
         insert(row);
 
-        assertThatThrownBy(() -> insertSecret(row.id, tenant, Instant.now().minusSeconds(60)))
+        assertThatThrownBy(() -> insertSecret(row.id, tenant, CREATED_AT.minusSeconds(1)))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("secrets_check");
     }
@@ -374,6 +377,53 @@ class WebhookEndpointsSchemaTest {
                 .hasMessageContaining(RLS_VIOLATION);
     }
 
+    @Test
+    void showsTheJobsRoleOnlyEndedSecrets() {
+        var row = endpoint();
+        insert(row);
+        insertSecret(row.id, tenant);
+        insertSecret(row.id, tenant, Instant.now().plusSeconds(3_600));
+        UUID ended = insertSecret(row.id, tenant, CREATED_AT);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThat(jdbc.sql("SELECT id FROM webhooks.secrets").query(UUID.class).list())
+                .containsExactly(ended);
+    }
+
+    @Test
+    void letsTheJobsRoleDeleteOnlyEndedSecrets() {
+        var row = endpoint();
+        insert(row);
+        insertSecret(row.id, tenant);
+        insertSecret(row.id, tenant, Instant.now().plusSeconds(3_600));
+        insertSecret(row.id, tenant, CREATED_AT);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThat(jdbc.sql("DELETE FROM webhooks.secrets").update()).isOne();
+    }
+
+    @Test
+    void deniesTheJobsRoleReadingASecret() {
+        var row = endpoint();
+        insert(row);
+        insertSecret(row.id, tenant, CREATED_AT);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> jdbc.sql("SELECT ciphertext FROM webhooks.secrets")
+                        .query(byte[].class)
+                        .list())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void deniesTheJobsRoleAnyEndpoint() {
+        insert(endpoint());
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> visibleEndpoints()).rootCause().hasMessageContaining("permission denied");
+    }
+
     private long visibleEndpoints() {
         return jdbc.sql("SELECT count(*) FROM webhooks.endpoints")
                 .query(Long.class)
@@ -413,18 +463,20 @@ class WebhookEndpointsSchemaTest {
         insertSecret(endpoint, owner, null);
     }
 
-    private void insertSecret(UUID endpoint, UUID owner, @Nullable Instant expiresAt) {
+    private UUID insertSecret(UUID endpoint, UUID owner, @Nullable Instant expiresAt) {
+        UUID id = UUID.randomUUID();
         jdbc.sql("""
                         INSERT INTO webhooks.secrets (id, endpoint_id, tenant_id, ciphertext, expires_at, created_at)
                         VALUES (:id, :endpoint, :tenant, :ciphertext, :expiresAt, :createdAt)
                         """)
-                .param("id", UUID.randomUUID())
+                .param("id", id)
                 .param("endpoint", endpoint)
                 .param("tenant", owner)
                 .param("ciphertext", new byte[] {1, 2, 3})
                 .param("expiresAt", expiresAt == null ? null : expiresAt.atOffset(ZoneOffset.UTC))
-                .param("createdAt", Instant.now().atOffset(ZoneOffset.UTC))
+                .param("createdAt", CREATED_AT.atOffset(ZoneOffset.UTC))
                 .update();
+        return id;
     }
 
     /** A valid enabled endpoint; each method changes one column. */

@@ -119,6 +119,14 @@ public class JdbcEndpoints {
         }
     }
 
+    /** Removes at most {@code limit} secrets of any tenant whose grace period ended by {@code now}. */
+    public int deleteEndedSecrets(Instant now, int limit) {
+        return jdbc.sql("""
+                        DELETE FROM webhooks.secrets
+                         WHERE id IN (SELECT id FROM webhooks.secrets WHERE expires_at <= :now LIMIT :limit)
+                        """).param("now", utc(now)).param("limit", limit).update();
+    }
+
     public Optional<EndpointView> find(TenantId tenant, WebhookEndpointId id) {
         return jdbc.sql(SELECT + " AND tenant_id = :tenant AND id = :id")
                 .param("tenant", tenant.value())
