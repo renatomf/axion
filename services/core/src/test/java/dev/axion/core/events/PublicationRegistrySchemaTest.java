@@ -21,7 +21,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The publication registry's table (events and webhooks design, section 4.2): written by the login
- * role, as Modulith writes it, and closed to every module role. Nothing is committed.
+ * role, as Modulith writes it, and closed to every other module's role. The events module's own role
+ * sees how far each publication has got, never the event it carries. Nothing is committed.
  */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
@@ -57,8 +58,8 @@ class PublicationRegistrySchemaTest {
     }
 
     @ParameterizedTest
-    @EnumSource(DatabaseRole.class)
-    void closesTheRegistryToEveryModuleRole(DatabaseRole role) {
+    @EnumSource(value = DatabaseRole.class, names = "EVENTS", mode = EnumSource.Mode.EXCLUDE)
+    void closesTheRegistryToEveryOtherModuleRole(DatabaseRole role) {
         assertThatThrownBy(() -> transaction.execute(status -> {
                     role.actAs(jdbc);
                     return Objects.requireNonNull(jdbc.sql("SELECT count(*) FROM events.event_publication")
@@ -67,5 +68,26 @@ class PublicationRegistrySchemaTest {
                 }))
                 .rootCause()
                 .hasMessageContaining("permission denied for schema events");
+    }
+
+    @Test
+    void letsTheEventsRoleReadProgressButNotEvents() {
+        Long counted = transaction.execute(status -> {
+            DatabaseRole.EVENTS.actAs(jdbc);
+            return jdbc.sql("""
+                            SELECT count(*) FROM events.event_publication
+                             WHERE completion_date IS NULL AND status = 'FAILED' AND completion_attempts >= 10
+                            """).query(Long.class).single();
+        });
+        assertThat(counted).isNotNull();
+
+        assertThatThrownBy(() -> transaction.execute(status -> {
+                    DatabaseRole.EVENTS.actAs(jdbc);
+                    return jdbc.sql("SELECT serialized_event FROM events.event_publication")
+                            .query(String.class)
+                            .list();
+                }))
+                .rootCause()
+                .hasMessageContaining("permission denied for table event_publication");
     }
 }
