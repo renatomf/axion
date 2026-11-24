@@ -449,6 +449,25 @@ A job verifies every chain each night, at 03:00 in America/Sao_Paulo, as `axion_
 
 The domain events marked in section 3.3: key, member and endpoint changes, settlements, flagged payments and refunds. The rule for a new event is the question an investigator would ask: who gave access, who moved money, who changed where the money's notifications go. Operations that only read are not audited in phase 1; revealing masked personal data, which the overview audits (section 4.4), arrives with the screen that reveals it.
 
+| Domain event | Action | Resource | Details |
+|---|---|---|---|
+| `ApiKeyIssued` | `api_key.issued` | `api_key` | `name`, `scopes` |
+| `ApiKeyRolled` | `api_key.rolled` | `api_key`, the key rolled | `name`, `scopes`, `replacement`, `expires_at` |
+| `ApiKeyRevoked` | `api_key.revoked` | `api_key` | `name`, `scopes` |
+| `WebhookEndpointCreated` | `webhook_endpoint.created` | `webhook_endpoint` | `url`, `enabled_events`, `status` |
+| `WebhookEndpointUpdated` | `webhook_endpoint.updated` | `webhook_endpoint` | the same, and `previous`, the endpoint before the change |
+| `WebhookEndpointDeleted` | `webhook_endpoint.deleted` | `webhook_endpoint` | `url`, `enabled_events`, `status` |
+| `WebhookSecretRolled` | `webhook_endpoint.secret_rolled` | `webhook_endpoint` | the same, and `previous_secret_expires_at` |
+| `WebhookEndpointDisabled` | `webhook_endpoint.disabled` | `webhook_endpoint` | the same, `disabled_reason` and `failing_since` |
+| `ChargePaid` | `charge.paid` | `charge` | `amount`, `currency`, `paid_at` |
+| `PaymentFlagged` | `payment.flagged` | `payment` | `amount`, `currency`, `charge`, `end_to_end_id`, `reason` |
+| `ChargeRefunded` | `charge.refunded` | `refund` | `amount`, `currency`, `charge`, `payment`, `status` |
+
+- Resources are written as their public IDs, such as `key_…` or `re_…`, so an investigator reads them as the API shows them. Amounts are in minor units, enumerations in lowercase, times in ISO 8601 UTC, and lists sorted, so the same facts always give the same canonical text.
+- An endpoint's description and a charge's description and metadata are the tenant's free text, which may hold personal data, and are never recorded.
+- `MemberRolesChanged` is recorded when member management publishes it (section 3.3).
+- `audit` reads these events and the views they carry from `access`, `webhooks` and `billing`, and the scopes of a key from `tenancy`; it calls none of them.
+
 ## 10. Live notifications
 
 The console's BFF opens one stream per member session and tenant:
