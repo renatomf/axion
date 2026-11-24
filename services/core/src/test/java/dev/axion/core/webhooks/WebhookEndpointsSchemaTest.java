@@ -378,15 +378,31 @@ class WebhookEndpointsSchemaTest {
     }
 
     @Test
-    void showsTheJobsRoleOnlyEndedSecrets() {
+    void letsTheJobsRoleReadTheSecretsThatSign() {
         var row = endpoint();
         insert(row);
-        insertSecret(row.id, tenant);
-        insertSecret(row.id, tenant, Instant.now().plusSeconds(3_600));
+        UUID current = insertSecret(row.id, tenant, null);
+        UUID rolled = insertSecret(row.id, tenant, Instant.now().plusSeconds(3_600));
+        insertSecret(row.id, tenant, CREATED_AT);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThat(jdbc.sql("""
+                                SELECT id FROM webhooks.secrets
+                                 WHERE endpoint_id = ? AND ciphertext IS NOT NULL
+                                   AND (expires_at IS NULL OR expires_at > now())
+                                """).param(row.id).query(UUID.class).list()).containsExactlyInAnyOrder(current, rolled);
+    }
+
+    @Test
+    void showsTheJobsRoleTheEndedSecretsItRemoves() {
+        var row = endpoint();
+        insert(row);
         UUID ended = insertSecret(row.id, tenant, CREATED_AT);
         DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
 
-        assertThat(jdbc.sql("SELECT id FROM webhooks.secrets").query(UUID.class).list())
+        assertThat(jdbc.sql("SELECT id FROM webhooks.secrets WHERE expires_at <= now()")
+                        .query(UUID.class)
+                        .list())
                 .containsExactly(ended);
     }
 
@@ -403,15 +419,14 @@ class WebhookEndpointsSchemaTest {
     }
 
     @Test
-    void deniesTheJobsRoleReadingASecret() {
+    void deniesTheJobsRoleChangingASecret() {
         var row = endpoint();
         insert(row);
-        insertSecret(row.id, tenant, CREATED_AT);
+        insertSecret(row.id, tenant);
         DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
 
-        assertThatThrownBy(() -> jdbc.sql("SELECT ciphertext FROM webhooks.secrets")
-                        .query(byte[].class)
-                        .list())
+        assertThatThrownBy(() -> jdbc.sql("UPDATE webhooks.secrets SET expires_at = now()")
+                        .update())
                 .rootCause()
                 .hasMessageContaining("permission denied");
     }
