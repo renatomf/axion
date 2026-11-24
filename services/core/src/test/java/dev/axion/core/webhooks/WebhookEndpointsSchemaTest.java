@@ -128,6 +128,30 @@ class WebhookEndpointsSchemaTest {
     }
 
     @Test
+    void storesTheEnvironmentOfItsTenant() {
+        var row = endpoint().environment("LIVE");
+        insert(row);
+
+        assertThat(jdbc.sql("SELECT environment FROM webhooks.endpoints WHERE id = ?")
+                        .param(row.id)
+                        .query(String.class)
+                        .single())
+                .isEqualTo("LIVE");
+    }
+
+    @Test
+    void rejectsAnUnknownEnvironment() {
+        assertRejected(endpoint().environment("STAGING"), "endpoints_environment_check");
+    }
+
+    @Test
+    void rejectsAnEndpointWithNoEnvironment() {
+        assertThatThrownBy(() -> insert(endpoint().environment(null)))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("environment");
+    }
+
+    @Test
     void rejectsAnUnknownStatus() {
         assertRejected(endpoint().status("PAUSED", null), "endpoints_status_check");
     }
@@ -576,13 +600,14 @@ class WebhookEndpointsSchemaTest {
     private void insert(Endpoint row) {
         jdbc.sql("""
                         INSERT INTO webhooks.endpoints
-                               (id, tenant_id, url, description, enabled_events, status, disabled_reason,
-                                created_at, updated_at)
-                        VALUES (:id, :tenant, :url, :description, :events, :status, :reason,
-                                :createdAt, :createdAt)
+                               (id, tenant_id, environment, url, description, enabled_events, status,
+                                disabled_reason, created_at, updated_at)
+                        VALUES (:id, :tenant, :environment, :url, :description, :events, :status,
+                                :reason, :createdAt, :createdAt)
                         """)
                 .param("id", row.id)
                 .param("tenant", row.tenant)
+                .param("environment", row.environment)
                 .param("url", row.url)
                 .param("description", row.description)
                 .param("events", row.events)
@@ -617,6 +642,7 @@ class WebhookEndpointsSchemaTest {
 
         private final UUID id = UUID.randomUUID();
         private UUID tenant;
+        private @Nullable String environment = "TEST";
         private String url = "https://example.com/axion/webhooks";
         private @Nullable String description = "Order service";
         private @Nullable String[] events = {"charge.paid", "charge.refunded"};
@@ -630,6 +656,11 @@ class WebhookEndpointsSchemaTest {
 
         Endpoint tenant(UUID value) {
             tenant = value;
+            return this;
+        }
+
+        Endpoint environment(@Nullable String value) {
+            environment = value;
             return this;
         }
 

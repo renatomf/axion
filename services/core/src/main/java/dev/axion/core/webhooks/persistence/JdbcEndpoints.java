@@ -1,5 +1,6 @@
 package dev.axion.core.webhooks.persistence;
 
+import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.webhooks.DisabledReason;
 import dev.axion.core.webhooks.EndpointStatus;
@@ -49,16 +50,18 @@ public class JdbcEndpoints {
                 .single();
     }
 
-    public void insert(TenantId tenant, EndpointView endpoint) {
+    /** Registers the endpoint for the tenant, which acts in the environment. */
+    public void insert(TenantId tenant, Environment environment, EndpointView endpoint) {
         jdbc.sql("""
                         INSERT INTO webhooks.endpoints
-                               (id, tenant_id, url, description, enabled_events, status, disabled_reason,
-                                created_at, updated_at)
-                        VALUES (:id, :tenant, :url, :description, :events, :status, :reason,
-                                :createdAt, :createdAt)
+                               (id, tenant_id, environment, url, description, enabled_events, status,
+                                disabled_reason, created_at, updated_at)
+                        VALUES (:id, :tenant, :environment, :url, :description, :events, :status,
+                                :reason, :createdAt, :createdAt)
                         """)
                 .param("id", endpoint.id().value())
                 .param("tenant", tenant.value())
+                .param("environment", environment.name())
                 .param("url", endpoint.url())
                 .param("description", endpoint.description().orElse(null))
                 .param("events", sortedTypes(endpoint))

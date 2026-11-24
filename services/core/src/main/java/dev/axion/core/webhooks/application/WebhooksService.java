@@ -79,7 +79,7 @@ public class WebhooksService implements WebhooksApi {
     @Transactional
     public CreateEndpointResult create(EndpointRequest request) {
         requireLimits(request);
-        TenantId tenant = bound("Registering a webhook endpoint");
+        TenantContext.Binding tenant = binding("Registering a webhook endpoint");
         // Before the lock: resolving the name may take seconds, and needs no row.
         if (urls.validate(request.url()) instanceof UrlValidation.Refused refused) {
             return new CreateEndpointResult.InvalidUrl(refused.reason());
@@ -230,7 +230,8 @@ public class WebhooksService implements WebhooksApi {
                 page, Optional.of(EndpointCursor.after(page.getLast().id())));
     }
 
-    private CreateEndpointResult createWithinLimit(TenantId tenant, EndpointRequest request) {
+    private CreateEndpointResult createWithinLimit(TenantContext.Binding binding, EndpointRequest request) {
+        TenantId tenant = binding.tenant();
         // Concurrent registrations are counted one after another, so they cannot pass the limit together.
         endpoints.lockTenantEndpoints(tenant);
         if (endpoints.count(tenant) >= MAX_ENDPOINTS) {
@@ -245,7 +246,7 @@ public class WebhooksService implements WebhooksApi {
                 EndpointStatus.ENABLED,
                 Optional.empty(),
                 now);
-        endpoints.insert(tenant, endpoint);
+        endpoints.insert(tenant, binding.environment(), endpoint);
         SigningSecret secret = SigningSecret.generate(random);
         endpoints.insertSecret(ids.next(), tenant, endpoint.id(), cipher.encrypt(secret, endpoint.id()), now);
         return new CreateEndpointResult.Created(new CreatedEndpoint(endpoint, secret));
@@ -261,9 +262,11 @@ public class WebhooksService implements WebhooksApi {
     }
 
     private static TenantId bound(String work) {
-        return TenantContext.current()
-                .orElseThrow(() -> new IllegalStateException(work + " needs a tenant bound"))
-                .tenant();
+        return binding(work).tenant();
+    }
+
+    private static TenantContext.Binding binding(String work) {
+        return TenantContext.current().orElseThrow(() -> new IllegalStateException(work + " needs a tenant bound"));
     }
 
     // The schema checks the same rules; checking first gives a clear error, not a constraint name,

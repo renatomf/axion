@@ -47,8 +47,8 @@ class WebhookDeliveriesSchemaTest {
     void insertAnEndpointAndAnEvent() {
         jdbc.sql("""
                         INSERT INTO webhooks.endpoints
-                               (id, tenant_id, url, enabled_events, status, created_at, updated_at)
-                        VALUES (?, ?, 'https://example.com/axion/webhooks', '{*}', 'ENABLED', now(), now())
+                               (id, tenant_id, environment, url, enabled_events, status, created_at, updated_at)
+                        VALUES (?, ?, 'TEST', 'https://example.com/axion/webhooks', '{*}', 'ENABLED', now(), now())
                         """).params(endpoint, tenant).update();
         insertEvent(event);
     }
