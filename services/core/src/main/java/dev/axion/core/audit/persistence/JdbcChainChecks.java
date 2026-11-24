@@ -23,6 +23,21 @@ public class JdbcChainChecks {
         this.jdbc = jdbc;
     }
 
+    /**
+     * Every tenant with a chain: with a head, or with records, so a chain whose head was removed is
+     * verified too.
+     */
+    public List<TenantId> chains() {
+        return jdbc.sql("""
+                        SELECT tenant_id FROM audit.chain_heads
+                        UNION
+                        SELECT DISTINCT tenant_id FROM audit.records
+                         ORDER BY tenant_id
+                        """)
+                .query((row, number) -> new TenantId(row.getObject("tenant_id", UUID.class)))
+                .list();
+    }
+
     /** The tenant's chain head; empty for a tenant that has no chain. */
     public Optional<ChainHead> head(TenantId tenant) {
         return jdbc.sql("SELECT sequence, hash FROM audit.chain_heads WHERE tenant_id = ?")
