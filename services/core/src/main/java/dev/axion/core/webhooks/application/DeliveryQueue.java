@@ -15,7 +15,9 @@ import dev.axion.core.webhooks.domain.SigningSecret;
 import dev.axion.core.webhooks.domain.WebhookSignature;
 import dev.axion.core.webhooks.http.SignedEvent;
 import dev.axion.core.webhooks.http.WebhookClient;
+import dev.axion.core.webhooks.persistence.Claim;
 import dev.axion.core.webhooks.persistence.ClaimedDelivery;
+import dev.axion.core.webhooks.persistence.ClaimedReplay;
 import dev.axion.core.webhooks.persistence.DisabledEndpoint;
 import dev.axion.core.webhooks.persistence.JdbcQueue;
 import java.nio.charset.StandardCharsets;
@@ -50,9 +52,13 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>A delivery that fails is attempted again as {@link RetryPolicy} schedules, until it succeeds
  * or its attempts run out (section 8.5). Each recorded attempt updates its endpoint's health, and an
- * endpoint that has failed long enough is disabled, its pending deliveries canceled and {@link
- * WebhookEndpointDisabled} published, all in the attempt's transaction (section 8.6). A delivery that
+ * endpoint that has failed long enough is disabled, its pending deliveries and replays canceled and
+ * {@link WebhookEndpointDisabled} published, all in the attempt's transaction (section 8.6). A delivery that
  * cannot be signed is not sent: it keeps its lease until it passes, and is claimed again.
+ *
+ * <p>The replays a tenant asked for are claimed in the same transaction, with the room the due
+ * deliveries leave, and sent alike (section 8.7). A replay is recorded in the log as one and marked
+ * sent; it changes neither its delivery's status and schedule nor its endpoint's health.
  */
 @Service
 public class DeliveryQueue implements DisposableBean {
@@ -114,17 +120,17 @@ public class DeliveryQueue implements DisposableBean {
             return List.of();
         }
         Instant now = now();
-        List<ClaimedDelivery> claimed = Objects.requireNonNull(transactions.execute(
-                status -> roles.call(ROLE, () -> queue.claim(now, now.plus(LEASE), free, PER_ENDPOINT))));
+        List<Claim> claimed =
+                Objects.requireNonNull(transactions.execute(status -> roles.call(ROLE, () -> claim(now, free))));
         List<Future<?>> sends = new ArrayList<>(claimed.size());
         // One correlation ID for the pass, which every event of its sends carries.
         String run = UUID.randomUUID().toString();
-        for (ClaimedDelivery delivery : claimed) {
+        for (Claim claim : claimed) {
             // Only this thread takes room, and it took no more than was free.
             room.acquireUninterruptibly();
             sends.add(senders.submit(() -> {
                 try {
-                    send(delivery, run);
+                    send(claim, run);
                 } finally {
                     room.release();
                 }
@@ -133,30 +139,49 @@ public class DeliveryQueue implements DisposableBean {
         return sends;
     }
 
-    private void send(ClaimedDelivery delivery, String run) {
-        String event = new EventId(delivery.event()).publicId().toString();
-        if (delivery.secrets().isEmpty()) {
+    // Due deliveries first, then replays with the room they leave. One transaction under the claims'
+    // lock, so each claim counts what the other leased.
+    private List<Claim> claim(Instant now, int free) {
+        List<Claim> claimed = new ArrayList<>(queue.claim(now, now.plus(LEASE), free, PER_ENDPOINT));
+        int left = free - claimed.size();
+        if (left > 0) {
+            claimed.addAll(queue.claimReplays(now, now.plus(LEASE), left, PER_ENDPOINT));
+        }
+        return claimed;
+    }
+
+    private void send(Claim claim, String run) {
+        String event = new EventId(claim.event()).publicId().toString();
+        if (claim.secrets().isEmpty()) {
             LOG.error(
                     "Webhook delivery {} of event {} to endpoint {} was not sent: the endpoint has no secret that signs",
-                    delivery.id(),
+                    claim.delivery(),
                     event,
-                    delivery.endpoint());
+                    claim.endpoint());
             return;
         }
         SignedEvent signed;
         try {
-            signed = sign(delivery, event);
+            signed = sign(claim, event);
         } catch (GeneralSecurityException e) {
             LOG.error(
                     "Webhook delivery {} of event {} to endpoint {} was not sent: its secrets do not decrypt",
-                    delivery.id(),
+                    claim.delivery(),
                     event,
-                    delivery.endpoint(),
+                    claim.endpoint(),
                     e);
             return;
         }
         Instant started = now();
-        SentAttempt sent = client.send(delivery.url(), signed);
+        SentAttempt sent = client.send(claim.url(), signed);
+        switch (claim) {
+            case ClaimedDelivery delivery -> recordScheduled(delivery, event, started, sent, run);
+            case ClaimedReplay replay -> recordReplay(replay, event, started, sent);
+        }
+    }
+
+    private void recordScheduled(
+            ClaimedDelivery delivery, String event, Instant started, SentAttempt sent, String run) {
         Attempt attempt = sent.attempt();
         Instant ended = now();
         int number = delivery.attemptCount() + 1;
@@ -202,9 +227,30 @@ public class DeliveryQueue implements DisposableBean {
         recorded.disabled()
                 .ifPresent(disabled -> LOG.warn(
                         "Disabled webhook endpoint {}: its attempts have failed since {}; its pending deliveries"
-                                + " were canceled",
+                                + " and replays were canceled",
                         delivery.endpoint(),
                         disabled.failingSince()));
+    }
+
+    // The request goes in the log whatever became of the replay meanwhile: it was sent.
+    private void recordReplay(ClaimedReplay replay, String event, Instant started, SentAttempt sent) {
+        boolean recorded = Objects.requireNonNull(transactions.execute(transaction -> roles.call(ROLE, () -> {
+            queue.recordAttempt(ids.next(), replay, started, sent);
+            return queue.sent(replay);
+        })));
+        if (!recorded) {
+            LOG.info(
+                    "Replay {} of webhook delivery {} changed during its request; it was recorded, not marked sent",
+                    replay.id(),
+                    replay.delivery());
+            return;
+        }
+        LOG.info(
+                "Replayed event {} to webhook endpoint {} for delivery {} ({})",
+                event,
+                replay.endpoint(),
+                replay.delivery(),
+                sent.attempt());
     }
 
     /** Whether an attempt's result was recorded, and the endpoint it disabled if any. */
@@ -246,6 +292,7 @@ public class DeliveryQueue implements DisposableBean {
         }
         DisabledEndpoint disabled = queue.disable(delivery.endpoint(), ended);
         queue.cancelPending(delivery.endpoint());
+        queue.cancelPendingReplays(delivery.endpoint());
         return new Recorded(
                 true, Optional.of(new Disabled(disabled, after.failingSince().orElseThrow())));
     }
@@ -259,14 +306,14 @@ public class DeliveryQueue implements DisposableBean {
     }
 
     // Signed at the attempt's time, so a request sent again is signed afresh.
-    private SignedEvent sign(ClaimedDelivery delivery, String event) throws GeneralSecurityException {
-        var endpoint = new WebhookEndpointId(delivery.endpoint());
-        List<SigningSecret> secrets = new ArrayList<>(delivery.secrets().size());
-        for (byte[] ciphertext : delivery.secrets()) {
+    private SignedEvent sign(Claim claim, String event) throws GeneralSecurityException {
+        var endpoint = new WebhookEndpointId(claim.endpoint());
+        List<SigningSecret> secrets = new ArrayList<>(claim.secrets().size());
+        for (byte[] ciphertext : claim.secrets()) {
             secrets.add(cipher.decrypt(ciphertext, endpoint));
         }
         long timestamp = clock.instant().getEpochSecond();
-        byte[] body = delivery.body().getBytes(StandardCharsets.UTF_8);
+        byte[] body = claim.body().getBytes(StandardCharsets.UTF_8);
         return new SignedEvent(event, timestamp, WebhookSignature.header(secrets, event, timestamp, body), body);
     }
 

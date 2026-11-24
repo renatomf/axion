@@ -117,6 +117,7 @@ class WebhookDeliveriesControllerTest {
                     {
                       "id": "%s",
                       "object": "webhook_attempt",
+                      "replay": false,
                       "started_at": "2026-11-24T12:00:00Z",
                       "duration_ms": 10000,
                       "status_code": null,
@@ -126,6 +127,7 @@ class WebhookDeliveriesControllerTest {
                     {
                       "id": "%s",
                       "object": "webhook_attempt",
+                      "replay": false,
                       "started_at": "2026-11-24T12:01:00Z",
                       "duration_ms": 87,
                       "status_code": 200,

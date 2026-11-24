@@ -20,6 +20,7 @@ import dev.axion.core.webhooks.EndpointPage;
 import dev.axion.core.webhooks.EndpointRequest;
 import dev.axion.core.webhooks.EndpointStatus;
 import dev.axion.core.webhooks.EndpointView;
+import dev.axion.core.webhooks.ReplayResult;
 import dev.axion.core.webhooks.RollSecretResult;
 import dev.axion.core.webhooks.RolledSecret;
 import dev.axion.core.webhooks.UpdateEndpointResult;
@@ -37,6 +38,7 @@ import dev.axion.core.webhooks.domain.WebhookUrlValidator;
 import dev.axion.core.webhooks.persistence.JdbcDeliveries;
 import dev.axion.core.webhooks.persistence.JdbcDeliveryLog;
 import dev.axion.core.webhooks.persistence.JdbcEndpoints;
+import dev.axion.core.webhooks.persistence.JdbcReplays;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
@@ -57,6 +59,7 @@ public class WebhooksService implements WebhooksApi {
     private final JdbcEndpoints endpoints;
     private final JdbcDeliveries deliveries;
     private final JdbcDeliveryLog log;
+    private final JdbcReplays replays;
     private final WebhookUrlValidator urls;
     private final SecretCipher cipher;
     private final ModuleRoles roles;
@@ -69,6 +72,7 @@ public class WebhooksService implements WebhooksApi {
             JdbcEndpoints endpoints,
             JdbcDeliveries deliveries,
             JdbcDeliveryLog log,
+            JdbcReplays replays,
             WebhookUrlValidator urls,
             SecretCipher cipher,
             ModuleRoles roles,
@@ -77,6 +81,7 @@ public class WebhooksService implements WebhooksApi {
         this.endpoints = endpoints;
         this.deliveries = deliveries;
         this.log = log;
+        this.replays = replays;
         this.urls = urls;
         this.cipher = cipher;
         this.roles = roles;
@@ -148,6 +153,35 @@ public class WebhooksService implements WebhooksApi {
 
     @Override
     @Transactional
+    public ReplayResult replay(WebhookEndpointId endpoint, WebhookDeliveryId id) {
+        TenantId tenant = bound("Replaying a webhook delivery");
+        return roles.call(ROLE, () -> queueReplay(tenant, endpoint, id));
+    }
+
+    // The endpoint's lock orders the replays of its deliveries, so concurrent ones are counted one
+    // after another and cannot pass the limit together; it also orders them after a change that
+    // disables or deletes the endpoint, so none is queued once it stopped receiving.
+    private ReplayResult queueReplay(TenantId tenant, WebhookEndpointId endpoint, WebhookDeliveryId id) {
+        Optional<EndpointView> locked = endpoints.lock(tenant, endpoint);
+        Optional<DeliveryView> delivery = locked.flatMap(found -> log.find(tenant, endpoint, id));
+        if (delivery.isEmpty()) {
+            return new ReplayResult.DeliveryNotFound();
+        }
+        if (locked.get().status() == EndpointStatus.DISABLED) {
+            return new ReplayResult.EndpointDisabled();
+        }
+        Instant now = now();
+        List<Instant> recent = replays.requestedSince(tenant, id, now.minus(REPLAY_WINDOW));
+        if (recent.size() >= MAX_REPLAYS) {
+            Instant oldest = recent.get(recent.size() - MAX_REPLAYS);
+            return new ReplayResult.LimitReached(oldest.plus(REPLAY_WINDOW));
+        }
+        replays.queue(ids.next(), tenant, id, now);
+        return new ReplayResult.Queued(delivery.get());
+    }
+
+    @Override
+    @Transactional
     public UpdateEndpointResult update(WebhookEndpointId id, EndpointChanges changes) {
         changes.url().ifPresent(WebhooksService::requireUrlLength);
         changes.description().ifPresent(WebhooksService::requireDescription);
@@ -175,7 +209,7 @@ public class WebhooksService implements WebhooksApi {
         Instant now = now();
         Optional<EndpointView> deleted = roles.call(ROLE, () -> {
             Optional<EndpointView> marked = endpoints.markDeleted(tenant, id, now);
-            marked.ifPresent(endpoint -> deliveries.cancelPending(tenant, endpoint.id()));
+            marked.ifPresent(endpoint -> cancelPending(tenant, endpoint.id()));
             return marked;
         });
         deleted.ifPresent(endpoint -> events.publishEvent(new WebhookEndpointDeleted(header(now), endpoint)));
@@ -227,13 +261,19 @@ public class WebhooksService implements WebhooksApi {
             }
             // A disabled endpoint receives nothing, and enabled again it starts afresh (section 6.3).
             if (previous.status() == EndpointStatus.ENABLED && endpoint.status() == EndpointStatus.DISABLED) {
-                deliveries.cancelPending(tenant, id);
+                cancelPending(tenant, id);
             }
             if (previous.status() == EndpointStatus.DISABLED && endpoint.status() == EndpointStatus.ENABLED) {
                 endpoints.startAfresh(tenant, id);
             }
             return new Change(endpoint, previous, now);
         });
+    }
+
+    // What an endpoint that stops receiving had still to send: its pending deliveries and replays.
+    private void cancelPending(TenantId tenant, WebhookEndpointId endpoint) {
+        deliveries.cancelPending(tenant, endpoint);
+        replays.cancelPending(tenant, endpoint);
     }
 
     private static EndpointView changed(EndpointView previous, EndpointChanges changes) {

@@ -185,7 +185,7 @@ Content-Type: application/merge-patch+json
 {"status": "enabled"}
 ```
 
-It starts afresh: it receives the events that happen from then on, and the deliveries canceled while it was disabled are not sent. The [delivery log](#the-delivery-log) shows which ones were canceled; read the current state of what changed meanwhile from the API. Sending a delivery again on request is on the [roadmap](../roadmap.md) (item 1.47d).
+It starts afresh: it receives the events that happen from then on, and the deliveries canceled while it was disabled are not sent. The [delivery log](#the-delivery-log) shows which ones were canceled: [replay](#replaying-a-delivery) those you still need, or read the current state of what changed meanwhile from the API.
 
 ## The delivery log
 
@@ -213,6 +213,7 @@ Retrieving a delivery returns it with every attempt, oldest first:
     {
       "id": "wha_01jdr3b7c8d9e0f1g2h3j4k5m6",
       "object": "webhook_attempt",
+      "replay": false,
       "started_at": "2026-11-23T14:03:11Z",
       "duration_ms": 182,
       "status_code": 503,
@@ -222,6 +223,7 @@ Retrieving a delivery returns it with every attempt, oldest first:
     {
       "id": "wha_01jdr3c2d3e4f5g6h7j8k9m0n1",
       "object": "webhook_attempt",
+      "replay": false,
       "started_at": "2026-11-23T14:04:11Z",
       "duration_ms": 87,
       "status_code": 200,
@@ -235,7 +237,25 @@ Retrieving a delivery returns it with every attempt, oldest first:
 - `event` is the `webhook-id` of every request of the delivery: match it with what your server logged.
 - An attempt has either the `status_code` your server answered or the `failure` that left none: `timeout`, `connection_refused`, `connection_failed`, `unresolved`, `address_refused`, `tls_error` or `redirect`.
 - `response_excerpt` is at most the first 1,024 bytes of your answer, as text. It is shown as your server sent it, never interpreted.
-- A delivery is kept for 30 days after it was made and last attempted, with its attempts; the log of a deleted endpoint stays readable for as long.
+- `replay` is `true` for a request you asked for with a [replay](#replaying-a-delivery); `attempt_count` counts only the others, the delivery's scheduled attempts.
+- A delivery is kept for 30 days after it was made, last attempted and last replayed, with its attempts; the log of a deleted endpoint stays readable for as long.
+
+## Replaying a delivery
+
+A replay sends one delivery again, now:
+
+```http
+POST /v1/webhook_endpoints/{id}/deliveries/{delivery_id}/replay HTTP/1.1
+Authorization: Bearer sk_test_…
+Idempotency-Key: 6f1c2a9e-replay-whd_01jdr3b7a8b9c0d1e2f3g4h5j6
+```
+
+The answer is `202 Accepted` with the delivery as it is, and the request follows within seconds, in the delivery's `attempts` with `replay` set to `true`.
+
+- **The same event.** The request carries the delivery's `webhook-id` and body, byte for byte, with a fresh `webhook-timestamp` and signature: verify it as any other, and deduplicate it by `webhook-id` if you processed the event already.
+- **Any delivery.** A delivery can be replayed whatever its `status`: a `dead` one after you fixed your server, a `canceled` one your endpoint missed while disabled, a `succeeded` one whose processing failed on your side, or a `pending` one you do not want to wait for. A replay changes neither the delivery's `status` nor its schedule, and does not count toward [disabling](#when-an-endpoint-keeps-failing) the endpoint.
+- **An enabled endpoint.** A disabled endpoint's deliveries answer `409 endpoint_disabled`: enable it first. Disabling or deleting an endpoint cancels the replays not yet sent.
+- **At most 10 times in 24 hours** for each delivery. Past that, the answer is `409 replay_limit_reached`, whose `detail` says from when the delivery can be replayed again; send that retry with a new `Idempotency-Key`, since a repeat of a key gets its first answer.
 
 ## Duplicates and order
 

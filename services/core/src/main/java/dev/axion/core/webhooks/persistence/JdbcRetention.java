@@ -10,8 +10,8 @@ import org.springframework.stereotype.Repository;
  * section 8.8). Each method removes at most {@code limit} rows of what it names.
  *
  * <p>Ages are measured with the database's time, as the role's policies measure them: a row the job
- * finds is one the policies let it remove, so a delivery is never left without the attempts it
- * removed, nor kept by an attempt they refused.
+ * finds is one the policies let it remove, so a delivery is never left without the attempts and
+ * replays it removed, nor kept by one they refused.
  */
 @Repository
 public class JdbcRetention {
@@ -25,8 +25,8 @@ public class JdbcRetention {
     }
 
     /**
-     * Removes deliveries that ended, made 30 days ago or more and with no attempt since, with their
-     * attempts.
+     * Removes deliveries that ended, made 30 days ago or more and with no attempt nor replay asked for
+     * since and none pending, with their attempts and replays.
      *
      * @return how many deliveries were removed
      */
@@ -37,6 +37,9 @@ public class JdbcRetention {
                            AND NOT EXISTS (SELECT 1 FROM webhooks.attempts AS attempt
                                             WHERE attempt.delivery_id = delivery.id
                                               AND attempt.started_at >= %1$s)
+                           AND NOT EXISTS (SELECT 1 FROM webhooks.replays AS replay
+                                            WHERE replay.delivery_id = delivery.id
+                                              AND (replay.status = 'PENDING' OR replay.requested_at >= %1$s))
                          LIMIT :limit
                         """.formatted(EXPIRED))
                 .param("limit", limit)
@@ -46,6 +49,9 @@ public class JdbcRetention {
             return 0;
         }
         jdbc.sql("DELETE FROM webhooks.attempts WHERE delivery_id IN (:ids)")
+                .param("ids", expired)
+                .update();
+        jdbc.sql("DELETE FROM webhooks.replays WHERE delivery_id IN (:ids)")
                 .param("ids", expired)
                 .update();
         return jdbc.sql("DELETE FROM webhooks.deliveries WHERE id IN (:ids)")

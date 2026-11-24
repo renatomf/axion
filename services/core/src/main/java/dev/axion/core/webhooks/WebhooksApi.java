@@ -43,7 +43,8 @@ public interface WebhooksApi {
      * Changes one of the tenant's endpoints, publishing {@link WebhookEndpointUpdated}; changes that
      * leave it as it was change nothing and publish nothing. A URL in the changes is checked before
      * anything is stored, as for a registration, even when it is the endpoint's own. Disabling an
-     * endpoint cancels its pending deliveries, so enabled again it receives only later events.
+     * endpoint cancels its pending deliveries and replays, so enabled again it receives only later
+     * events and the replays asked for afresh.
      *
      * @throws IllegalArgumentException for a URL, description or event types outside the limits of
      *     {@link #create}
@@ -53,8 +54,8 @@ public interface WebhooksApi {
 
     /**
      * Deletes one of the tenant's endpoints, publishing {@link WebhookEndpointDeleted}: it receives
-     * nothing from then on, its pending deliveries canceled, is never read or listed again, and no
-     * longer counts toward {@link #MAX_ENDPOINTS}.
+     * nothing from then on, its pending deliveries and replays canceled, is never read or listed
+     * again, and no longer counts toward {@link #MAX_ENDPOINTS}.
      *
      * @return the endpoint as it was, or empty for an unknown endpoint, another tenant's and one
      *     already deleted alike
@@ -95,6 +96,17 @@ public interface WebhooksApi {
      */
     Optional<DeliveryDetail> delivery(WebhookEndpointId endpoint, WebhookDeliveryId id);
 
+    /**
+     * Queues one of an endpoint's deliveries to be sent again, now: a worker sends the same event and
+     * body with a fresh timestamp and signature, and records the request in the log as a replay. A
+     * delivery in any status can be replayed; the replay changes neither its status nor its schedule.
+     *
+     * @return {@link ReplayResult.DeliveryNotFound} for an unknown delivery, one of another endpoint,
+     *     of a deleted endpoint and of another tenant alike
+     * @throws IllegalStateException if no tenant is bound, a bug in the caller
+     */
+    ReplayResult replay(WebhookEndpointId endpoint, WebhookDeliveryId id);
+
     /** The most endpoints, or deliveries, one page of {@link #endpoints} or {@link #deliveries} holds. */
     int MAX_PAGE_SIZE = 100;
 
@@ -109,4 +121,9 @@ public interface WebhooksApi {
     Duration MAX_SECRET_GRACE = Duration.ofDays(7);
 
     Duration DEFAULT_SECRET_GRACE = Duration.ofHours(24);
+
+    /** The most times one delivery is replayed within {@link #REPLAY_WINDOW}. */
+    int MAX_REPLAYS = 10;
+
+    Duration REPLAY_WINDOW = Duration.ofDays(1);
 }

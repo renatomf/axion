@@ -247,8 +247,8 @@ A secret is `whsec_` followed by 32 random bytes in base64, the format of Standa
 |---|---|
 | Create | URL validated (section 7.1); secret generated and returned once; at most 16 endpoints |
 | Read and list | Never the secret |
-| Update | `url`, `description`, `enabled_events` and `status`, as a JSON merge patch: a field left out keeps its value, and `null` removes the description, the one field that can be removed. A URL in the patch is validated again, even the endpoint's own. Setting `status` to `enabled` clears `disabled_reason` and starts the endpoint afresh: deliveries that died while it was disabled are not resent; the tenant replays the ones it wants (section 8.7). Setting it to `disabled` disables an enabled endpoint `by_tenant` and leaves a disabled one with its reason. A patch that leaves the endpoint as it was publishes nothing |
-| Delete | The endpoint stops receiving at once and no longer counts toward the limit; its pending deliveries are canceled; its delivery log stays readable until its retention ends (section 8.8). `204`; deleting it again is `404`, like an unknown endpoint |
+| Update | `url`, `description`, `enabled_events` and `status`, as a JSON merge patch: a field left out keeps its value, and `null` removes the description, the one field that can be removed. A URL in the patch is validated again, even the endpoint's own. Setting `status` to `enabled` clears `disabled_reason` and starts the endpoint afresh: deliveries canceled while it was disabled are not resent; the tenant replays the ones it wants (section 8.7). Setting it to `disabled` disables an enabled endpoint `by_tenant` and leaves a disabled one with its reason. A patch that leaves the endpoint as it was publishes nothing |
+| Delete | The endpoint stops receiving at once and no longer counts toward the limit; its pending deliveries and replays are canceled; its delivery log stays readable until its retention ends (section 8.8). `204`; deleting it again is `404`, like an unknown endpoint |
 | Roll secret | Section 6.2 |
 
 Each operation publishes its event of section 3.3 for the audit trail. On `/internal`, every change needs step-up, as the overview requires for changing webhook URLs (section 4.3).
@@ -330,7 +330,8 @@ RETURNING …
 - The lease, not a held lock, keeps the claim during the HTTP request: no transaction and no connection stays open while a tenant's server takes ten seconds to answer. A worker that dies mid-request leaves its lease to expire, and the delivery is claimed again: at least once, which receivers already handle by `id` (section 5.3).
 - Each attempt's result is written in a second short transaction that updates the delivery and inserts the attempt.
 - No endpoint has more than 4 deliveries in flight; the claim takes, for each endpoint with due deliveries, only what its limit leaves, oldest endpoint first, so one slow endpoint holds at most 4 of the workers' requests and every other endpoint keeps its pace. Claims are serialized by a transaction-level advisory lock, so each counts what every earlier claim holds; a claim lasts milliseconds.
-- The job role reads across tenants, like the billing jobs: its policies let it see deliveries, the events they send, their endpoints and the ciphertext of the secrets that sign them, and change only a delivery's status, lease, attempt count and next attempt, and an endpoint that still receives as section 8.6 needs. A claim returns each delivery with those ciphertexts, current secret first.
+- Replays (section 8.7) are claimed in the same transaction, after the due deliveries, with the room they leave and the same lease: the limit of 4 counts an endpoint's deliveries and replays in flight together, so a tenant replaying a thousand deliveries holds no more of the workers than an outage's retries would.
+- The job role reads across tenants, like the billing jobs: its policies let it see deliveries, the events they send, their endpoints and the ciphertext of the secrets that sign them, and change only a delivery's status, lease, attempt count and next attempt, a pending replay's status and lease, and an endpoint that still receives as section 8.6 needs. A claim returns each delivery with those ciphertexts, current secret first.
 - The transaction that records an attempt locks the endpoint before the delivery, the order of every change of an endpoint and its deliveries, so two such transactions never wait on each other's rows. A result whose delivery is no longer the worker's, canceled or claimed again, changes nothing, and does not count toward the endpoint's health; its attempt is still recorded, since the request was sent.
 
 ### 8.3 The request
@@ -370,7 +371,7 @@ Each delay counts from the end of the attempt before it. Nine attempts span abou
 
 ### 8.6 Disabling
 
-An endpoint records `failing_since`, the time of its first failure after its last success, and `consecutive_failures`, the attempts failed since; a success clears both. Its last 20 attempts all failed exactly when the count is 20 or more, so the rule needs no attempt to be read. When an endpoint has been failing for 72 hours and its last 20 attempts all failed, the transaction of the attempt that finds it disables it with `disabled_reason: failing`: its pending deliveries are canceled, and `WebhookEndpointDisabled`, with the endpoint and `failing_since`, puts a notice on the tenant's live stream and in the audit trail. The workers act across tenants with none bound, so the event is headed with the endpoint's tenant and environment, which the endpoint stores, and the actor `Job("webhook-delivery")`. The two conditions together keep an endpoint that receives one event a week from being disabled by a single bad night, and one that receives thousands from being disabled in minutes.
+An endpoint records `failing_since`, the time of its first failure after its last success, and `consecutive_failures`, the attempts failed since; a success clears both. Its last 20 attempts all failed exactly when the count is 20 or more, so the rule needs no attempt to be read. When an endpoint has been failing for 72 hours and its last 20 attempts all failed, the transaction of the attempt that finds it disables it with `disabled_reason: failing`: its pending deliveries and replays are canceled, and `WebhookEndpointDisabled`, with the endpoint and `failing_since`, puts a notice on the tenant's live stream and in the audit trail. The workers act across tenants with none bound, so the event is headed with the endpoint's tenant and environment, which the endpoint stores, and the actor `Job("webhook-delivery")`. The two conditions together keep an endpoint that receives one event a week from being disabled by a single bad night, and one that receives thousands from being disabled in minutes.
 
 The tenant enables it again with an update (section 6.3), after fixing its server, and replays what it missed.
 
@@ -380,7 +381,13 @@ Every request sent is recorded as an attempt, in the transaction of its result: 
 
 The log lists an endpoint's deliveries, newest first, a page at a time, filterable by status and event type; each is listed without its attempts, which retrieving the delivery returns, oldest first. A listed delivery carries its status, attempt count and next attempt, which is what a page of the log needs; its attempts, with up to 1 KiB each, would make a page of 100 deliveries weigh about a megabyte. The tenant's module role reads the log under its tenant's policy, and an endpoint or delivery of another tenant is `404`.
 
-A replay sends one delivery again, now: it adds an attempt to it, with the same event ID and body and a fresh timestamp and signature. A dead or succeeded delivery can be replayed, at most 10 times a day each; replaying does not change the schedule of a delivery that is still pending. Replays are how a tenant recovers from a fixed outage, so they work on a disabled endpoint's log too, once it is enabled again.
+A replay sends one delivery again, now: it adds an attempt to it, marked as a replay, with the same event ID and body and a fresh timestamp and signature. Replays are how a tenant recovers from a fixed outage, so a delivery in any status can be replayed: a dead one; a canceled one, which an endpoint disabled during the outage left behind; a succeeded one, whose processing failed on the tenant's side; and a pending one, which would otherwise wait up to a day for its next attempt.
+
+- A replay is queued, not sent in the request: the request stores a pending replay and answers `202 Accepted` with the delivery, and a worker claims it on its next pass (section 8.2), within a second. Sent from the request, a replay would hold a request thread and a connection while the tenant's server takes ten seconds to answer, would be lost with the process, and would escape the limit per endpoint.
+- A replay changes neither the delivery's status, attempt count and schedule nor the endpoint's health. The schedule and the rule of section 8.6 judge the scheduled attempts only: a replay the tenant asked for neither disables an endpoint nor keeps one from being disabled. A pending delivery keeps its next attempt, which receivers deduplicate by `webhook-id` like any repeat.
+- A delivery is replayed at most 10 times in any 24 hours, counted from the times the replays were asked for, sent or canceled alike. The answer past the limit is `409 replay_limit_reached`, not `429`: the limit is the delivery's, not the caller's request budget, and the idempotency step stores the answer with the key, so a client retries from the time the detail gives, with a new key.
+- The endpoint must be enabled: a disabled one's replays are `409 endpoint_disabled`, and replays work on its log once it is enabled again. Disabling or deleting an endpoint cancels its pending replays with its pending deliveries, in the same transaction, so enabled again it receives only what is asked for afresh. The request locks the endpoint, as its changes do, so no replay is queued after the endpoint stopped receiving, and concurrent replays of a delivery are counted one after another.
+- The workers claim a pending replay, send it as a delivery's attempt, record the request under the tenant and mark the replay sent. A replay canceled during its request keeps its attempt, since the request was sent, and stays canceled. A replay that cannot be signed keeps its lease until it passes, as a delivery does.
 
 The response body is the tenant's server talking. It is stored as text, its bytes that are not UTF-8 replaced by U+FFFD and NUL removed, which PostgreSQL text cannot hold; it is shown escaped, never interpreted and never followed.
 
@@ -388,7 +395,7 @@ The response body is the tenant's server talking. It is stored as text, its byte
 
 Events, deliveries and attempts are kept for 30 days, then deleted by a job of `webhooks`, hourly, as `axion_webhooks_jobs`. The audit trail, not the delivery log, is the permanent record.
 
-- A delivery goes once it has ended and is 30 days old, made and last attempted, with its attempts; a pending one stays. Counting from the last attempt keeps a delivery replayed late (1.47d) with its replay.
+- A delivery goes once it has ended and is 30 days old, made, last attempted and last asked to be replayed, with its attempts and replays; a pending delivery stays, and so does one with a pending replay. Counting from the last attempt and replay keeps a delivery replayed late with its replay.
 - An event goes once it is 30 days old and no delivery sends it, and a deleted endpoint 30 days after its deletion, once its log is gone, with its secrets.
 - Each removal runs in batches of 1,000 rows, one transaction each.
 - The role's policies let it delete only rows past their retention, measured with the database's time, and the job measures with that time too: whatever its clock or its SQL, the job cannot remove a row the log still keeps, and a row it finds is one it may remove.
@@ -534,6 +541,16 @@ webhooks.attempts
   response_excerpt  text null                -- at most 1,024 characters, only with a status_code (CHECK)
   index (delivery_id, started_at)
 
+webhooks.replays
+  id                uuid primary key
+  tenant_id         uuid not null
+  delivery_id       uuid not null references deliveries
+  status            text not null            -- PENDING | SENT | CANCELED (CHECK)
+  requested_at      timestamptz not null
+  leased_until      timestamptz null         -- only while PENDING (CHECK)
+  index (delivery_id, requested_at)
+  index (requested_at) where status = 'PENDING'
+
 audit.records                            -- section 9.1
 audit.chain_heads
   tenant_id         uuid primary key         -- one chain per tenant (section 9.1)
@@ -545,7 +562,7 @@ audit.chain_heads
 
 - `unique (endpoint_id, event_id)` repeats the rule that an event is delivered once to each endpoint, whatever the listener's retries.
 - Deleted endpoints keep their row, with `deleted_at`, until their deliveries' retention ends; they receive nothing and are never listed.
-- Roles: `axion_events` reads how far each publication has got, never `serialized_event`, removes completed publications and runs the operator's command; `axion_webhooks` manages endpoints, secrets, events and deliveries for the tenant bound; `axion_webhooks_jobs` drains the queue, records attempts, disables endpoints for failing only and cancels their pending deliveries, and removes rows past their retention only (sections 8.2, 8.6 and 8.8); `axion_audit` appends (section 9.2); `axion_audit_checks` reads every chain. No role may update an attempt, nor delete one before its retention ends; no role may update or delete an audit record.
+- Roles: `axion_events` reads how far each publication has got, never `serialized_event`, removes completed publications and runs the operator's command; `axion_webhooks` manages endpoints, secrets, events and deliveries for the tenant bound, and queues and cancels replays of its deliveries only; `axion_webhooks_jobs` drains the queue and the replays, records attempts, disables endpoints for failing only and cancels their pending deliveries and replays, and removes rows past their retention only (sections 8.2, 8.6, 8.7 and 8.8); `axion_audit` appends (section 9.2); `axion_audit_checks` reads every chain. No role may update an attempt, nor delete one before its retention ends; no role may update or delete an audit record.
 
 ## 12. API
 
@@ -572,7 +589,7 @@ public interface AuditApi {
 
 `webhooks`, `audit` and `notifications` receive domain events and nothing else from other modules. Their APIs serve their own controllers and jobs: `WebhooksApi` the endpoint and log operations, `AuditApi` the check.
 
-Public IDs: `evt_` for events, `we_` for webhook endpoints, `whd_` for deliveries, `wha_` for attempts.
+Public IDs: `evt_` for events, `we_` for webhook endpoints, `whd_` for deliveries, `wha_` for attempts. A replay has no public ID: it is read as the attempt it adds to its delivery.
 
 ### 12.2 HTTP
 
@@ -586,10 +603,10 @@ Public IDs: `evt_` for events, `we_` for webhook endpoints, `whd_` for deliverie
 | `POST /v1/webhook_endpoints/{id}/secret/roll` | `webhooks:manage` | An optional body with `grace_period_seconds`, 0 to 604,800; idempotent; `200` with the new secret once |
 | `GET /v1/webhook_endpoints/{id}/deliveries` | `webhooks:manage` | Newest first; filters on `status` and `type` |
 | `GET /v1/webhook_endpoints/{id}/deliveries/{delivery_id}` | `webhooks:manage` | With its attempts |
-| `POST /v1/webhook_endpoints/{id}/deliveries/{delivery_id}/replay` | `webhooks:manage` | Idempotent; `202 Accepted`, the attempt follows in the log |
+| `POST /v1/webhook_endpoints/{id}/deliveries/{delivery_id}/replay` | `webhooks:manage` | Idempotent; `202 Accepted` with the delivery as it is, the attempt follows in the log; `409 endpoint_disabled` or `replay_limit_reached` (section 8.7) |
 | `GET /internal/tenants/{tenant_id}/events/stream` | `@NoPermissionRequired` | Section 10; types filtered by the member's permissions |
 
-- `/internal/tenants/{tenant_id}/webhook_endpoints/…` mirrors each `/v1` operation for the console; creating, updating, deleting and rolling there need step-up.
+- `/internal/tenants/{tenant_id}/webhook_endpoints/…` mirrors each `/v1` operation for the console; creating, updating, deleting and rolling there need step-up. Replaying does not: it sends again only what the endpoint was already sent, to the URL it has, and the daily limit bounds it.
 - Another tenant's endpoint or delivery is `404`, like an unknown one; the isolation harness covers every operation.
 - Every `POST` takes `Idempotency-Key`, as the lint requires; `PATCH` and `DELETE` are idempotent by their nature.
 - The `webhooks` section of `v1.yaml` describes each public event (section 5.2).
@@ -614,7 +631,7 @@ Logs carry the event's, endpoint's, delivery's and attempt's IDs and the correla
 | Signing | Standard Webhooks' test vectors; two signatures during a grace period; the body signed as sent | 1.46b |
 | Retries and disabling | The schedule of section 8.5 with a fixed clock; `410` ends a delivery; the two conditions of section 8.6; an endpoint that fails for an hour receives the event once it recovers | 1.47a |
 | Delivery log | Every attempt recorded and listed with its delivery; a log readable only by its tenant; rows removed after their retention | 1.47c |
-| Replay | A replay signed afresh with the same body; the replay limit | 1.47d |
+| Replay | A replay signed afresh with the same body, in any status of its delivery and changing neither it nor the endpoint's health; the replay limit, also under concurrent requests; pending replays canceled with the endpoint; the limit per endpoint counting deliveries and replays together | 1.47d |
 | Public events (contract) | Every type of the catalog rendered and validated against its schema in `v1.yaml`, strictly | 1.46a |
 | Audit chain | Appends serialized per chain; a changed, deleted or reordered record fails verification; a duplicate event adds no record | 1.48a |
 | Audited events | Each audited event of section 3.3 recorded with its actor | 1.48b |
@@ -657,7 +674,7 @@ Events and webhooks carry money's news out of the core and requests into other n
 | **Information disclosure** | A signing secret leaks | Shown once; encrypted with Tink, bound to its endpoint; the key-encryption key outside the database; never logged; a Gitleaks rule for its format; rolling with a grace period |
 | **Information disclosure** | A member streams another tenant's events, or events beyond their role | The tenant comes from the path through the membership; types are filtered by permissions |
 | **Denial of service** | A slow endpoint ties up delivery | Short timeouts, at most 4 deliveries in flight per endpoint, leases instead of open transactions; settlement never waits on a listener |
-| **Denial of service** | The core used to flood a third party's URL | A tenant's requests are bounded by its own events, at most 16 endpoints, and replays at most 10 a day each; a failing URL is disabled after three days |
+| **Denial of service** | The core used to flood a third party's URL | A tenant's requests are bounded by its own events, at most 16 endpoints, and replays at most 10 a day each, sent within the endpoint's limit of 4 in flight; a failing URL is disabled after three days |
 | **Denial of service** | Live streams exhaust connections | Per-member and per-tenant limits; heartbeats; the stream holds no transaction |
 | **Elevation of privilege** | A leaked key with `webhooks:manage` points the endpoints at an attacker | The key reads payment news it could already read with `charges:read`, never moves money; endpoint changes are audited; the console shows endpoints and their changes; key and member events never go to webhooks |
 | **Elevation of privilege** | A listener acts without a tenant, or with the wrong one | Listeners bind the event's tenant before any query; outside a binding the policies return nothing |

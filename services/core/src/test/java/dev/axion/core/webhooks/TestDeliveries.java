@@ -59,11 +59,11 @@ public final class TestDeliveries {
 
     /** When the delivery's next attempt is due; empty once it is no longer pending. */
     public Optional<Instant> nextAttemptAt(UUID delivery) {
-        return Optional.ofNullable(owner.sql("SELECT next_attempt_at FROM webhooks.deliveries WHERE id = ?")
-                        .param(delivery)
-                        .query(OffsetDateTime.class)
-                        .single())
-                .map(OffsetDateTime::toInstant);
+        return owner.sql("SELECT next_attempt_at FROM webhooks.deliveries WHERE id = ?")
+                .param(delivery)
+                .query((row, number) -> Optional.ofNullable(row.getObject("next_attempt_at", OffsetDateTime.class))
+                        .map(OffsetDateTime::toInstant))
+                .single();
     }
 
     public boolean leased(UUID delivery) {
@@ -86,12 +86,13 @@ public final class TestDeliveries {
             int durationMs,
             @Nullable Integer statusCode,
             @Nullable String failure,
-            @Nullable String responseExcerpt) {}
+            @Nullable String responseExcerpt,
+            boolean replay) {}
 
     /** The delivery's attempts in the log, oldest first. */
     public List<RecordedAttempt> attempts(UUID delivery) {
         return owner.sql("""
-                        SELECT started_at, duration_ms, status_code, failure, response_excerpt
+                        SELECT started_at, duration_ms, status_code, failure, response_excerpt, replay
                           FROM webhooks.attempts WHERE delivery_id = ? ORDER BY started_at, id
                         """)
                 .param(delivery)
@@ -100,7 +101,26 @@ public final class TestDeliveries {
                         row.getInt("duration_ms"),
                         row.getObject("status_code", Integer.class),
                         row.getString("failure"),
-                        row.getString("response_excerpt")))
+                        row.getString("response_excerpt"),
+                        row.getBoolean("replay")))
+                .list();
+    }
+
+    /** A replay of the delivery in the status, asked for at the time. */
+    public void replay(UUID delivery, TenantId tenant, String status, Instant requestedAt) {
+        owner.sql("""
+                        INSERT INTO webhooks.replays (id, tenant_id, delivery_id, status, requested_at)
+                        VALUES (gen_random_uuid(), ?, ?, ?, ?)
+                        """)
+                .params(tenant.value(), delivery, status, requestedAt.atOffset(ZoneOffset.UTC))
+                .update();
+    }
+
+    /** The statuses of the delivery's replays, in the order they were asked for. */
+    public List<String> replays(UUID delivery) {
+        return owner.sql("SELECT status FROM webhooks.replays WHERE delivery_id = ? ORDER BY requested_at, id")
+                .param(delivery)
+                .query((row, number) -> row.getString("status"))
                 .list();
     }
 
@@ -139,7 +159,7 @@ public final class TestDeliveries {
                 "NULL");
     }
 
-    /** An attempt of the delivery in the log, as the workers record it. */
+    /** A scheduled attempt of the delivery in the log, as the workers record it. */
     public void attempt(
             UUID delivery,
             TenantId tenant,
@@ -148,15 +168,29 @@ public final class TestDeliveries {
             @Nullable Integer statusCode,
             @Nullable String failure,
             @Nullable String excerpt) {
+        attempt(delivery, tenant, false, startedAt, durationMs, statusCode, failure, excerpt);
+    }
+
+    /** An attempt of the delivery in the log, a replay or a scheduled one, as the workers record it. */
+    public void attempt(
+            UUID delivery,
+            TenantId tenant,
+            boolean replay,
+            Instant startedAt,
+            int durationMs,
+            @Nullable Integer statusCode,
+            @Nullable String failure,
+            @Nullable String excerpt) {
         owner.sql("""
                         INSERT INTO webhooks.attempts
-                               (id, tenant_id, delivery_id, started_at, duration_ms, status_code, failure,
+                               (id, tenant_id, delivery_id, replay, started_at, duration_ms, status_code, failure,
                                 response_excerpt)
-                        VALUES (gen_random_uuid(), :tenant, :delivery, :startedAt, :durationMs, :statusCode,
+                        VALUES (gen_random_uuid(), :tenant, :delivery, :replay, :startedAt, :durationMs, :statusCode,
                                 :failure, :excerpt)
                         """)
                 .param("tenant", tenant.value())
                 .param("delivery", delivery)
+                .param("replay", replay)
                 .param("startedAt", startedAt.atOffset(ZoneOffset.UTC))
                 .param("durationMs", durationMs)
                 .param("statusCode", statusCode)

@@ -22,10 +22,12 @@ import dev.axion.core.webhooks.DisabledReason;
 import dev.axion.core.webhooks.EndpointRequest;
 import dev.axion.core.webhooks.EndpointStatus;
 import dev.axion.core.webhooks.EndpointView;
+import dev.axion.core.webhooks.ReplayResult;
 import dev.axion.core.webhooks.RollSecretResult;
 import dev.axion.core.webhooks.TestDeliveries;
 import dev.axion.core.webhooks.TestDns;
 import dev.axion.core.webhooks.TestReceiver;
+import dev.axion.core.webhooks.WebhookDeliveryId;
 import dev.axion.core.webhooks.WebhookEndpointDisabled;
 import dev.axion.core.webhooks.WebhookEndpointId;
 import dev.axion.core.webhooks.WebhooksApi;
@@ -142,6 +144,10 @@ class DeliveryQueueTest {
         owner.sql("""
                         UPDATE webhooks.deliveries SET status = 'CANCELED', next_attempt_at = NULL, leased_until = NULL
                          WHERE status = 'PENDING' AND next_attempt_at < '2026-01-01'
+                        """).update();
+        owner.sql("""
+                        UPDATE webhooks.replays SET status = 'CANCELED', leased_until = NULL
+                         WHERE status = 'PENDING' AND requested_at < '2026-01-01'
                         """).update();
     }
 
@@ -341,6 +347,8 @@ class DeliveryQueueTest {
         deliveries.failing(endpoint, failingSince, EndpointHealth.FAILED_ATTEMPTS - 1);
         UUID failing = deliveries.pending(tenant, endpoint, clock.instant(), null);
         UUID waiting = deliveries.pending(tenant, endpoint, clock.instant().plusSeconds(60), null);
+        UUID replayed = deliveries.succeeded(tenant, endpoint);
+        deliveries.replay(replayed, tenant, "PENDING", clock.instant().plusSeconds(60));
 
         drainAndWait();
 
@@ -350,6 +358,7 @@ class DeliveryQueueTest {
         assertThat(disabled.disabledReason()).contains(DisabledReason.FAILING);
         assertThat(deliveries.status(failing)).isEqualTo("CANCELED");
         assertThat(deliveries.status(waiting)).isEqualTo("CANCELED");
+        assertThat(deliveries.replays(replayed)).containsExactly("CANCELED");
         assertThat(events.of(tenant, WebhookEndpointDisabled.class))
                 .singleElement()
                 .satisfies(event -> {
@@ -559,6 +568,146 @@ class DeliveryQueueTest {
         assertThat(requests.stream().map(request -> request.header("webhook-id")))
                 .containsOnly(requests.getFirst().header("webhook-id"));
         assertThat(requests.stream().map(TestReceiver.Request::body)).containsOnly(deliveries.body(delivery));
+    }
+
+    @Test
+    void replaysADeliveryWithItsBodySignedAfreshAndRecordsTheRequestAsAReplay() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        var created = create(tenant, path, Set.of("*"));
+        WebhookEndpointId endpoint = created.endpoint().id();
+        UUID delivery = deliveries.succeeded(tenant, endpoint);
+        clock.advance(Duration.ofHours(1));
+        Instant now = clock.instant();
+
+        replay(endpoint, delivery);
+        drainAndWait();
+
+        assertThat(receiver.requests(path)).singleElement().satisfies(request -> {
+            assertThat(request.body()).isEqualTo(deliveries.body(delivery));
+            assertThat(request.headers()).containsEntry("webhook-timestamp", String.valueOf(now.getEpochSecond()));
+            assertThat(request.header("webhook-signature")).isEqualTo(signature(request, created.secret()));
+        });
+        assertThat(deliveries.replays(delivery)).containsExactly("SENT");
+        assertThat(deliveries.attempts(delivery))
+                .extracting(
+                        TestDeliveries.RecordedAttempt::startedAt,
+                        TestDeliveries.RecordedAttempt::statusCode,
+                        TestDeliveries.RecordedAttempt::replay)
+                .containsExactly(tuple(now, 204, true));
+        assertThat(deliveries.status(delivery)).isEqualTo("SUCCEEDED");
+        assertThat(deliveries.attemptCount(delivery)).isOne();
+    }
+
+    @Test
+    void replaysAPendingDeliveryWithoutChangingItsSchedule() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        WebhookEndpointId endpoint = endpoint(path);
+        Instant due = clock.instant().plus(Duration.ofHours(6));
+        UUID delivery = deliveries.pending(tenant, endpoint, due, null);
+
+        replay(endpoint, delivery);
+        drainAndWait();
+
+        assertThat(receiver.requests(path)).hasSize(1);
+        assertThat(deliveries.status(delivery)).isEqualTo("PENDING");
+        assertThat(deliveries.attemptCount(delivery)).isZero();
+        assertThat(deliveries.nextAttemptAt(delivery)).contains(due);
+        assertThat(deliveries.leased(delivery)).isFalse();
+    }
+
+    @Test
+    void leavesTheEndpointsHealthAndADeadDeliveryAsTheyWereWhenAReplayFails() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        receiver.answer(path, new TestReceiver.Answer.Body(503, "still down"));
+        WebhookEndpointId endpoint = endpoint(path);
+        Instant failingSince = clock.instant().minus(EndpointHealth.FAILING_FOR);
+        deliveries.failing(endpoint, failingSince, EndpointHealth.FAILED_ATTEMPTS + 5);
+        UUID delivery = deliveries.succeeded(tenant, endpoint);
+
+        replay(endpoint, delivery);
+        drainAndWait();
+
+        assertThat(deliveries.replays(delivery)).containsExactly("SENT");
+        assertThat(deliveries.attempts(delivery))
+                .extracting(
+                        TestDeliveries.RecordedAttempt::statusCode,
+                        TestDeliveries.RecordedAttempt::responseExcerpt,
+                        TestDeliveries.RecordedAttempt::replay)
+                .containsExactly(tuple(503, "still down", true));
+        assertThat(deliveries.health(endpoint))
+                .isEqualTo(new EndpointHealth(Optional.of(failingSince), EndpointHealth.FAILED_ATTEMPTS + 5));
+        assertThat(TestCaller.call(tenant, Environment.TEST, () -> webhooks.endpoint(endpoint))
+                        .orElseThrow()
+                        .status())
+                .isEqualTo(EndpointStatus.ENABLED);
+    }
+
+    @Test
+    void countsReplaysAndDeliveriesInFlightTowardOneLimitPerEndpoint() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        receiver.answer(path, new TestReceiver.Answer.Late(Duration.ofMillis(500), 204));
+        WebhookEndpointId endpoint = endpoint(path);
+        List<UUID> replayed = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            UUID delivery = deliveries.succeeded(tenant, endpoint);
+            replay(endpoint, delivery);
+            replayed.add(delivery);
+        }
+        List<UUID> due = new ArrayList<>();
+        for (int i = 0; i < 2; i++) {
+            due.add(deliveries.pending(tenant, endpoint, clock.instant(), null));
+        }
+
+        List<Future<?>> first = queue.drain();
+        List<Future<?>> second = queue.drain();
+
+        assertThat(first).hasSize(DeliveryQueue.PER_ENDPOINT);
+        assertThat(second).isEmpty();
+        assertThat(due.stream().map(deliveries::leased)).containsOnly(true);
+        waitFor(first);
+        waitFor(queue.drain());
+        assertThat(receiver.requests(path)).hasSize(5);
+        assertThat(replayed.stream().map(deliveries::replays)).containsOnly(List.of("SENT"));
+    }
+
+    @Test
+    void sendsNothingForAReplayCanceledBeforeItsPass() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        WebhookEndpointId endpoint = endpoint(path);
+        UUID delivery = deliveries.succeeded(tenant, endpoint);
+        replay(endpoint, delivery);
+        TestCaller.run(tenant, Environment.TEST, () -> webhooks.delete(endpoint));
+
+        drainAndWait();
+
+        assertThat(receiver.requests(path)).isEmpty();
+        assertThat(deliveries.replays(delivery)).containsExactly("CANCELED");
+        assertThat(deliveries.attempts(delivery)).isEmpty();
+    }
+
+    @Test
+    void recordsAReplayCanceledDuringItsRequestWithoutMarkingItSent() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        receiver.answer(path, new TestReceiver.Answer.Late(Duration.ofMillis(500), 204));
+        WebhookEndpointId endpoint = endpoint(path);
+        UUID delivery = deliveries.succeeded(tenant, endpoint);
+        replay(endpoint, delivery);
+
+        List<Future<?>> sends = queue.drain();
+        TestCaller.run(tenant, Environment.TEST, () -> webhooks.delete(endpoint));
+        waitFor(sends);
+
+        assertThat(receiver.requests(path)).hasSize(1);
+        assertThat(deliveries.replays(delivery)).containsExactly("CANCELED");
+        assertThat(deliveries.attempts(delivery))
+                .extracting(TestDeliveries.RecordedAttempt::replay)
+                .containsExactly(true);
+    }
+
+    private void replay(WebhookEndpointId endpoint, UUID delivery) {
+        assertThat(TestCaller.call(
+                        tenant, Environment.TEST, () -> webhooks.replay(endpoint, new WebhookDeliveryId(delivery))))
+                .isInstanceOf(ReplayResult.Queued.class);
     }
 
     private UUID deliveryOf(TenantId owner) {

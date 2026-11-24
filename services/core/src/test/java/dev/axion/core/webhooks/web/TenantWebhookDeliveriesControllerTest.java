@@ -124,6 +124,42 @@ class TenantWebhookDeliveriesControllerTest {
     }
 
     @Test
+    void replaysADeliveryWithNoRecentAuthentication() {
+        UUID delivery = delivered(organization.test(), endpoint, "charge.paid", "DEAD");
+
+        MvcTestResult result = post(PATH + "/{delivery_id}/replay", organization.test(), endpoint, publicId(delivery));
+
+        assertThat(result).hasStatus(HttpStatus.ACCEPTED);
+        assertThat(result).bodyJson().extractingPath("$.status").isEqualTo("dead");
+        assertThat(deliveries.replays(delivery)).containsExactly("PENDING");
+    }
+
+    @Test
+    void answersConflictToAReplayOnceTheLimitIsReached() {
+        UUID delivery = delivered(organization.test(), endpoint, "charge.paid", "DEAD");
+        for (int i = 0; i < WebhooksApi.MAX_REPLAYS; i++) {
+            assertThat(post(PATH + "/{delivery_id}/replay", organization.test(), endpoint, publicId(delivery)))
+                    .hasStatus(HttpStatus.ACCEPTED);
+        }
+
+        assertThat(post(PATH + "/{delivery_id}/replay", organization.test(), endpoint, publicId(delivery)))
+                .hasStatus(HttpStatus.CONFLICT)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("replay_limit_reached");
+    }
+
+    @Test
+    void replaysNoDeliveryOfTheOtherEnvironment() {
+        WebhookEndpointId live = create(organization.live());
+        UUID delivery = delivered(organization.live(), live, "charge.paid", "DEAD");
+
+        assertNotFound(post(PATH + "/{delivery_id}/replay", organization.test(), live, publicId(delivery)));
+        assertNotFound(post(PATH + "/{delivery_id}/replay", organization.test(), endpoint, publicId(delivery)));
+        assertThat(deliveries.replays(delivery)).isEmpty();
+    }
+
+    @Test
     void findsNoLogOfTheOtherEnvironmentOrWithAMalformedId() {
         WebhookEndpointId live = create(organization.live());
         UUID delivery = delivered(organization.live(), live, "charge.paid", "SUCCEEDED");
@@ -176,12 +212,24 @@ class TenantWebhookDeliveriesControllerTest {
     }
 
     private MvcTestResult get(String path, TenantId tenant, WebhookEndpointId to, Object... more) {
+        return send(mvc.get(), path, tenant, to, more);
+    }
+
+    private MvcTestResult post(String path, TenantId tenant, WebhookEndpointId to, Object... more) {
+        return send(mvc.post(), path, tenant, to, more);
+    }
+
+    private MvcTestResult send(
+            MockMvcTester.MockMvcRequestBuilder request,
+            String path,
+            TenantId tenant,
+            WebhookEndpointId to,
+            Object... more) {
         Object[] variables = new Object[2 + more.length];
         variables[0] = tenant.publicId();
         variables[1] = to.publicId();
         System.arraycopy(more, 0, variables, 2, more.length);
-        MvcTestResult result = mvc.get()
-                .uri(path, variables)
+        MvcTestResult result = request.uri(path, variables)
                 .with(jwt().jwt(token -> token.subject(subject)
                         .claim("auth_time", Instant.now().minus(OLD).getEpochSecond())))
                 .exchange();
