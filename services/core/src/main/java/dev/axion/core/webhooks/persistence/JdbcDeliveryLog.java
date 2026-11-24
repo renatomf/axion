@@ -96,7 +96,7 @@ public class JdbcDeliveryLog {
     /** Every request sent for the delivery, oldest first. */
     public List<AttemptView> attempts(TenantId tenant, WebhookDeliveryId delivery) {
         return jdbc.sql("""
-                        SELECT id, started_at, duration_ms, status_code, failure, response_excerpt
+                        SELECT id, replay, started_at, duration_ms, status_code, failure, response_excerpt
                           FROM webhooks.attempts
                          WHERE tenant_id = :tenant AND delivery_id = :delivery
                          ORDER BY started_at, id
@@ -128,6 +128,7 @@ public class JdbcDeliveryLog {
                 : new Attempt.Failed(AttemptFailure.valueOf(failure));
         return new AttemptView(
                 new WebhookAttemptId(row.getObject("id", UUID.class)),
+                row.getBoolean("replay"),
                 row.getObject("started_at", OffsetDateTime.class).toInstant(),
                 Duration.ofMillis(row.getInt("duration_ms")),
                 outcome,

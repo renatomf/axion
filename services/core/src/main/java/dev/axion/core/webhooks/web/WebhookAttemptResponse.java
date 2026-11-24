@@ -11,6 +11,7 @@ import org.jspecify.annotations.Nullable;
 record WebhookAttemptResponse(
         String id,
         String object,
+        boolean replay,
         @JsonProperty("started_at") Instant startedAt,
         @JsonProperty("duration_ms") long durationMs,
         @JsonProperty("status_code") @Nullable Integer statusCode,
@@ -27,6 +28,7 @@ record WebhookAttemptResponse(
         return new WebhookAttemptResponse(
                 attempt.id().publicId().toString(),
                 "webhook_attempt",
+                attempt.replay(),
                 attempt.startedAt(),
                 attempt.duration().toMillis(),
                 statusCode,

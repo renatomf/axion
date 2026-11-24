@@ -1776,6 +1776,7 @@ components:
       required:
         - id
         - object
+        - replay
         - started_at
         - duration_ms
         - status_code
@@ -1790,6 +1791,12 @@ components:
           description: The kind of object, always `webhook_attempt`.
           type: string
           const: webhook_attempt
+        replay:
+          description: >-
+            Whether the request was a replay asked for, rather than one of
+            the delivery's scheduled attempts. A replay counts toward none of
+            them.
+          type: boolean
         started_at:
           description: When the request began; its `webhook-timestamp`.
           type: string
@@ -1839,6 +1846,7 @@ components:
       examples:
         - id: wha_01jdr3b7c8d9e0f1g2h3j4k5m6
           object: webhook_attempt
+          replay: false
           started_at: "2026-11-23T14:03:11Z"
           duration_ms: 182
           status_code: 503

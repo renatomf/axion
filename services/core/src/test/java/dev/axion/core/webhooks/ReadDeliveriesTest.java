@@ -100,6 +100,20 @@ class ReadDeliveriesTest {
     }
 
     @Test
+    void tellsAReplayFromAScheduledAttempt() {
+        WebhookEndpointId endpoint = create(tenant);
+        UUID delivery = delivered(endpoint, "charge.paid", "DEAD");
+        Instant first = Instant.parse("2026-11-24T12:00:00Z");
+        deliveries.attempt(delivery, tenant, false, first, 10_000, null, "TIMEOUT", null);
+        deliveries.attempt(delivery, tenant, true, first.plusSeconds(60), 87, 200, null, null);
+
+        DeliveryDetail detail = as(tenant, () -> webhooks.delivery(endpoint, new WebhookDeliveryId(delivery)))
+                .orElseThrow();
+
+        assertThat(detail.attempts()).extracting(AttemptView::replay).containsExactly(false, true);
+    }
+
+    @Test
     void readsAPendingDeliveryWithItsNextAttempt() {
         WebhookEndpointId endpoint = create(tenant);
         UUID delivery = delivered(endpoint, "charge.paid", "PENDING");

@@ -139,7 +139,7 @@ public final class TestDeliveries {
                 "NULL");
     }
 
-    /** An attempt of the delivery in the log, as the workers record it. */
+    /** A scheduled attempt of the delivery in the log, as the workers record it. */
     public void attempt(
             UUID delivery,
             TenantId tenant,
@@ -148,15 +148,29 @@ public final class TestDeliveries {
             @Nullable Integer statusCode,
             @Nullable String failure,
             @Nullable String excerpt) {
+        attempt(delivery, tenant, false, startedAt, durationMs, statusCode, failure, excerpt);
+    }
+
+    /** An attempt of the delivery in the log, a replay or a scheduled one, as the workers record it. */
+    public void attempt(
+            UUID delivery,
+            TenantId tenant,
+            boolean replay,
+            Instant startedAt,
+            int durationMs,
+            @Nullable Integer statusCode,
+            @Nullable String failure,
+            @Nullable String excerpt) {
         owner.sql("""
                         INSERT INTO webhooks.attempts
-                               (id, tenant_id, delivery_id, started_at, duration_ms, status_code, failure,
+                               (id, tenant_id, delivery_id, replay, started_at, duration_ms, status_code, failure,
                                 response_excerpt)
-                        VALUES (gen_random_uuid(), :tenant, :delivery, :startedAt, :durationMs, :statusCode,
+                        VALUES (gen_random_uuid(), :tenant, :delivery, :replay, :startedAt, :durationMs, :statusCode,
                                 :failure, :excerpt)
                         """)
                 .param("tenant", tenant.value())
                 .param("delivery", delivery)
+                .param("replay", replay)
                 .param("startedAt", startedAt.atOffset(ZoneOffset.UTC))
                 .param("durationMs", durationMs)
                 .param("statusCode", statusCode)
