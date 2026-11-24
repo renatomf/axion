@@ -485,7 +485,9 @@ data: {"specversion":"1.0","id":"evt_01jdr4c7…","type":"charge.paid",…}
 ```
 
 - Each message is the public event of section 5.1, rendered by the same catalog, so the console writes `data.object` into its query cache as it would a response (overview, section 9.6).
-- A member receives only the types their permissions allow: charge and payment events need `charges:read`, and `webhook_endpoint.disabled` needs `webhooks:manage`. The tenant comes from the path and the membership, as for every `/internal` route.
+- A member receives only the types their permissions allow: charge and payment events need `charges:read`, and `webhook_endpoint.disabled` needs `webhooks:manage`. The stream itself requires `charges:read`, which every role holds, so the tenant comes from the path and the membership, checked as for every `/internal` route; an endpoint that declares no permission is never checked against a tenant.
+- A stream ends when the access token that opened it expires, at most 5 minutes later; the BFF opens the next with a fresh token and `Last-Event-ID`. A member who leaves the organization, or loses a permission, stops receiving its events within a token's lifetime.
+- Each stream has a queue of 256 messages, which a virtual thread of its own writes to the client: a listener only adds to queues and never waits on a socket. A stream whose queue is full is closed, and its client resumes with `Last-Event-ID`.
 - `notifications` keeps, in memory, the streams open on this instance and, per tenant, the last 200 events or 5 minutes of them. A reconnecting client sends `Last-Event-ID` and receives what it missed if it is still kept; otherwise it receives a `reset` message, and the console refetches its queries.
 - A comment line every 15 seconds keeps proxies from closing an idle stream. At most 5 streams per member and 200 per tenant; the next is `429`.
 - Phase 1 runs one instance of the core, so an in-memory fan-out reaches every stream. With several instances, each would publish the events it handles through PostgreSQL `LISTEN`/`NOTIFY` to the others; that change stays inside `notifications`.
@@ -627,7 +629,7 @@ Public IDs: `evt_` for events, `we_` for webhook endpoints, `whd_` for deliverie
 | `GET /v1/webhook_endpoints/{id}/deliveries` | `webhooks:manage` | Newest first; filters on `status` and `type` |
 | `GET /v1/webhook_endpoints/{id}/deliveries/{delivery_id}` | `webhooks:manage` | With its attempts |
 | `POST /v1/webhook_endpoints/{id}/deliveries/{delivery_id}/replay` | `webhooks:manage` | Idempotent; `202 Accepted` with the delivery as it is, the attempt follows in the log; `409 endpoint_disabled` or `replay_limit_reached` (section 8.7) |
-| `GET /internal/tenants/{tenant_id}/events/stream` | `@NoPermissionRequired` | Section 10; types filtered by the member's permissions |
+| `GET /internal/tenants/{tenant_id}/events/stream` | `charges:read` | Section 10; types filtered by the member's permissions |
 
 - `/internal/tenants/{tenant_id}/webhook_endpoints/…` mirrors each `/v1` operation for the console; creating, updating, deleting and rolling there need step-up. Replaying does not: it sends again only what the endpoint was already sent, to the URL it has, and the daily limit bounds it.
 - Another tenant's endpoint or delivery is `404`, like an unknown one; the isolation harness covers every operation.
@@ -696,10 +698,10 @@ Events and webhooks carry money's news out of the core and requests into other n
 | **Information disclosure** | A webhook URL reaches the metadata service or an internal host (SSRF) | Validation at registration; the resolver checks every address at connection and the connection uses only checked ones; no redirects, no proxy; refusals do not reveal resolved addresses |
 | **Information disclosure** | A tenant's response bodies or URLs leak | At most 1 KiB of the response kept, shown escaped, deleted after 30 days; logs carry no URL path or query |
 | **Information disclosure** | A signing secret leaks | Shown once; encrypted with Tink, bound to its endpoint; the key-encryption key outside the database; never logged; a Gitleaks rule for its format; rolling with a grace period |
-| **Information disclosure** | A member streams another tenant's events, or events beyond their role | The tenant comes from the path through the membership; types are filtered by permissions |
+| **Information disclosure** | A member streams another tenant's events, or events beyond their role | The tenant comes from the path through the membership; types are filtered by permissions; a stream ends with the token that opened it |
 | **Denial of service** | A slow endpoint ties up delivery | Short timeouts, at most 4 deliveries in flight per endpoint, leases instead of open transactions; settlement never waits on a listener |
 | **Denial of service** | The core used to flood a third party's URL | A tenant's requests are bounded by its own events, at most 16 endpoints, and replays at most 10 a day each, sent within the endpoint's limit of 4 in flight; a failing URL is disabled after three days |
-| **Denial of service** | Live streams exhaust connections | Per-member and per-tenant limits; heartbeats; the stream holds no transaction |
+| **Denial of service** | Live streams exhaust connections | Per-member and per-tenant limits; heartbeats; the stream holds no transaction; a slow client fills only its own queue, and is closed when it is full |
 | **Elevation of privilege** | A leaked key with `webhooks:manage` points the endpoints at an attacker | The key reads payment news it could already read with `charges:read`, never moves money; endpoint changes are audited; the console shows endpoints and their changes; key and member events never go to webhooks |
 | **Elevation of privilege** | A listener acts without a tenant, or with the wrong one | Listeners bind the event's tenant before any query; outside a binding the policies return nothing |
 
