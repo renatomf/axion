@@ -7,6 +7,7 @@ import dev.axion.core.billing.ChargeRefunded;
 import dev.axion.core.billing.PaymentFlagged;
 import dev.axion.core.events.EventCatalog;
 import dev.axion.core.shared.DomainEvent;
+import dev.axion.core.webhooks.WebhookEndpointDisabled;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -49,6 +50,11 @@ class StreamPublishing {
 
     @ApplicationModuleListener(propagation = Propagation.NOT_SUPPORTED)
     void on(ChargeRefunded event) {
+        publish(event);
+    }
+
+    @ApplicationModuleListener(propagation = Propagation.NOT_SUPPORTED)
+    void on(WebhookEndpointDisabled event) {
         publish(event);
     }
 

@@ -17,7 +17,7 @@
  */
 @ApplicationModule(
         displayName = "Notifications",
-        allowedDependencies = {"shared", "access", "tenancy", "billing", "events"})
+        allowedDependencies = {"shared", "access", "tenancy", "billing", "webhooks", "events"})
 @NullMarked
 package dev.axion.core.notifications;
 

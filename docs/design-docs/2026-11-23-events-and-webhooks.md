@@ -197,10 +197,11 @@ A public event is a [CloudEvent 1.0](https://github.com/cloudevents/spec) in str
 - `data` is rendered once, when `webhooks` records the event (section 8.1), and stored as bytes: every attempt and every replay sends exactly the bytes first sent, so a signature verified once stays valid evidence.
 - The resource is a snapshot, not a pointer: a receiver can act without calling the API. A receiver that needs the current state, because a later event may have changed it, reads the resource by `subject`.
 - `EventCatalog.render(DomainEvent)`, in `events`, is the only place a public event is built. It is a pure function of the event, with no database access, so `webhooks` and `notifications` can call it without depending on anything slow. It writes the resource with the records `billing` exposes for that (its `representation` named interface), the ones its endpoints return, and the core's JSON mapper.
+- A module that calls the catalog cannot have its representation read by it without a cycle between the two. Such a module contributes a `PublicEventWriter` instead, a bean the catalog receives at startup: for one domain event, the public type, the contract that describes it, the subject and the `data` to write, with the representation its own endpoints return. The catalog still builds the envelope, and refuses a second writer of an event or of a type, so an event's public form never depends on which bean loads first. `webhooks` writes `webhook_endpoint.disabled` this way; `billing`, which calls no consumer of the catalog, needs no writer.
 
 ### 5.2 Versioning
 
-Each public type has a schema in the `webhooks` section of `v1.yaml`, one entry per type and version (`charge.paid.v1`), referencing the same component schemas as the API: a charge in a webhook is the charge of `GET /v1/charges/{id}`.
+Each public type has a schema in the `webhooks` section of `v1.yaml`, one entry per type and version (`charge.paid.v1`), referencing the same component schemas as the API: a charge in a webhook is the charge of `GET /v1/charges/{id}`. A type that only the console's live stream carries, `webhook_endpoint.disabled`, is described in the `webhooks` section of `internal.yaml` instead, which its `dataschema` names: the public reference lists exactly what an endpoint can be sent.
 
 - **Additive changes** keep the version: a new optional field, a new value of a field the reference documents as open, a new event type. Receivers must ignore fields they do not know; the reference says so.
 - **Breaking changes** add a version: a removed or renamed field, a changed meaning, a new required field. During a deprecation period of at least six months both versions are sent, as types `charge.paid` and `charge.paid.v2`, and an endpoint chooses which it subscribes to; afterwards the old one stops.
@@ -603,6 +604,15 @@ public interface EventCatalog {
     Set<String> publicTypes();
 }
 
+// events: contributed by a module that calls the catalog, for one of its own events (section 5.1)
+public interface PublicEventWriter<E extends DomainEvent> {
+    Class<E> event();
+    String type();
+    EventContract contract();                           // V1 or INTERNAL: the document of its schema
+    PublicId subject(E event);
+    Object data(E event);
+}
+
 // webhooks: endpoints and the delivery log, for the controllers of /v1 and /internal
 public interface WebhooksApi {
     CreateEndpointResult create(EndpointRequest request);   // for the tenant bound; Created, InvalidUrl or LimitReached
@@ -684,6 +694,8 @@ Logs carry the event's, endpoint's, delivery's and attempt's IDs and the correla
 | **Hashed signing secrets** | HMAC needs the secret to sign, so it can only be encrypted |
 | **One global audit chain** | Proves order across tenants, but serializes every audited action of the platform behind one row, and a tenant's records cannot be verified alone |
 | **Audit records as `jsonb`** | Indexable, but PostgreSQL normalizes `jsonb`, so the stored bytes would not be the hashed ones |
+| **Writers for every module** (`billing` too), so `events` reads no module | One mechanism for every type; but `billing` would depend on `events`, which publishers otherwise never do, to move code that needs no move |
+| **The endpoint's representation in `shared`** | No new mechanism; but the shared kernel would hold a resource of `webhooks`, and the next module's event would add another |
 | **WebSockets for the console** | Two-way, which the console does not need; SSE reconnects by itself, resumes with `Last-Event-ID` and passes through the BFF as plain HTTP |
 
 ## 15. Security considerations

@@ -133,7 +133,12 @@ class EventCatalogTest {
     void listsEveryPublicType() {
         assertThat(catalog.publicTypes())
                 .containsExactlyInAnyOrder(
-                        "charge.created", "charge.paid", "charge.expired", "payment.flagged", "charge.refunded");
+                        "charge.created",
+                        "charge.paid",
+                        "charge.expired",
+                        "payment.flagged",
+                        "charge.refunded",
+                        "webhook_endpoint.disabled");
     }
 
     @Test
@@ -157,6 +162,7 @@ class EventCatalogTest {
             case "ChargeExpired" -> Optional.of("charge.expired");
             case "PaymentFlagged" -> Optional.of("payment.flagged");
             case "ChargeRefunded" -> Optional.of("charge.refunded");
+            case "WebhookEndpointDisabled" -> Optional.of("webhook_endpoint.disabled");
             default -> Optional.empty();
         };
     }

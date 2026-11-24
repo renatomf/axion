@@ -85,7 +85,10 @@ public final class EventFixtures {
                         header(new Actor.ApiKey(new ApiKeyId(UUID.randomUUID()))), endpoint(), endpoint()),
                 new WebhookEndpointDeleted(header(new Actor.ApiKey(new ApiKeyId(UUID.randomUUID()))), endpoint()),
                 new WebhookSecretRolled(header(new Actor.ApiKey(new ApiKeyId(UUID.randomUUID()))), endpoint(), NOW),
-                new WebhookEndpointDisabled(header(new Actor.Job("webhook-delivery")), endpoint(), NOW));
+                new WebhookEndpointDisabled(
+                        header(new Actor.Job("webhook-delivery")),
+                        endpoint(DisabledReason.FAILING),
+                        NOW.minusSeconds(72 * 3_600)));
     }
 
     /** The catalog's event of the type. */
@@ -120,13 +123,17 @@ public final class EventFixtures {
     }
 
     private static EndpointView endpoint() {
+        return endpoint(DisabledReason.BY_TENANT);
+    }
+
+    private static EndpointView endpoint(DisabledReason reason) {
         return new EndpointView(
                 new WebhookEndpointId(UUID.randomUUID()),
                 "https://example.com/axion/webhooks",
                 Optional.of("Order service"),
                 Set.of("charge.paid", "charge.refunded"),
                 EndpointStatus.DISABLED,
-                Optional.of(DisabledReason.BY_TENANT),
+                Optional.of(reason),
                 NOW);
     }
 

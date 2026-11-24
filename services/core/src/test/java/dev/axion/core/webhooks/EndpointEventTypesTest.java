@@ -2,6 +2,7 @@ package dev.axion.core.webhooks;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.axion.core.OpenApiContract;
 import dev.axion.core.PostgresTestConfiguration;
 import dev.axion.core.events.EventCatalog;
 import dev.axion.core.webhooks.domain.EventTypes;
@@ -19,15 +20,22 @@ import tools.jackson.dataformat.yaml.YAMLMapper;
 
 /**
  * The event types an endpoint may receive (events and webhooks design, section 3.3): every public
- * type the catalog sends to webhooks, as the contract lists them.
+ * type the public reference sends to webhooks, as the endpoint's schema lists them, and none the
+ * console alone receives.
  */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
 class EndpointEventTypesTest {
 
     @Test
-    void areThePublicTypesOfTheCatalog(@Autowired EventCatalog catalog) {
-        assertThat(EventTypes.WEBHOOK).containsExactlyInAnyOrderElementsOf(catalog.publicTypes());
+    void areTheTypesThePublicReferenceSends() {
+        assertThat(EventTypes.WEBHOOK)
+                .containsExactlyInAnyOrderElementsOf(OpenApiContract.v1().events());
+    }
+
+    @Test
+    void arePublicTypesOfTheCatalog(@Autowired EventCatalog catalog) {
+        assertThat(catalog.publicTypes()).containsAll(EventTypes.WEBHOOK);
     }
 
     @Test
