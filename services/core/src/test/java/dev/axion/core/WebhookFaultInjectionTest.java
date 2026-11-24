@@ -62,6 +62,9 @@ class WebhookFaultInjectionTest {
 
     private static final TestReceiver RECEIVER = TestReceiver.startLocal();
 
+    /** How long a worker holds a delivery it claimed (events and webhooks design, section 8.2). */
+    private static final Duration LEASE = Duration.ofSeconds(30);
+
     /** Long enough for a notification to be settled and its webhook delivered. */
     private static final Duration PATIENCE = Duration.ofSeconds(30);
 
@@ -168,6 +171,34 @@ class WebhookFaultInjectionTest {
     }
 
     /**
+     * The core is killed while the receiver holds the webhook's request, after the settlement and the
+     * delivery committed: the attempt is never recorded. The lease the killed core took passes, the
+     * core started again claims the delivery and sends the same event, which the receiver tells
+     * apart from a new one by its {@code webhook-id}.
+     */
+    @Test
+    void deliversAgainAfterTheCoreIsKilledDuringTheRequest() throws InterruptedException {
+        String path = "/killed-during-request";
+        RECEIVER.answer(path, new TestReceiver.Answer.Late(Duration.ofMinutes(5), 204));
+        endpoint(path, "charge.paid");
+
+        RAILS.pay(charge());
+
+        await(() -> RECEIVER.requests(path), requests -> requests.size() == 1);
+        core.kill();
+        RECEIVER.answer(path, new TestReceiver.Answer.Status(204));
+        core.start();
+
+        List<TestReceiver.Request> requests =
+                await(LEASE.plus(PATIENCE), () -> RECEIVER.requests(path), sent -> sent.size() == 2);
+        assertThat(requests.getLast().header("webhook-id"))
+                .isEqualTo(requests.getFirst().header("webhook-id"));
+        assertThat(requests.getLast().body()).isEqualTo(requests.getFirst().body());
+        await(() -> deliveries("charge.paid"), List.of("SUCCEEDED")::equals);
+        assertThat(attempts("charge.paid")).as("attempts recorded").isOne();
+    }
+
+    /**
      * Registers an endpoint of the receiver's path for the event types, through the core's API;
      * returns its ID.
      */
@@ -230,6 +261,18 @@ class WebhookFaultInjectionTest {
                 .params(organization.test().value(), eventType)
                 .query((row, number) -> row.getString("status"))
                 .list();
+    }
+
+    /** The attempts recorded of the tenant's deliveries of the event type. */
+    private long attempts(String eventType) {
+        return owner.jdbc()
+                .sql("""
+                        SELECT coalesce(sum(d.attempt_count), 0) FROM webhooks.deliveries d
+                          JOIN webhooks.events e ON e.id = d.event_id
+                         WHERE d.tenant_id = ? AND e.type = ?""")
+                .params(organization.test().value(), eventType)
+                .query(Long.class)
+                .single();
     }
 
     /** The tenant's public events of the type, recorded for delivery. */
