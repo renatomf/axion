@@ -10,16 +10,22 @@ import dev.axion.core.TestCaller;
 import dev.axion.core.billing.BillingApi;
 import dev.axion.core.billing.BillingFixtures;
 import dev.axion.core.billing.ChargeRequest;
+import dev.axion.core.events.CommittedEvents;
+import dev.axion.core.shared.Actor;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.tenancy.TenancyApi;
 import dev.axion.core.webhooks.CreateEndpointResult;
 import dev.axion.core.webhooks.CreatedEndpoint;
+import dev.axion.core.webhooks.DisabledReason;
 import dev.axion.core.webhooks.EndpointRequest;
+import dev.axion.core.webhooks.EndpointStatus;
+import dev.axion.core.webhooks.EndpointView;
 import dev.axion.core.webhooks.RollSecretResult;
 import dev.axion.core.webhooks.TestDeliveries;
 import dev.axion.core.webhooks.TestDns;
 import dev.axion.core.webhooks.TestReceiver;
+import dev.axion.core.webhooks.WebhookEndpointDisabled;
 import dev.axion.core.webhooks.WebhookEndpointId;
 import dev.axion.core.webhooks.WebhooksApi;
 import dev.axion.core.webhooks.domain.EndpointHealth;
@@ -44,6 +50,8 @@ import java.util.concurrent.Future;
 import java.util.random.RandomGenerator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -60,7 +68,7 @@ import tools.jackson.databind.json.JsonMapper;
  * pass claims only the deliveries these tests made due; tests of the retries move it forward.
  */
 @SpringBootTest
-@Import({PostgresTestConfiguration.class, TestDns.class, DeliveryQueueTest.Receiving.class})
+@Import({PostgresTestConfiguration.class, TestDns.class, CommittedEvents.class, DeliveryQueueTest.Receiving.class})
 class DeliveryQueueTest {
 
     private static final Instant START = Instant.parse("2025-06-02T12:00:00Z");
@@ -288,6 +296,70 @@ class DeliveryQueueTest {
 
         drainAndWait();
 
+        assertThat(deliveries.health(endpoint)).isEqualTo(EndpointHealth.HEALTHY);
+    }
+
+    @Test
+    void disablesAnEndpointFailingForThreeDaysWhoseLast20AttemptsFailed(@Autowired CommittedEvents events)
+            throws Exception {
+        String path = "/" + UUID.randomUUID();
+        receiver.answer(path, new TestReceiver.Answer.Status(500));
+        WebhookEndpointId endpoint = endpoint(path);
+        Instant failingSince = clock.instant().minus(EndpointHealth.FAILING_FOR);
+        deliveries.failing(endpoint, failingSince, EndpointHealth.FAILED_ATTEMPTS - 1);
+        UUID failing = deliveries.pending(tenant, endpoint, clock.instant(), null);
+        UUID waiting = deliveries.pending(tenant, endpoint, clock.instant().plusSeconds(60), null);
+
+        drainAndWait();
+
+        EndpointView disabled = TestCaller.call(tenant, Environment.TEST, () -> webhooks.endpoint(endpoint))
+                .orElseThrow();
+        assertThat(disabled.status()).isEqualTo(EndpointStatus.DISABLED);
+        assertThat(disabled.disabledReason()).contains(DisabledReason.FAILING);
+        assertThat(deliveries.status(failing)).isEqualTo("CANCELED");
+        assertThat(deliveries.status(waiting)).isEqualTo("CANCELED");
+        assertThat(events.of(tenant, WebhookEndpointDisabled.class))
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.endpoint()).isEqualTo(disabled);
+                    assertThat(event.failingSince()).isEqualTo(failingSince);
+                    assertThat(event.environment()).isEqualTo(Environment.TEST);
+                    assertThat(event.actor()).isEqualTo(new Actor.Job("webhook-delivery"));
+                });
+    }
+
+    @ParameterizedTest
+    @CsvSource({"PT71H59M, 19", "PT71H59M, 500", "PT80H, 18"})
+    void keepsAnEndpointEnabledUntilBothConditionsHold(Duration failingFor, int failedBefore) throws Exception {
+        String path = "/" + UUID.randomUUID();
+        receiver.answer(path, new TestReceiver.Answer.Status(500));
+        WebhookEndpointId endpoint = endpoint(path);
+        deliveries.failing(endpoint, clock.instant().minus(failingFor), failedBefore);
+        UUID delivery = deliveries.pending(tenant, endpoint, clock.instant(), null);
+
+        drainAndWait();
+
+        assertThat(TestCaller.call(tenant, Environment.TEST, () -> webhooks.endpoint(endpoint))
+                        .orElseThrow()
+                        .status())
+                .isEqualTo(EndpointStatus.ENABLED);
+        assertThat(deliveries.status(delivery)).isEqualTo("PENDING");
+        assertThat(deliveries.health(endpoint).consecutiveFailures()).isEqualTo(failedBefore + 1);
+    }
+
+    @Test
+    void keepsAnEndpointWhoseFailingAttemptSucceededEnabled() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        WebhookEndpointId endpoint = endpoint(path);
+        deliveries.failing(endpoint, clock.instant().minus(Duration.ofDays(4)), 500);
+        deliveries.pending(tenant, endpoint, clock.instant(), null);
+
+        drainAndWait();
+
+        assertThat(TestCaller.call(tenant, Environment.TEST, () -> webhooks.endpoint(endpoint))
+                        .orElseThrow()
+                        .status())
+                .isEqualTo(EndpointStatus.ENABLED);
         assertThat(deliveries.health(endpoint)).isEqualTo(EndpointHealth.HEALTHY);
     }
 

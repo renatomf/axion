@@ -513,53 +513,59 @@ class WebhookEndpointsSchemaTest {
                 .isEqualTo(row.url);
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"tenant_id", "description", "enabled_events", "disabled_reason"})
-    void deniesTheJobsRoleWhatSendingDoesNotNeed(String column) {
-        insert(endpoint());
-        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
-
-        assertThatThrownBy(() -> jdbc.sql("SELECT " + column + " FROM webhooks.endpoints")
-                        .query()
-                        .listOfRows())
-                .rootCause()
-                .hasMessageContaining("permission denied");
-    }
-
     @Test
-    void letsTheJobsRoleRecordHowEveryTenantsReceivingEndpointFares() {
+    void letsTheJobsRoleDisableAReceivingEndpointForFailing() {
         var row = endpoint().tenant(UUID.randomUUID());
         insert(row);
         DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
 
-        assertThat(jdbc.sql("SELECT failing_since FROM webhooks.endpoints WHERE id = ? FOR UPDATE")
-                        .param(row.id)
-                        .query()
-                        .listOfRows())
-                .hasSize(1);
         assertThat(jdbc.sql("""
-                                UPDATE webhooks.endpoints SET failing_since = now(), consecutive_failures = 1
+                                UPDATE webhooks.endpoints
+                                   SET status = 'DISABLED', disabled_reason = 'FAILING', updated_at = now()
                                  WHERE id = ?
-                                """).param(row.id).update()).isOne();
+                                RETURNING tenant_id, environment, description, enabled_events, created_at
+                                """).param(row.id).query().listOfRows()).hasSize(1);
     }
 
     @Test
-    void hidesFromTheJobsRolesChangesAnEndpointThatNoLongerReceives() {
-        var disabled = endpoint().status("DISABLED", "BY_TENANT");
-        insert(disabled);
-        var deleted = endpoint();
-        insert(deleted);
-        jdbc.sql("UPDATE webhooks.endpoints SET deleted_at = now() WHERE id = ?")
-                .param(deleted.id)
-                .update();
+    void deniesTheJobsRoleDisablingAnEndpointForTheTenant() {
+        var row = endpoint();
+        insert(row);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> jdbc.sql("""
+                                UPDATE webhooks.endpoints SET status = 'DISABLED', disabled_reason = 'BY_TENANT'
+                                 WHERE id = ?
+                                """).param(row.id).update())
+                .rootCause()
+                .hasMessageContaining(RLS_VIOLATION);
+    }
+
+    @Test
+    void hidesFromTheJobsRoleAnEndpointToEnableAgain() {
+        var row = endpoint().status("DISABLED", "FAILING");
+        insert(row);
         DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
 
         int updated = jdbc.sql("""
-                        UPDATE webhooks.endpoints SET failing_since = now(), consecutive_failures = 1
-                         WHERE id IN (?, ?)
-                        """).params(disabled.id, deleted.id).update();
+                        UPDATE webhooks.endpoints SET status = 'ENABLED', disabled_reason = NULL WHERE id = ?
+                        """).param(row.id).update();
 
         assertThat(updated).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"deleted_at = now()", "tenant_id = gen_random_uuid()", "environment = 'LIVE'"})
+    void deniesTheJobsRoleChangingWhatDisablingDoesNotSet(String assignment) {
+        var row = endpoint();
+        insert(row);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> jdbc.sql("UPDATE webhooks.endpoints SET " + assignment + " WHERE id = ?")
+                        .param(row.id)
+                        .update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
     }
 
     @Test

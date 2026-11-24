@@ -1,5 +1,7 @@
 package dev.axion.core.webhooks.persistence;
 
+import dev.axion.core.shared.Environment;
+import dev.axion.core.shared.TenantId;
 import dev.axion.core.webhooks.domain.EndpointHealth;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -149,6 +151,39 @@ public class JdbcQueue {
                 .param("failures", health.consecutiveFailures())
                 .param("id", endpoint)
                 .update();
+    }
+
+    /**
+     * Disables an endpoint the transaction locked, for failing; it then receives nothing until its
+     * tenant enables it again.
+     */
+    public DisabledEndpoint disable(UUID endpoint, Instant at) {
+        return jdbc.sql("""
+                        UPDATE webhooks.endpoints
+                           SET status = 'DISABLED', disabled_reason = 'FAILING', updated_at = :at
+                         WHERE id = :id AND status = 'ENABLED'
+                        RETURNING tenant_id, environment,\s""" + JdbcEndpoints.COLUMNS)
+                .param("at", utc(at))
+                .param("id", endpoint)
+                .query((row, number) -> new DisabledEndpoint(
+                        new TenantId(row.getObject("tenant_id", UUID.class)),
+                        Environment.valueOf(row.getString("environment")),
+                        JdbcEndpoints.view(row, number)))
+                .single();
+    }
+
+    /**
+     * Cancels the endpoint's pending deliveries, those other workers hold included: their results
+     * then change nothing.
+     *
+     * @return how many were canceled
+     */
+    public int cancelPending(UUID endpoint) {
+        return jdbc.sql("""
+                        UPDATE webhooks.deliveries
+                           SET status = 'CANCELED', next_attempt_at = NULL, leased_until = NULL
+                         WHERE endpoint_id = :endpoint AND status = 'PENDING'
+                        """).param("endpoint", endpoint).update();
     }
 
     private static ClaimedDelivery claimed(ResultSet row, int rowNumber) throws SQLException {

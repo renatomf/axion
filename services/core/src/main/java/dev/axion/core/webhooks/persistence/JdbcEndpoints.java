@@ -23,7 +23,7 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class JdbcEndpoints {
 
-    private static final String COLUMNS = "id, url, description, enabled_events, status, disabled_reason, created_at";
+    static final String COLUMNS = "id, url, description, enabled_events, status, disabled_reason, created_at";
 
     // A deleted endpoint is never read: it receives nothing and is never listed.
     private static final String SELECT = "SELECT " + COLUMNS + " FROM webhooks.endpoints WHERE deleted_at IS NULL";
@@ -213,7 +213,7 @@ public class JdbcEndpoints {
                 .list();
     }
 
-    private static EndpointView view(ResultSet row, int rowNumber) throws SQLException {
+    static EndpointView view(ResultSet row, int rowNumber) throws SQLException {
         String[] types = (String[]) row.getArray("enabled_events").getArray();
         return new EndpointView(
                 new WebhookEndpointId(row.getObject("id", UUID.class)),

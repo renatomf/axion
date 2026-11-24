@@ -3,6 +3,7 @@ package dev.axion.core.webhooks.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -32,6 +33,36 @@ class EndpointHealthTest {
 
         assertThat(failing.after(new Attempt.Answered(204), FIRST.plusSeconds(60)))
                 .isEqualTo(EndpointHealth.HEALTHY);
+    }
+
+    @Test
+    void warrantsDisablingAfterThreeDaysAnd20FailedAttempts() {
+        var health = new EndpointHealth(Optional.of(FIRST), 20);
+
+        assertThat(health.warrantsDisabling(FIRST.plus(EndpointHealth.FAILING_FOR)))
+                .isTrue();
+        assertThat(health.warrantsDisabling(FIRST.plus(Duration.ofDays(5)))).isTrue();
+    }
+
+    @Test
+    void doesNotWarrantDisablingBeforeThreeDays() {
+        var health = new EndpointHealth(Optional.of(FIRST), 5_000);
+
+        assertThat(health.warrantsDisabling(
+                        FIRST.plus(EndpointHealth.FAILING_FOR).minusNanos(1000)))
+                .isFalse();
+    }
+
+    @Test
+    void doesNotWarrantDisablingBefore20FailedAttempts() {
+        var health = new EndpointHealth(Optional.of(FIRST), 19);
+
+        assertThat(health.warrantsDisabling(FIRST.plus(Duration.ofDays(30)))).isFalse();
+    }
+
+    @Test
+    void neverWarrantsDisablingAHealthyEndpoint() {
+        assertThat(EndpointHealth.HEALTHY.warrantsDisabling(FIRST)).isFalse();
     }
 
     @Test
