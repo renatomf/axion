@@ -764,6 +764,25 @@ paths:
                 $ref: "components.yaml#/schemas/Problem"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
+webhooks:
+  webhook_endpoint.disabled:
+    post:
+      operationId: webhookEndpointDisabled
+      tags: [Events]
+      summary: A webhook endpoint kept failing and was disabled
+      description: >-
+        Sent when an endpoint's deliveries failed for 72 hours and its last
+        20 attempts all failed: it receives nothing until the tenant enables
+        it again, and the deliveries pending for it were canceled. Never sent
+        to webhook endpoints: it arrives on the live stream of the tenant's
+        members who hold `webhooks:manage`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/cloudevents+json:
+            schema:
+              $ref: "#/components/schemas/WebhookEndpointDisabledEvent"
 components:
   parameters:
     KeyId:
@@ -1039,3 +1058,45 @@ components:
         `api_keys:manage`, are never scopes.
       type: string
       enum: ["balances:read", "charges:read", "charges:write", "refunds:write", "webhooks:manage"]
+    WebhookEndpointDisabledEvent:
+      description: >-
+        `webhook_endpoint.disabled`: an endpoint kept failing and was
+        disabled.
+      type: object
+      required: [specversion, id, source, type, subject, time, datacontenttype, dataschema, data]
+      properties:
+        specversion:
+          $ref: "v1.yaml#/components/schemas/EventSpecVersion"
+        id:
+          $ref: "v1.yaml#/components/schemas/EventId"
+        source:
+          $ref: "v1.yaml#/components/schemas/EventSource"
+        type:
+          type: string
+          const: webhook_endpoint.disabled
+        subject:
+          $ref: "v1.yaml#/components/schemas/WebhookEndpoint/properties/id"
+        time:
+          $ref: "v1.yaml#/components/schemas/EventTime"
+        datacontenttype:
+          $ref: "v1.yaml#/components/schemas/EventDataContentType"
+        dataschema:
+          description: >-
+            The schema of `data` and its version. A change that could break
+            the console is sent under a new version.
+          type: string
+          const: https://github.com/renatomf/axion/blob/main/services/core/openapi/internal.yaml#webhook_endpoint.disabled.v1
+        data:
+          $ref: "#/components/schemas/WebhookEndpointDisabledEventData"
+    WebhookEndpointDisabledEventData:
+      description: The endpoint as it is once disabled, and since when it failed.
+      type: object
+      required: [object, failing_since]
+      properties:
+        object:
+          $ref: "v1.yaml#/components/schemas/WebhookEndpoint"
+        failing_since:
+          description: >-
+            When its first attempt failed after its last success, in UTC.
+          type: string
+          format: date-time

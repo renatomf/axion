@@ -16,7 +16,8 @@ public final class StreamPermissions {
             "charge.paid", Permission.CHARGES_READ,
             "charge.expired", Permission.CHARGES_READ,
             "payment.flagged", Permission.CHARGES_READ,
-            "charge.refunded", Permission.CHARGES_READ);
+            "charge.refunded", Permission.CHARGES_READ,
+            "webhook_endpoint.disabled", Permission.WEBHOOKS_MANAGE);
 
     private StreamPermissions() {}
 
