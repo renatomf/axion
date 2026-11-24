@@ -151,6 +151,18 @@ public class LiveStreams {
         full.forEach(StreamSink::close);
     }
 
+    /** Ends every stream, as the core stops; each client resumes on the next instance it reaches. */
+    public void closeAll() {
+        List<StreamSink> sinks = new ArrayList<>();
+        lock.lock();
+        try {
+            tenants.values().forEach(tenant -> sinks.addAll(tenant.streams.keySet()));
+        } finally {
+            lock.unlock();
+        }
+        sinks.forEach(StreamSink::close);
+    }
+
     /** How many streams are open on this instance. */
     public int openStreams() {
         lock.lock();

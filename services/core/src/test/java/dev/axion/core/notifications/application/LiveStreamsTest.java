@@ -193,6 +193,17 @@ class LiveStreamsTest {
         assertThat(full.closed).isTrue();
     }
 
+    @Test
+    void closesEveryStreamAsTheCoreStops() {
+        TestSink first = open(member(tenant, Permission.CHARGES_READ));
+        TestSink second = open(member(new TenantId(UUID.randomUUID()), Permission.CHARGES_READ));
+
+        streams.closeAll();
+
+        assertThat(first.closed).isTrue();
+        assertThat(second.closed).isTrue();
+    }
+
     private TestSink open(StreamMember member) {
         return open(member, Integer.MAX_VALUE);
     }
