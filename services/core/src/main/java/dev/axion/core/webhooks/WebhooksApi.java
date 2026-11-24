@@ -73,7 +73,29 @@ public interface WebhooksApi {
      */
     RollSecretResult rollSecret(WebhookEndpointId id, Duration grace);
 
-    /** The most endpoints one page of {@link #endpoints} holds. */
+    /**
+     * A page of one endpoint's delivery log, newest first, with the deliveries the filter keeps. The
+     * log of a deleted endpoint stays readable until its retention ends (events and webhooks design,
+     * section 6.3). Start from {@link DeliveryCursor#first()}, then each page's {@link
+     * DeliveryPage#next()}.
+     *
+     * @param limit 1 to {@value #MAX_PAGE_SIZE}
+     * @return empty for an unknown endpoint and for another tenant's alike
+     * @throws IllegalArgumentException if the limit is out of range
+     * @throws IllegalStateException if no tenant is bound, a bug in the caller
+     */
+    Optional<DeliveryPage> deliveries(
+            WebhookEndpointId endpoint, DeliveryFilter filter, DeliveryCursor cursor, int limit);
+
+    /**
+     * One delivery of an endpoint's log, with every request sent for it.
+     *
+     * @return empty for an unknown delivery, one of another endpoint, and one of another tenant alike
+     * @throws IllegalStateException if no tenant is bound, a bug in the caller
+     */
+    Optional<DeliveryDetail> delivery(WebhookEndpointId endpoint, WebhookDeliveryId id);
+
+    /** The most endpoints, or deliveries, one page of {@link #endpoints} or {@link #deliveries} holds. */
     int MAX_PAGE_SIZE = 100;
 
     int MAX_ENDPOINTS = 16;

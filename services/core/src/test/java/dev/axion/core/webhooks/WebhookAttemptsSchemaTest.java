@@ -1,5 +1,6 @@
 package dev.axion.core.webhooks;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.axion.core.DatabaseOwner;
@@ -22,7 +23,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 /**
  * The attempts table and the rules the database enforces on it (events and webhooks design,
  * sections 8.7 and 11), checked against a real PostgreSQL. The owner arranges a delivery, then the
- * roles record and change its attempts; nothing is committed.
+ * roles record, read and change its attempts; nothing is committed.
  */
 @SpringBootTest
 @Import(PostgresTestConfiguration.class)
@@ -146,6 +147,34 @@ class WebhookAttemptsSchemaTest {
                 .hasMessageContaining("permission denied");
     }
 
+    @Test
+    void letsTheModuleRoleReadItsTenantsLog() {
+        insertAttempt(tenant, 503, null, "down");
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        assertThat(jdbc.sql("SELECT response_excerpt FROM webhooks.attempts WHERE delivery_id = ?")
+                        .param(delivery)
+                        .query(String.class)
+                        .list())
+                .containsExactly("down");
+    }
+
+    @Test
+    void hidesAnotherTenantsLogFromTheModuleRole() {
+        insertAttempt(tenant, 503, null, "down");
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(UUID.randomUUID()));
+
+        assertThat(countAttempts()).isZero();
+    }
+
+    @Test
+    void hidesTheLogFromTheModuleRoleWithNoTenantBound() {
+        insertAttempt(tenant, 503, null, "down");
+        DatabaseRole.WEBHOOKS.actAs(jdbc);
+
+        assertThat(countAttempts()).isZero();
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"UPDATE webhooks.attempts SET status_code = 200", "DELETE FROM webhooks.attempts"})
     void deniesEveryRoleChangingAnAttempt(String change) {
@@ -160,6 +189,13 @@ class WebhookAttemptsSchemaTest {
                     .hasMessageContaining("permission denied");
             jdbc.sql("ROLLBACK TO SAVEPOINT change").update();
         }
+    }
+
+    private int countAttempts() {
+        return jdbc.sql("SELECT count(*) FROM webhooks.attempts WHERE delivery_id = ?")
+                .param(delivery)
+                .query(Integer.class)
+                .single();
     }
 
     private void insertAttempt(

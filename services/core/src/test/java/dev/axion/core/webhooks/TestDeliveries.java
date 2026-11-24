@@ -122,8 +122,63 @@ public final class TestDeliveries {
                 .update();
     }
 
+    /**
+     * A delivery with the ID, of an event of the type, for tests of the log that need deliveries in
+     * order. A pending one is due far ahead, so no worker claims it.
+     */
+    public UUID logged(UUID id, TenantId tenant, WebhookEndpointId endpoint, String type, String status) {
+        boolean pending = status.equals("PENDING");
+        return insert(
+                id,
+                type,
+                tenant,
+                endpoint,
+                status,
+                pending ? 0 : 1,
+                pending ? "'2999-01-01T00:00:00Z'::timestamptz" : "NULL",
+                "NULL");
+    }
+
+    /** An attempt of the delivery in the log, as the workers record it. */
+    public void attempt(
+            UUID delivery,
+            TenantId tenant,
+            Instant startedAt,
+            int durationMs,
+            @Nullable Integer statusCode,
+            @Nullable String failure,
+            @Nullable String excerpt) {
+        owner.sql("""
+                        INSERT INTO webhooks.attempts
+                               (id, tenant_id, delivery_id, started_at, duration_ms, status_code, failure,
+                                response_excerpt)
+                        VALUES (gen_random_uuid(), :tenant, :delivery, :startedAt, :durationMs, :statusCode,
+                                :failure, :excerpt)
+                        """)
+                .param("tenant", tenant.value())
+                .param("delivery", delivery)
+                .param("startedAt", startedAt.atOffset(ZoneOffset.UTC))
+                .param("durationMs", durationMs)
+                .param("statusCode", statusCode)
+                .param("failure", failure)
+                .param("excerpt", excerpt)
+                .update();
+    }
+
+    private UUID insert(
+            TenantId tenant,
+            WebhookEndpointId endpoint,
+            String status,
+            int attempts,
+            String nextAttemptAt,
+            String leasedUntil) {
+        return insert(UUID.randomUUID(), "charge.paid", tenant, endpoint, status, attempts, nextAttemptAt, leasedUntil);
+    }
+
     // The times are SQL expressions, such as now(), or NULL.
     private UUID insert(
+            UUID delivery,
+            String type,
             TenantId tenant,
             WebhookEndpointId endpoint,
             String status,
@@ -133,11 +188,10 @@ public final class TestDeliveries {
         UUID event = UUID.randomUUID();
         owner.sql("""
                         INSERT INTO webhooks.events (id, tenant_id, type, body, occurred_at)
-                        VALUES (?, ?, 'charge.paid', convert_to(?, 'UTF8'), now())
+                        VALUES (?, ?, ?, convert_to(?, 'UTF8'), now())
                         """)
-                .params(event, tenant.value(), "{\"id\":\"" + new EventId(event).publicId() + "\"}")
+                .params(event, tenant.value(), type, "{\"id\":\"" + new EventId(event).publicId() + "\"}")
                 .update();
-        UUID delivery = UUID.randomUUID();
         owner.sql("""
                         INSERT INTO webhooks.deliveries
                                (id, tenant_id, endpoint_id, event_id, status, attempt_count, next_attempt_at,
