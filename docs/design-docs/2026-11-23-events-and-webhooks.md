@@ -601,13 +601,13 @@ Logs carry the event's, endpoint's, delivery's and attempt's IDs and the correla
 | Endpoints | The operations and their limits; the secret returned once, encrypted at rest, undecryptable for another endpoint; isolation and step-up | 1.45b |
 | Delivery (a local HTTP server) | One delivery per subscribed endpoint; the request of section 8.3; a lease that expires is claimed again; an endpoint at its limit does not slow another; DNS rebinding, a name resolving first to a public and then to a private address, is refused at connection; a redirect is not followed | 1.46a |
 | Signing | Standard Webhooks' test vectors; two signatures during a grace period; the body signed as sent | 1.46b |
-| Retries and disabling | The schedule of section 8.5 with a fixed clock; `410` ends a delivery; the two conditions of section 8.6 | 1.47a |
-| Delivery log and replay | Attempts listed; a replay signed afresh with the same body; the replay limit | 1.47b |
+| Retries and disabling | The schedule of section 8.5 with a fixed clock; `410` ends a delivery; the two conditions of section 8.6; an endpoint that fails for an hour receives the event once it recovers | 1.47a |
+| Delivery log and replay | Attempts listed; a replay signed afresh with the same body; the replay limit | 1.47c |
 | Public events (contract) | Every type of the catalog rendered and validated against its schema in `v1.yaml`, strictly | 1.46a |
 | Audit chain | Appends serialized per chain; a changed, deleted or reordered record fails verification; a duplicate event adds no record | 1.48a |
 | Audited events | Each audited event of section 3.3 recorded with its actor | 1.48b |
 | Live stream | A member receives their tenant's events within a second, only those their permissions allow; `Last-Event-ID` resumes; the stream limits | 1.49 |
-| Fault injection | An endpoint that fails for an hour receives the event once it recovers; the core killed after a settlement's commit delivers its webhook after the restart; settlement's latency does not change while every endpoint times out | 1.47a |
+| Fault injection | The core killed after a settlement's commit delivers its webhook after the restart; settlement's latency does not change while every endpoint times out | 1.47b |
 
 ## 14. Trade-offs and alternatives
 
@@ -663,13 +663,14 @@ Events and webhooks carry money's news out of the core and requests into other n
 | 1.45e | The `/internal` mirror of every endpoint operation, with step-up for changes | 12.2 |
 | 1.46a | The catalog and its schemas in `v1.yaml`; the events and deliveries tables; the listener, the queue and the HTTP client with the check at connection | 5, 7.2, 8.1–8.3 |
 | 1.46b | Signing, with two signatures during a grace period; the webhook guide, with the `local` profile's ports for receiving on a developer's machine | 7.2, 8.4 |
-| 1.47a | Retries, `410`, disabling and its event; the fault-injection scenarios | 8.5, 8.6 |
-| 1.47b | The attempts table, the delivery log, replay and retention | 8.7, 8.8 |
+| 1.47a | Retries, `410`, disabling and its event | 8.5, 8.6 |
+| 1.47b | The fault-injection scenarios of webhooks, with a core the suite stops and starts again | 13 |
+| 1.47c | The attempts table, the delivery log, replay and retention | 8.7, 8.8 |
 | 1.48a | The `audit` module: records, chain heads, appends and the verification job | 9.1–9.3 |
 | 1.48b | The audited events of section 3.3 | 9.4 |
 | 1.49 | The `notifications` module and the live stream | 10 |
 
-1.44a publishes events before any module consumes them: the slice prepares the ground for every consumer of the block, and its tests read the registry. How listeners run (section 4.3) arrives with 1.44b, which makes them idempotent; the first listener of the core follows it. 1.46a delivers unsigned requests for one slice, so that signing, a security boundary, is reviewed on its own in 1.46b; nothing is deployed in between. Until retries arrive with 1.47a, a delivery has one attempt and is `DEAD` when it fails. The `local` profile's ports arrive with the guide that tells a developer how to receive webhooks on their machine. Endpoints arrive in four slices, each small enough to review with care: registration, with the encryption of secrets, a security boundary of its own; changes; rolling; and the console's mirror. Until the catalog arrives with 1.46a, the event types an endpoint may receive are listed in `webhooks`, and 1.46a checks them against it. Deliveries arrive with 1.46a too, so the cancellation of a deleted endpoint's pending deliveries arrives with them.
+1.44a publishes events before any module consumes them: the slice prepares the ground for every consumer of the block, and its tests read the registry. How listeners run (section 4.3) arrives with 1.44b, which makes them idempotent; the first listener of the core follows it. 1.46a delivers unsigned requests for one slice, so that signing, a security boundary, is reviewed on its own in 1.46b; nothing is deployed in between. Until retries arrive with 1.47a, a delivery has one attempt and is `DEAD` when it fails. The fault-injection scenarios of webhooks follow in 1.47b: killing the core after a commit needs a core the suite can stop and start again, which is test infrastructure of its own, and with the retries the slice would be too large to review with care. The outage of an endpoint needs no rails, and runs with the retries on a fixed clock. Until the attempts table arrives with 1.47c, an endpoint's count of failed attempts is the only record of them. The `local` profile's ports arrive with the guide that tells a developer how to receive webhooks on their machine. Endpoints arrive in four slices, each small enough to review with care: registration, with the encryption of secrets, a security boundary of its own; changes; rolling; and the console's mirror. Until the catalog arrives with 1.46a, the event types an endpoint may receive are listed in `webhooks`, and 1.46a checks them against it. Deliveries arrive with 1.46a too, so the cancellation of a deleted endpoint's pending deliveries arrives with them.
 
 ## 17. Decisions from review
 
