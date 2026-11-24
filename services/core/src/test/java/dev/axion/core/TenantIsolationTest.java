@@ -121,7 +121,8 @@ class TenantIsolationTest {
                     this::deleteTenantWebhookEndpointLeavesAnotherTenantsEndpointInPlace),
             Map.entry(
                     "rollTenantWebhookEndpointSecret",
-                    this::rollTenantWebhookEndpointSecretLeavesAnotherTenantsSecretInPlace));
+                    this::rollTenantWebhookEndpointSecretLeavesAnotherTenantsSecretInPlace),
+            Map.entry("streamTenantEvents", this::streamTenantEventsOpensNoStreamOnAnotherTenant));
 
     @Autowired
     TenantIsolationTest(
@@ -647,6 +648,12 @@ class TenantIsolationTest {
             assertThat(key.revokedAt()).isEmpty();
             assertThat(key.expiresAt()).isEmpty();
         });
+    }
+
+    // The caller's own stream is proven in EventStreamControllerTest: one opened here would outlive
+    // the attempt.
+    private void streamTenantEventsOpensNoStreamOnAnotherTenant(Request request, Scene scene) {
+        assertNotFound(request.send(scene, null, scene.other().test().publicId()));
     }
 
     private static void assertNotFound(MvcTestResult result) {

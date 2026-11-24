@@ -38,6 +38,10 @@ tags:
     description: >-
       Each endpoint's delivery log, as the public API shows it, for the
       console.
+  - name: Events
+    description: >-
+      The tenant's events as they happen, for the console to update what it
+      shows without polling.
 paths:
   /internal/me:
     get:
@@ -696,6 +700,43 @@ paths:
             application/problem+json:
               schema:
                 $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
+  /internal/tenants/{tenant_id}/events/stream:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      operationId: streamTenantEvents
+      tags: [Events]
+      summary: The tenant's events, as they happen
+      description: >-
+        A stream of server-sent events: each message is one of the tenant's
+        public events, with the event's `id` as its `id`, its type as its
+        `event`, and the event, as webhooks send it, as its `data`. A member
+        receives only the types their permissions allow; charge and payment
+        events need `charges:read`. Events arrive at least once and in no
+        guaranteed order, as webhooks do; the console tells them apart by
+        `id`. The stream is a convenience, not a record: what it misses, the
+        next query shows. Requires `charges:read`.
+      responses:
+        "200":
+          description: >-
+            The stream, open until the client or the core closes it.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: >-
+                  Messages in the format of the HTML Living Standard's
+                  server-sent events.
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          $ref: "components.yaml#/responses/Forbidden"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
         "429":
           $ref: "components.yaml#/responses/TooManyRequests"
         "500":
