@@ -3,7 +3,9 @@
  * in a hash chain per tenant, so that a record changed, removed or reordered shows.
  *
  * <ul>
- *   <li>{@code domain}: a record's fields and the hash that chains it, in plain Java.
+ *   <li>{@code application}: appending to a tenant's chain, which owns the transactions;
+ *   <li>{@code domain}: a record's fields and the hash that chains it, in plain Java;
+ *   <li>{@code persistence}: the module's SQL.
  * </ul>
  */
 @ApplicationModule(displayName = "Audit", allowedDependencies = "shared")
