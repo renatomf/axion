@@ -489,7 +489,10 @@ data: {"specversion":"1.0","id":"evt_01jdr4c7…","type":"charge.paid",…}
 - A stream ends when the access token that opened it expires, at most 5 minutes later; the BFF opens the next with a fresh token and `Last-Event-ID`. A member who leaves the organization, or loses a permission, stops receiving its events within a token's lifetime.
 - Each stream has a queue of 256 messages, which a virtual thread of its own writes to the client: a listener only adds to queues and never waits on a socket. A stream whose queue is full is closed, and its client resumes with `Last-Event-ID`.
 - `notifications` keeps, in memory, the streams open on this instance and, per tenant, the last 200 events or 5 minutes of them. A reconnecting client sends `Last-Event-ID` and receives what it missed if it is still kept; otherwise it receives a `reset` message, and the console refetches its queries.
-- A comment line every 15 seconds keeps proxies from closing an idle stream. At most 5 streams per member and 200 per tenant; the next is `429`.
+- A comment line every 15 seconds keeps proxies from closing an idle stream. At most 5 streams per member, on all their tenants, and 200 per tenant; the next is `429 too_many_streams`.
+- The `reset` message has no `id`, so the client's last event stays the last one it received, and its `data` is `{}`, since a browser's `EventSource` does not dispatch a message without data.
+- A tenant's recent events are kept while it has a stream open and for 5 minutes after its last one closes; an event of a tenant no client can resume on is not kept.
+- When the core stops, it ends its streams just before the web server's graceful shutdown, which would otherwise wait for each one for its whole grace period; the clients resume on the instance they reach next.
 - Phase 1 runs one instance of the core, so an in-memory fan-out reaches every stream. With several instances, each would publish the events it handles through PostgreSQL `LISTEN`/`NOTIFY` to the others; that change stays inside `notifications`.
 
 The live stream is a convenience, not a record: a member who missed an event sees its result in the next query. It therefore keeps no table and does not deduplicate beyond the event ID, which the console already uses as the message's identity.
