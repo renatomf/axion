@@ -1,6 +1,7 @@
 package dev.axion.core.webhooks.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.awaitility.Awaitility.await;
 
 import dev.axion.core.DatabaseOwner;
@@ -159,6 +160,36 @@ class DeliveryQueueTest {
         assertThat(deliveries.status(delivery)).isEqualTo("SUCCEEDED");
         assertThat(deliveries.attemptCount(delivery)).isOne();
         assertThat(deliveries.leased(delivery)).isFalse();
+        assertThat(deliveries.attempts(delivery))
+                .extracting(
+                        TestDeliveries.RecordedAttempt::startedAt,
+                        TestDeliveries.RecordedAttempt::statusCode,
+                        TestDeliveries.RecordedAttempt::failure,
+                        TestDeliveries.RecordedAttempt::responseExcerpt)
+                .containsExactly(tuple(clock.instant(), 204, null, null));
+    }
+
+    @Test
+    void recordsEachAttemptWithWhatTheReceiverAnswered() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        receiver.answer(path, new TestReceiver.Answer.Body(503, "{\"error\":\"down for maintenance\"}"));
+        Instant first = clock.instant();
+        UUID delivery = deliveries.pending(tenant, endpoint(path), first, null);
+
+        drainAndWait();
+        receiver.answer(path, new TestReceiver.Answer.Redirect("https://example.com/elsewhere"));
+        clock.advance(Duration.ofMinutes(1));
+        drainAndWait();
+
+        assertThat(deliveries.attempts(delivery))
+                .extracting(
+                        TestDeliveries.RecordedAttempt::startedAt,
+                        TestDeliveries.RecordedAttempt::statusCode,
+                        TestDeliveries.RecordedAttempt::failure,
+                        TestDeliveries.RecordedAttempt::responseExcerpt)
+                .containsExactly(
+                        tuple(first, 503, null, "{\"error\":\"down for maintenance\"}"),
+                        tuple(first.plus(Duration.ofMinutes(1)), null, "REDIRECT", null));
     }
 
     @Test
@@ -216,6 +247,7 @@ class DeliveryQueueTest {
         assertThat(receiver.requests(path)).isEmpty();
         assertThat(deliveries.status(delivery)).isEqualTo("PENDING");
         assertThat(deliveries.leased(delivery)).isTrue();
+        assertThat(deliveries.attempts(delivery)).isEmpty();
     }
 
     @Test
@@ -456,6 +488,10 @@ class DeliveryQueueTest {
         assertThat(receiver.requests(path)).hasSize(1);
         assertThat(deliveries.status(delivery)).isEqualTo("CANCELED");
         assertThat(deliveries.health(endpoint)).isEqualTo(EndpointHealth.HEALTHY);
+        assertThat(deliveries.attempts(delivery)).singleElement().satisfies(attempt -> {
+            assertThat(attempt.statusCode()).isEqualTo(500);
+            assertThat(attempt.durationMs()).isGreaterThanOrEqualTo(500);
+        });
     }
 
     @Test

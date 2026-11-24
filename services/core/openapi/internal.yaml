@@ -34,6 +34,10 @@ tags:
     description: >-
       The URLs a tenant's events are sent to, as the public API manages them,
       for the console. Every change needs a recent authentication.
+  - name: Webhook deliveries
+    description: >-
+      Each endpoint's delivery log, as the public API shows it, for the
+      console.
 paths:
   /internal/me:
     get:
@@ -551,6 +555,106 @@ paths:
           $ref: "components.yaml#/responses/TooManyRequests"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
+  /internal/tenants/{tenant_id}/webhook_endpoints/{endpoint_id}/deliveries:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/WebhookEndpointId"
+    get:
+      operationId: listTenantWebhookDeliveries
+      tags: [Webhook deliveries]
+      summary: An endpoint's deliveries
+      description: >-
+        The endpoint's deliveries, newest first, a page at a time, as
+        `GET /v1/webhook_endpoints/{id}/deliveries` lists them. To read the
+        next page, send the `id` of the last delivery of this one as
+        `starting_after`, while `has_more` is `true`. Requires
+        `webhooks:manage`.
+      parameters:
+        - name: limit
+          in: query
+          description: How many deliveries a page holds, from 1 to 100.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: starting_after
+          in: query
+          description: >-
+            The `id` of the last delivery of the previous page; the page
+            holds the deliveries made before it. Omitted, the page is the
+            first.
+          schema:
+            type: string
+            pattern: "^whd_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        - name: status
+          in: query
+          description: Only the deliveries in this status.
+          schema:
+            $ref: "v1.yaml#/components/schemas/WebhookDeliveryStatus"
+        - name: type
+          in: query
+          description: Only the deliveries of events of this type.
+          schema:
+            type: string
+            enum: [charge.created, charge.paid, charge.expired, charge.refunded, payment.flagged]
+      responses:
+        "200":
+          description: A page of the endpoint's deliveries, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "v1.yaml#/components/schemas/WebhookDeliveryList"
+        "400":
+          $ref: "components.yaml#/responses/BadRequest"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          $ref: "components.yaml#/responses/Forbidden"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "422":
+          description: >-
+            Some parameters are outside their rules (`validation_failed`,
+            with `errors` naming each one).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
+  /internal/tenants/{tenant_id}/webhook_endpoints/{endpoint_id}/deliveries/{delivery_id}:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/WebhookEndpointId"
+      - $ref: "#/components/parameters/WebhookDeliveryId"
+    get:
+      operationId: getTenantWebhookDelivery
+      tags: [Webhook deliveries]
+      summary: One of an endpoint's deliveries
+      description: >-
+        The delivery as it is now, with every request sent for it, oldest
+        first. Requires `webhooks:manage`.
+      responses:
+        "200":
+          description: The delivery, with its attempts.
+          content:
+            application/json:
+              schema:
+                $ref: "v1.yaml#/components/schemas/WebhookDeliveryDetail"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          $ref: "components.yaml#/responses/Forbidden"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
 components:
   parameters:
     KeyId:
@@ -573,6 +677,16 @@ components:
       schema:
         type: string
         pattern: "^we_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+    WebhookDeliveryId:
+      name: delivery_id
+      in: path
+      required: true
+      description: >-
+        One of the endpoint's deliveries. A delivery of another endpoint or
+        another tenant, existing or not, answers `404`.
+      schema:
+        type: string
+        pattern: "^whd_[0-7][0-9a-hjkmnp-tv-z]{25}$"
     TenantId:
       name: tenant_id
       in: path

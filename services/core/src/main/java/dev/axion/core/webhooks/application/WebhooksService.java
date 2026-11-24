@@ -8,6 +8,11 @@ import dev.axion.core.shared.TenantId;
 import dev.axion.core.shared.UuidV7Generator;
 import dev.axion.core.webhooks.CreateEndpointResult;
 import dev.axion.core.webhooks.CreatedEndpoint;
+import dev.axion.core.webhooks.DeliveryCursor;
+import dev.axion.core.webhooks.DeliveryDetail;
+import dev.axion.core.webhooks.DeliveryFilter;
+import dev.axion.core.webhooks.DeliveryPage;
+import dev.axion.core.webhooks.DeliveryView;
 import dev.axion.core.webhooks.DisabledReason;
 import dev.axion.core.webhooks.EndpointChanges;
 import dev.axion.core.webhooks.EndpointCursor;
@@ -18,6 +23,7 @@ import dev.axion.core.webhooks.EndpointView;
 import dev.axion.core.webhooks.RollSecretResult;
 import dev.axion.core.webhooks.RolledSecret;
 import dev.axion.core.webhooks.UpdateEndpointResult;
+import dev.axion.core.webhooks.WebhookDeliveryId;
 import dev.axion.core.webhooks.WebhookEndpointCreated;
 import dev.axion.core.webhooks.WebhookEndpointDeleted;
 import dev.axion.core.webhooks.WebhookEndpointId;
@@ -29,6 +35,7 @@ import dev.axion.core.webhooks.domain.SigningSecret;
 import dev.axion.core.webhooks.domain.UrlValidation;
 import dev.axion.core.webhooks.domain.WebhookUrlValidator;
 import dev.axion.core.webhooks.persistence.JdbcDeliveries;
+import dev.axion.core.webhooks.persistence.JdbcDeliveryLog;
 import dev.axion.core.webhooks.persistence.JdbcEndpoints;
 import java.security.SecureRandom;
 import java.time.Clock;
@@ -49,6 +56,7 @@ public class WebhooksService implements WebhooksApi {
 
     private final JdbcEndpoints endpoints;
     private final JdbcDeliveries deliveries;
+    private final JdbcDeliveryLog log;
     private final WebhookUrlValidator urls;
     private final SecretCipher cipher;
     private final ModuleRoles roles;
@@ -60,6 +68,7 @@ public class WebhooksService implements WebhooksApi {
     WebhooksService(
             JdbcEndpoints endpoints,
             JdbcDeliveries deliveries,
+            JdbcDeliveryLog log,
             WebhookUrlValidator urls,
             SecretCipher cipher,
             ModuleRoles roles,
@@ -67,6 +76,7 @@ public class WebhooksService implements WebhooksApi {
             Clock clock) {
         this.endpoints = endpoints;
         this.deliveries = deliveries;
+        this.log = log;
         this.urls = urls;
         this.cipher = cipher;
         this.roles = roles;
@@ -109,6 +119,31 @@ public class WebhooksService implements WebhooksApi {
     public Optional<EndpointView> endpoint(WebhookEndpointId id) {
         TenantId tenant = bound("Reading a webhook endpoint");
         return roles.call(ROLE, () -> endpoints.find(tenant, id));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<DeliveryPage> deliveries(
+            WebhookEndpointId endpoint, DeliveryFilter filter, DeliveryCursor cursor, int limit) {
+        if (limit < 1 || limit > MAX_PAGE_SIZE) {
+            throw new IllegalArgumentException("Page size must be between 1 and " + MAX_PAGE_SIZE + ": " + limit);
+        }
+        TenantId tenant = bound("Listing webhook deliveries");
+        return roles.call(
+                ROLE,
+                () -> log.hasEndpoint(tenant, endpoint)
+                        ? Optional.of(deliveryPage(tenant, endpoint, filter, cursor, limit))
+                        : Optional.empty());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<DeliveryDetail> delivery(WebhookEndpointId endpoint, WebhookDeliveryId id) {
+        TenantId tenant = bound("Reading a webhook delivery");
+        return roles.call(
+                ROLE,
+                () -> log.find(tenant, endpoint, id)
+                        .map(delivery -> new DeliveryDetail(delivery, log.attempts(tenant, id))));
     }
 
     @Override
@@ -228,6 +263,18 @@ public class WebhooksService implements WebhooksApi {
         List<EndpointView> page = found.subList(0, limit);
         return new EndpointPage(
                 page, Optional.of(EndpointCursor.after(page.getLast().id())));
+    }
+
+    // As for endpoints, one delivery more than the limit tells whether there is a next page.
+    private DeliveryPage deliveryPage(
+            TenantId tenant, WebhookEndpointId endpoint, DeliveryFilter filter, DeliveryCursor cursor, int limit) {
+        List<DeliveryView> found = log.list(tenant, endpoint, filter, cursor.after(), Math.addExact(limit, 1));
+        if (found.size() <= limit) {
+            return new DeliveryPage(found, Optional.empty());
+        }
+        List<DeliveryView> page = found.subList(0, limit);
+        return new DeliveryPage(
+                page, Optional.of(DeliveryCursor.after(page.getLast().id())));
     }
 
     private CreateEndpointResult createWithinLimit(TenantContext.Binding binding, EndpointRequest request) {

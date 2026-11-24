@@ -217,8 +217,9 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | ↳ 1.46b | Webhook signing | HMAC-SHA256 with timestamp (Standard Webhooks); the webhook guide, with local ports for receiving on a developer's machine ([#258](https://github.com/renatomf/axion/pull/258)) |
 | 1.47 | Webhook reliability | Exponential backoff, endpoint disabling, delivery log, manual replay, dead letters |
 | ↳ 1.47a | Retries and disabling | Exponential backoff; `410` ends a delivery; endpoints that keep failing are disabled; an endpoint's outage recovered ([#264](https://github.com/renatomf/axion/pull/264)) |
-| ↳ 1.47b | Webhook fault injection | The core killed after a settlement's commit, before the event is recorded or during its request, delivers its webhook after the restart; settlement's latency unchanged while every endpoint times out |
-| ↳ 1.47c | Delivery log and replay | Every attempt recorded and listed; manual replay; dead deliveries after the last attempt; retention |
+| ↳ 1.47b | Webhook fault injection | The core killed after a settlement's commit, before the event is recorded or during its request, delivers its webhook after the restart; settlement's latency unchanged while every endpoint times out ([#266](https://github.com/renatomf/axion/pull/266)) |
+| ↳ 1.47c | Delivery log | Every attempt recorded; an endpoint's deliveries listed and read with their attempts, on `/v1` and `/internal`; the log removed after 30 days |
+| ↳ 1.47d | Delivery replay | A delivery sent again on request, signed afresh with the same body, at most 10 times a day |
 | 1.48 | Audit trail | Hash-chained audit records and a verification check |
 | ↳ 1.48a | Audit chain | Hash-chained audit table and the check that the chain is intact |
 | ↳ 1.48b | Audited events | Key, member and settlement events recorded |

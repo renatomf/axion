@@ -155,7 +155,7 @@ To test your check, the specification's vector must verify: secret `whsec_MfKQ9r
 
 ## Answering
 
-- **A `2xx` within 10 seconds** is a success; anything else is a failure: another status, a timeout, a redirect, a refused connection or a TLS error. The body of your response is ignored.
+- **A `2xx` within 10 seconds** is a success; anything else is a failure: another status, a timeout, a redirect, a refused connection or a TLS error. The body of your response decides nothing, but its first 1 KiB is kept in the [delivery log](#the-delivery-log) for 30 days: an error message helps you there, a secret or personal data does not belong in it.
 - **Answer first, process later.** Record the event and answer; do the work in the background, so a slow job does not turn into a timeout.
 - **`410 Gone` stops the delivery.** Answer `410` when the URL is not coming back: Axion stops attempting that delivery at once. To stop receiving altogether, disable or delete the endpoint.
 
@@ -185,7 +185,57 @@ Content-Type: application/merge-patch+json
 {"status": "enabled"}
 ```
 
-It starts afresh: it receives the events that happen from then on, and the deliveries canceled while it was disabled are not sent. Read what you missed from the API; the delivery log and manual replay are on the [roadmap](../roadmap.md) (item 1.47c).
+It starts afresh: it receives the events that happen from then on, and the deliveries canceled while it was disabled are not sent. The [delivery log](#the-delivery-log) shows which ones were canceled; read the current state of what changed meanwhile from the API. Sending a delivery again on request is on the [roadmap](../roadmap.md) (item 1.47d).
+
+## The delivery log
+
+Every event sent to an endpoint is a **delivery**, and every request sent for it an **attempt**. The log lists an endpoint's deliveries, newest first, and filters them by `status` (`pending`, `succeeded`, `dead` or `canceled`) and event `type`:
+
+```http
+GET /v1/webhook_endpoints/{id}/deliveries?status=dead&type=charge.paid HTTP/1.1
+Authorization: Bearer sk_test_…
+```
+
+Retrieving a delivery returns it with every attempt, oldest first:
+
+```json
+{
+  "id": "whd_01jdr3b7a8b9c0d1e2f3g4h5j6",
+  "object": "webhook_delivery",
+  "endpoint": "we_01jdr2m4n5p6q7r8s9t0v1w2x3",
+  "event": "evt_01jdr3b6f7g8h9j0k1m2n3p4q5",
+  "event_type": "charge.paid",
+  "status": "succeeded",
+  "attempt_count": 2,
+  "next_attempt_at": null,
+  "created_at": "2026-11-23T14:03:11.482Z",
+  "attempts": [
+    {
+      "id": "wha_01jdr3b7c8d9e0f1g2h3j4k5m6",
+      "object": "webhook_attempt",
+      "started_at": "2026-11-23T14:03:11Z",
+      "duration_ms": 182,
+      "status_code": 503,
+      "failure": null,
+      "response_excerpt": "{\"error\":\"down for maintenance\"}"
+    },
+    {
+      "id": "wha_01jdr3c2d3e4f5g6h7j8k9m0n1",
+      "object": "webhook_attempt",
+      "started_at": "2026-11-23T14:04:11Z",
+      "duration_ms": 87,
+      "status_code": 200,
+      "failure": null,
+      "response_excerpt": "ok"
+    }
+  ]
+}
+```
+
+- `event` is the `webhook-id` of every request of the delivery: match it with what your server logged.
+- An attempt has either the `status_code` your server answered or the `failure` that left none: `timeout`, `connection_refused`, `connection_failed`, `unresolved`, `address_refused`, `tls_error` or `redirect`.
+- `response_excerpt` is at most the first 1,024 bytes of your answer, as text. It is shown as your server sent it, never interpreted.
+- A delivery is kept for 30 days after it was made and last attempted, with its attempts; the log of a deleted endpoint stays readable for as long.
 
 ## Duplicates and order
 

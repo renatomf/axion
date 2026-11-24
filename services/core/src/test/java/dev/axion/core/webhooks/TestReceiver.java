@@ -6,6 +6,7 @@ import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsServer;
 import dev.axion.core.webhooks.domain.HostResolver;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.math.BigInteger;
 import java.net.InetAddress;
@@ -73,6 +74,12 @@ public final class TestReceiver implements AutoCloseable {
         record Late(Duration delay, int code) implements Answer {}
 
         record Redirect(String location) implements Answer {}
+
+        /** The status with the body, sent whole in UTF-8. */
+        record Body(int code, String body) implements Answer {}
+
+        /** The status, then a body that never ends: {@code chunk} bytes at each interval until the client leaves. */
+        record Endless(int code, int chunk, Duration interval) implements Answer {}
     }
 
     private final HttpServer server;
@@ -177,7 +184,29 @@ public final class TestReceiver implements AutoCloseable {
                     exchange.getResponseHeaders().set("Location", location);
                     exchange.sendResponseHeaders(302, -1);
                 }
+                case Answer.Body(int code, String body) -> {
+                    byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(code, bytes.length);
+                    exchange.getResponseBody().write(bytes);
+                }
+                case Answer.Endless(int code, int chunk, Duration interval) -> endless(exchange, code, chunk, interval);
             }
+        }
+    }
+
+    // Chunked, flushed chunk by chunk; ends when the client closes the connection, or after a minute.
+    private static void endless(HttpExchange exchange, int code, int chunk, Duration interval) {
+        long until = System.nanoTime() + Duration.ofMinutes(1).toNanos();
+        try {
+            exchange.sendResponseHeaders(code, 0);
+            OutputStream body = exchange.getResponseBody();
+            while (System.nanoTime() < until && !Thread.currentThread().isInterrupted()) {
+                body.write("x".repeat(chunk).getBytes(StandardCharsets.US_ASCII));
+                body.flush();
+                sleep(interval);
+            }
+        } catch (IOException left) {
+            // The client closed the connection: the answer ends here.
         }
     }
 

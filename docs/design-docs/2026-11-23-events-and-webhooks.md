@@ -295,7 +295,7 @@ Deliveries use Apache HttpClient 5, whose `DnsResolver` the core replaces: it re
 
 - Redirects are never followed: a `3xx` is a failed attempt. A redirect is the simplest way around the check.
 - No proxy, no cookies, no authentication cache; every attempt is a new, plain request.
-- Connection timeout 5 seconds, whole-response timeout 10 seconds, at most 64 KiB of response body read, of which the first 1 KiB is kept for the delivery log.
+- Connection timeout 5 seconds, whole-response timeout 10 seconds. At most the first 1 KiB of the response body is read, for the delivery log; the request is then aborted, so the connection is discarded instead of reading the rest of a body of any size, which closing it would do to keep the connection. The status decides the attempt: a body that fails or runs out of time while it is read keeps what arrived, and the answer stands.
 - The connection pool lets one host hold as many connections as all hosts together: endpoints of several tenants may share a host, and the queue, not the pool, bounds what each endpoint holds (section 8.2).
 - In the `local` profile, `axion.webhooks.allowed-local-ports` lets a developer receive webhooks on `localhost` for chosen ports, 1024 or above: a URL to `localhost` on one of them is accepted before the rules of section 7.1, over `http` or `https`, since TLS on the loopback interface protects nothing, and the name resolves to the loopback addresses without a lookup. The setting is read in that profile only, so no deployed core can enable it. The table's check admits `http://localhost:` as well as `https://`; the module is what refuses it outside the profile.
 
@@ -331,7 +331,7 @@ RETURNING …
 - Each attempt's result is written in a second short transaction that updates the delivery and inserts the attempt.
 - No endpoint has more than 4 deliveries in flight; the claim takes, for each endpoint with due deliveries, only what its limit leaves, oldest endpoint first, so one slow endpoint holds at most 4 of the workers' requests and every other endpoint keeps its pace. Claims are serialized by a transaction-level advisory lock, so each counts what every earlier claim holds; a claim lasts milliseconds.
 - The job role reads across tenants, like the billing jobs: its policies let it see deliveries, the events they send, their endpoints and the ciphertext of the secrets that sign them, and change only a delivery's status, lease, attempt count and next attempt, and an endpoint that still receives as section 8.6 needs. A claim returns each delivery with those ciphertexts, current secret first.
-- The transaction that records an attempt locks the endpoint before the delivery, the order of every change of an endpoint and its deliveries, so two such transactions never wait on each other's rows. A result whose delivery is no longer the worker's, canceled or claimed again, changes nothing, and does not count toward the endpoint's health.
+- The transaction that records an attempt locks the endpoint before the delivery, the order of every change of an endpoint and its deliveries, so two such transactions never wait on each other's rows. A result whose delivery is no longer the worker's, canceled or claimed again, changes nothing, and does not count toward the endpoint's health; its attempt is still recorded, since the request was sent.
 
 ### 8.3 The request
 
@@ -376,15 +376,22 @@ The tenant enables it again with an update (section 6.3), after fixing its serve
 
 ### 8.7 Delivery log and replay
 
-Every attempt is recorded: its time, the duration, the status code or the failure reason (`timeout`, `connection_refused`, `address_refused`, `tls_error`, `redirect`), and at most 1 KiB of the response body. The log lists an endpoint's deliveries, newest first, filterable by status and event type, each with its attempts.
+Every request sent is recorded as an attempt, in the transaction of its result: its time, the duration, the status code or the failure reason (`timeout`, `connection_refused`, `connection_failed`, `unresolved`, `address_refused`, `tls_error`, `redirect`), and at most the first 1 KiB of the response body. The workers record attempts under the tenant of the delivery, which a policy checks, and never read the log back. A delivery that could not be signed was not sent, so it has no attempt.
+
+The log lists an endpoint's deliveries, newest first, a page at a time, filterable by status and event type; each is listed without its attempts, which retrieving the delivery returns, oldest first. A listed delivery carries its status, attempt count and next attempt, which is what a page of the log needs; its attempts, with up to 1 KiB each, would make a page of 100 deliveries weigh about a megabyte. The tenant's module role reads the log under its tenant's policy, and an endpoint or delivery of another tenant is `404`.
 
 A replay sends one delivery again, now: it adds an attempt to it, with the same event ID and body and a fresh timestamp and signature. A dead or succeeded delivery can be replayed, at most 10 times a day each; replaying does not change the schedule of a delivery that is still pending. Replays are how a tenant recovers from a fixed outage, so they work on a disabled endpoint's log too, once it is enabled again.
 
-The response body is the tenant's server talking. It is stored as text, shown escaped, never interpreted and never followed.
+The response body is the tenant's server talking. It is stored as text, its bytes that are not UTF-8 replaced by U+FFFD and NUL removed, which PostgreSQL text cannot hold; it is shown escaped, never interpreted and never followed.
 
 ### 8.8 Retention
 
-Events, deliveries and attempts are kept for 30 days, then deleted by a job of `webhooks`. The audit trail, not the delivery log, is the permanent record.
+Events, deliveries and attempts are kept for 30 days, then deleted by a job of `webhooks`, hourly, as `axion_webhooks_jobs`. The audit trail, not the delivery log, is the permanent record.
+
+- A delivery goes once it has ended and is 30 days old, made and last attempted, with its attempts; a pending one stays. Counting from the last attempt keeps a delivery replayed late (1.47d) with its replay.
+- An event goes once it is 30 days old and no delivery sends it, and a deleted endpoint 30 days after its deletion, once its log is gone, with its secrets.
+- Each removal runs in batches of 1,000 rows, one transaction each.
+- The role's policies let it delete only rows past their retention, measured with the database's time, and the job measures with that time too: whatever its clock or its SQL, the job cannot remove a row the log still keeps, and a row it finds is one it may remove.
 
 ## 9. Audit trail
 
@@ -477,6 +484,7 @@ webhooks.endpoints
   updated_at        timestamptz not null
   deleted_at        timestamptz null
   index (tenant_id, id)
+  index (deleted_at) where deleted_at is not null
 
 webhooks.secrets
   id                uuid primary key
@@ -495,6 +503,7 @@ webhooks.events
   type              text not null
   body              bytea not null           -- the CloudEvent as sent (section 5.1)
   occurred_at       timestamptz not null
+  index (occurred_at)
 
 webhooks.deliveries
   id                uuid primary key
@@ -510,17 +519,19 @@ webhooks.deliveries
   index (next_attempt_at) where status = 'PENDING'
   index (endpoint_id, next_attempt_at) where status = 'PENDING'
   index (endpoint_id, id)
+  index (event_id)
+  index (created_at) where status <> 'PENDING'
 
 webhooks.attempts
   id                uuid primary key
   tenant_id         uuid not null
   delivery_id       uuid not null references deliveries
-  replay            boolean not null
+  replay            boolean not null         -- with replay (1.47d)
   started_at        timestamptz not null
-  duration_ms       integer not null
+  duration_ms       integer not null         -- 0 or more (CHECK)
   status_code       integer null             -- 100–599 (CHECK)
-  failure           text null                -- TIMEOUT | CONNECTION_REFUSED | ADDRESS_REFUSED | TLS_ERROR | REDIRECT | …; exactly one of status_code and failure (CHECK)
-  response_excerpt  text null                -- at most 1 KiB
+  failure           text null                -- TIMEOUT | CONNECTION_REFUSED | CONNECTION_FAILED | UNRESOLVED | ADDRESS_REFUSED | TLS_ERROR | REDIRECT; exactly one of status_code and failure (CHECK)
+  response_excerpt  text null                -- at most 1,024 characters, only with a status_code (CHECK)
   index (delivery_id, started_at)
 
 audit.records                            -- section 9.1
@@ -534,7 +545,7 @@ audit.chain_heads
 
 - `unique (endpoint_id, event_id)` repeats the rule that an event is delivered once to each endpoint, whatever the listener's retries.
 - Deleted endpoints keep their row, with `deleted_at`, until their deliveries' retention ends; they receive nothing and are never listed.
-- Roles: `axion_events` reads how far each publication has got, never `serialized_event`, removes completed publications and runs the operator's command; `axion_webhooks` manages endpoints, secrets, events and deliveries for the tenant bound; `axion_webhooks_jobs` drains the queue, disables endpoints for failing only and cancels their pending deliveries, and removes old rows (sections 8.2 and 8.6); `axion_audit` appends (section 9.2); `axion_audit_checks` reads every chain. No role may update or delete an attempt or an audit record.
+- Roles: `axion_events` reads how far each publication has got, never `serialized_event`, removes completed publications and runs the operator's command; `axion_webhooks` manages endpoints, secrets, events and deliveries for the tenant bound; `axion_webhooks_jobs` drains the queue, records attempts, disables endpoints for failing only and cancels their pending deliveries, and removes rows past their retention only (sections 8.2, 8.6 and 8.8); `axion_audit` appends (section 9.2); `axion_audit_checks` reads every chain. No role may update an attempt, nor delete one before its retention ends; no role may update or delete an audit record.
 
 ## 12. API
 
@@ -602,7 +613,8 @@ Logs carry the event's, endpoint's, delivery's and attempt's IDs and the correla
 | Delivery (a local HTTP server) | One delivery per subscribed endpoint; the request of section 8.3; a lease that expires is claimed again; an endpoint at its limit does not slow another; DNS rebinding, a name resolving first to a public and then to a private address, is refused at connection; a redirect is not followed | 1.46a |
 | Signing | Standard Webhooks' test vectors; two signatures during a grace period; the body signed as sent | 1.46b |
 | Retries and disabling | The schedule of section 8.5 with a fixed clock; `410` ends a delivery; the two conditions of section 8.6; an endpoint that fails for an hour receives the event once it recovers | 1.47a |
-| Delivery log and replay | Attempts listed; a replay signed afresh with the same body; the replay limit | 1.47c |
+| Delivery log | Every attempt recorded and listed with its delivery; a log readable only by its tenant; rows removed after their retention | 1.47c |
+| Replay | A replay signed afresh with the same body; the replay limit | 1.47d |
 | Public events (contract) | Every type of the catalog rendered and validated against its schema in `v1.yaml`, strictly | 1.46a |
 | Audit chain | Appends serialized per chain; a changed, deleted or reordered record fails verification; a duplicate event adds no record | 1.48a |
 | Audited events | Each audited event of section 3.3 recorded with its actor | 1.48b |
@@ -665,12 +677,13 @@ Events and webhooks carry money's news out of the core and requests into other n
 | 1.46b | Signing, with two signatures during a grace period; the webhook guide, with the `local` profile's ports for receiving on a developer's machine | 7.2, 8.4 |
 | 1.47a | Retries, `410`, disabling and its event | 8.5, 8.6 |
 | 1.47b | The fault-injection scenarios of webhooks, with a core the suite stops and starts again | 13 |
-| 1.47c | The attempts table, the delivery log, replay and retention | 8.7, 8.8 |
+| 1.47c | The attempts table, the delivery log on `/v1` and `/internal`, and retention | 8.7, 8.8 |
+| 1.47d | Replay | 8.7 |
 | 1.48a | The `audit` module: records, chain heads, appends and the verification job | 9.1–9.3 |
 | 1.48b | The audited events of section 3.3 | 9.4 |
 | 1.49 | The `notifications` module and the live stream | 10 |
 
-1.44a publishes events before any module consumes them: the slice prepares the ground for every consumer of the block, and its tests read the registry. How listeners run (section 4.3) arrives with 1.44b, which makes them idempotent; the first listener of the core follows it. 1.46a delivers unsigned requests for one slice, so that signing, a security boundary, is reviewed on its own in 1.46b; nothing is deployed in between. Until retries arrive with 1.47a, a delivery has one attempt and is `DEAD` when it fails. The fault-injection scenarios of webhooks follow in 1.47b: killing the core after a commit needs a core the suite can stop and start again, which is test infrastructure of its own, and with the retries the slice would be too large to review with care. The suite runs the core's packaged JAR in a process of its own, with the `local` profile, the only one whose webhooks may reach a receiver on the suite's machine, and kills it as a crash would: a context inside the suite's JVM can only be closed gracefully, and the core's image, in a container, could reach no receiver the SSRF defenses allow. The outage of an endpoint needs no rails, and runs with the retries on a fixed clock. Until the attempts table arrives with 1.47c, an endpoint's count of failed attempts is the only record of them. The `local` profile's ports arrive with the guide that tells a developer how to receive webhooks on their machine. Endpoints arrive in four slices, each small enough to review with care: registration, with the encryption of secrets, a security boundary of its own; changes; rolling; and the console's mirror. Until the catalog arrives with 1.46a, the event types an endpoint may receive are listed in `webhooks`, and 1.46a checks them against it. Deliveries arrive with 1.46a too, so the cancellation of a deleted endpoint's pending deliveries arrives with them.
+1.44a publishes events before any module consumes them: the slice prepares the ground for every consumer of the block, and its tests read the registry. How listeners run (section 4.3) arrives with 1.44b, which makes them idempotent; the first listener of the core follows it. 1.46a delivers unsigned requests for one slice, so that signing, a security boundary, is reviewed on its own in 1.46b; nothing is deployed in between. Until retries arrive with 1.47a, a delivery has one attempt and is `DEAD` when it fails. The fault-injection scenarios of webhooks follow in 1.47b: killing the core after a commit needs a core the suite can stop and start again, which is test infrastructure of its own, and with the retries the slice would be too large to review with care. The suite runs the core's packaged JAR in a process of its own, with the `local` profile, the only one whose webhooks may reach a receiver on the suite's machine, and kills it as a crash would: a context inside the suite's JVM can only be closed gracefully, and the core's image, in a container, could reach no receiver the SSRF defenses allow. The outage of an endpoint needs no rails, and runs with the retries on a fixed clock. Until the attempts table arrives with 1.47c, an endpoint's count of failed attempts is the only record of them. Replay follows the log in 1.47d: the attempts table, the log's four operations and its retention already make a slice too large to review with care with replay beside them, and a replay is read in the log it adds to. The `local` profile's ports arrive with the guide that tells a developer how to receive webhooks on their machine. Endpoints arrive in four slices, each small enough to review with care: registration, with the encryption of secrets, a security boundary of its own; changes; rolling; and the console's mirror. Until the catalog arrives with 1.46a, the event types an endpoint may receive are listed in `webhooks`, and 1.46a checks them against it. Deliveries arrive with 1.46a too, so the cancellation of a deleted endpoint's pending deliveries arrives with them.
 
 ## 17. Decisions from review
 

@@ -9,6 +9,7 @@ import dev.axion.core.webhooks.domain.AttemptFailure;
 import dev.axion.core.webhooks.domain.HostResolver;
 import dev.axion.core.webhooks.domain.LocalReceivers;
 import dev.axion.core.webhooks.domain.PublicAddressPolicy;
+import dev.axion.core.webhooks.domain.SentAttempt;
 import dev.axion.core.webhooks.domain.UrlValidation;
 import dev.axion.core.webhooks.domain.WebhookUrlValidator;
 import java.io.IOException;
@@ -19,6 +20,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -51,7 +53,7 @@ class WebhookClientTest {
     @Test
     void postsTheBodyAsGivenWithTheHeadersThatVerifyIt() throws IOException {
         try (var client = client(TestReceiver.loopbackDns(), LOOPBACK)) {
-            assertThat(client.send(receiver.url("/hooks"), EVENT)).isEqualTo(new Attempt.Answered(204));
+            assertThat(client.send(receiver.url("/hooks"), EVENT).attempt()).isEqualTo(new Attempt.Answered(204));
         }
 
         assertThat(receiver.requests("/hooks")).singleElement().satisfies(request -> {
@@ -72,10 +74,11 @@ class WebhookClientTest {
         receiver.answer("/broken", new TestReceiver.Answer.Status(500));
 
         try (var client = client(TestReceiver.loopbackDns(), LOOPBACK)) {
-            assertThat(client.send(receiver.url("/accepted"), EVENT).succeeded())
+            assertThat(client.send(receiver.url("/accepted"), EVENT).attempt().succeeded())
                     .isTrue();
-            assertThat(client.send(receiver.url("/broken"), EVENT)).isEqualTo(new Attempt.Answered(500));
-            assertThat(client.send(receiver.url("/broken"), EVENT).succeeded()).isFalse();
+            assertThat(client.send(receiver.url("/broken"), EVENT).attempt()).isEqualTo(new Attempt.Answered(500));
+            assertThat(client.send(receiver.url("/broken"), EVENT).attempt().succeeded())
+                    .isFalse();
         }
     }
 
@@ -86,7 +89,7 @@ class WebhookClientTest {
                 new TestReceiver.Answer.Redirect(receiver.url("/elsewhere").toString()));
 
         try (var client = client(TestReceiver.loopbackDns(), LOOPBACK)) {
-            assertThat(client.send(receiver.url("/moved"), EVENT))
+            assertThat(client.send(receiver.url("/moved"), EVENT).attempt())
                     .isEqualTo(new Attempt.Failed(AttemptFailure.REDIRECT));
         }
         assertThat(receiver.requests("/elsewhere")).isEmpty();
@@ -95,7 +98,7 @@ class WebhookClientTest {
     @Test
     void connectsToNoAddressThePolicyRefuses() throws IOException {
         try (var client = client(TestReceiver.loopbackDns(), PublicAddressPolicy::isPublic)) {
-            assertThat(client.send(receiver.url("/hooks"), EVENT))
+            assertThat(client.send(receiver.url("/hooks"), EVENT).attempt())
                     .isEqualTo(new Attempt.Failed(AttemptFailure.ADDRESS_REFUSED));
         }
         assertThat(receiver.requests("/hooks")).isEmpty();
@@ -106,7 +109,8 @@ class WebhookClientTest {
         URI literal = URI.create("https://127.0.0.1:" + receiver.url("/").getPort() + "/hooks");
 
         try (var client = client(HostResolver.SYSTEM, PublicAddressPolicy::isPublic)) {
-            assertThat(client.send(literal, EVENT)).isEqualTo(new Attempt.Failed(AttemptFailure.ADDRESS_REFUSED));
+            assertThat(client.send(literal, EVENT).attempt())
+                    .isEqualTo(new Attempt.Failed(AttemptFailure.ADDRESS_REFUSED));
         }
         assertThat(receiver.requests("/hooks")).isEmpty();
     }
@@ -124,7 +128,7 @@ class WebhookClientTest {
         assertThat(new WebhookUrlValidator(rebinding).validate(url.toString()))
                 .isInstanceOf(UrlValidation.Accepted.class);
         try (var client = client(rebinding, PublicAddressPolicy::isPublic)) {
-            assertThat(client.send(url, EVENT)).isEqualTo(new Attempt.Failed(AttemptFailure.ADDRESS_REFUSED));
+            assertThat(client.send(url, EVENT).attempt()).isEqualTo(new Attempt.Failed(AttemptFailure.ADDRESS_REFUSED));
         }
     }
 
@@ -136,7 +140,8 @@ class WebhookClientTest {
         Predicate<InetAddress> loopbackOnly = LOOPBACK;
 
         try (var client = client(mixed, loopbackOnly)) {
-            assertThat(client.send(receiver.url("/hooks"), EVENT).succeeded()).isTrue();
+            assertThat(client.send(receiver.url("/hooks"), EVENT).attempt().succeeded())
+                    .isTrue();
         }
     }
 
@@ -160,8 +165,9 @@ class WebhookClientTest {
                         WebhookClient.Timeouts.DEFAULT,
                         4);
                 var deployed = client(loopback, PublicAddressPolicy::isPublic)) {
-            assertThat(local.send(url, EVENT)).isEqualTo(new Attempt.Answered(204));
-            assertThat(deployed.send(url, EVENT)).isEqualTo(new Attempt.Failed(AttemptFailure.ADDRESS_REFUSED));
+            assertThat(local.send(url, EVENT).attempt()).isEqualTo(new Attempt.Answered(204));
+            assertThat(deployed.send(url, EVENT).attempt())
+                    .isEqualTo(new Attempt.Failed(AttemptFailure.ADDRESS_REFUSED));
         } finally {
             server.stop(0);
         }
@@ -175,7 +181,8 @@ class WebhookClientTest {
 
         try (var client = new WebhookClient(
                 new CheckedDnsResolver(TestReceiver.loopbackDns(), LOOPBACK), receiver.trust(), timeouts, 4)) {
-            assertThat(client.send(receiver.url("/slow"), EVENT)).isEqualTo(new Attempt.Failed(AttemptFailure.TIMEOUT));
+            assertThat(client.send(receiver.url("/slow"), EVENT).attempt())
+                    .isEqualTo(new Attempt.Failed(AttemptFailure.TIMEOUT));
         }
         assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(2));
     }
@@ -186,7 +193,7 @@ class WebhookClientTest {
                 "https://other." + TestReceiver.HOST + ":" + receiver.url("/").getPort() + "/hooks");
 
         try (var client = client(TestReceiver.loopbackDns(), LOOPBACK)) {
-            assertThat(client.send(other, EVENT)).isEqualTo(new Attempt.Failed(AttemptFailure.TLS_ERROR));
+            assertThat(client.send(other, EVENT).attempt()).isEqualTo(new Attempt.Failed(AttemptFailure.TLS_ERROR));
         }
         assertThat(receiver.requests("/hooks")).isEmpty();
     }
@@ -198,7 +205,7 @@ class WebhookClientTest {
                 SSLContext.getDefault(),
                 WebhookClient.Timeouts.DEFAULT,
                 4)) {
-            assertThat(client.send(receiver.url("/hooks"), EVENT))
+            assertThat(client.send(receiver.url("/hooks"), EVENT).attempt())
                     .isEqualTo(new Attempt.Failed(AttemptFailure.TLS_ERROR));
         }
     }
@@ -212,16 +219,96 @@ class WebhookClientTest {
         URI url = URI.create("https://" + TestReceiver.HOST + ":" + closedPort + "/hooks");
 
         try (var client = client(TestReceiver.loopbackDns(), LOOPBACK)) {
-            assertThat(client.send(url, EVENT)).isEqualTo(new Attempt.Failed(AttemptFailure.CONNECTION_REFUSED));
+            assertThat(client.send(url, EVENT).attempt())
+                    .isEqualTo(new Attempt.Failed(AttemptFailure.CONNECTION_REFUSED));
         }
     }
 
     @Test
     void reportsANameThatDoesNotResolve() throws IOException {
         try (var client = client(TestReceiver.loopbackDns(), LOOPBACK)) {
-            assertThat(client.send(URI.create("https://unknown.example.org/hooks"), EVENT))
+            assertThat(client.send(URI.create("https://unknown.example.org/hooks"), EVENT)
+                            .attempt())
                     .isEqualTo(new Attempt.Failed(AttemptFailure.UNRESOLVED));
         }
+    }
+
+    @Test
+    void timesTheAttempt() throws IOException {
+        receiver.answer("/slow", new TestReceiver.Answer.Late(Duration.ofMillis(200), 204));
+
+        try (var client = client(TestReceiver.loopbackDns(), LOOPBACK)) {
+            assertThat(client.send(receiver.url("/slow"), EVENT).duration())
+                    .isBetween(Duration.ofMillis(200), Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void keepsTheStartOfTheResponseBody() throws IOException {
+        receiver.answer("/large", new TestReceiver.Answer.Body(500, "a".repeat(5_000)));
+        receiver.answer("/small", new TestReceiver.Answer.Body(200, "ok"));
+
+        try (var client = client(TestReceiver.loopbackDns(), LOOPBACK)) {
+            assertThat(client.send(receiver.url("/large"), EVENT))
+                    .satisfies(sent -> assertThat(sent.attempt()).isEqualTo(new Attempt.Answered(500)))
+                    .satisfies(sent -> assertThat(sent.responseExcerpt()).hasValue("a".repeat(1_024)));
+            assertThat(client.send(receiver.url("/small"), EVENT).responseExcerpt())
+                    .hasValue("ok");
+            assertThat(client.send(receiver.url("/hooks"), EVENT).responseExcerpt())
+                    .isEmpty();
+        }
+    }
+
+    @Test
+    void keepsNoResponseOfAFailedAttempt() throws IOException {
+        receiver.answer(
+                "/moved",
+                new TestReceiver.Answer.Redirect(receiver.url("/elsewhere").toString()));
+
+        try (var client = client(TestReceiver.loopbackDns(), LOOPBACK)) {
+            assertThat(client.send(receiver.url("/moved"), EVENT).responseExcerpt())
+                    .isEmpty();
+        }
+    }
+
+    @Test
+    void readsNoMoreOfABodyThatNeverEnds() throws IOException {
+        receiver.answer("/endless", new TestReceiver.Answer.Endless(200, 256, Duration.ofMillis(5)));
+        long started = System.nanoTime();
+
+        try (var client = client(TestReceiver.loopbackDns(), LOOPBACK)) {
+            SentAttempt sent = client.send(receiver.url("/endless"), EVENT);
+
+            assertThat(sent.attempt()).isEqualTo(new Attempt.Answered(200));
+            assertThat(sent.responseExcerpt())
+                    .hasValueSatisfying(excerpt -> assertThat(excerpt).hasSize(1_024));
+        }
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(3));
+    }
+
+    @Test
+    void keepsTheAnswerOfABodyThatOutlastsTheTimeout() throws IOException {
+        receiver.answer("/trickle", new TestReceiver.Answer.Endless(200, 1, Duration.ofMillis(100)));
+        var timeouts = new WebhookClient.Timeouts(Duration.ofSeconds(1), Duration.ofMillis(500));
+
+        try (var client = new WebhookClient(
+                new CheckedDnsResolver(TestReceiver.loopbackDns(), LOOPBACK), receiver.trust(), timeouts, 4)) {
+            SentAttempt sent = client.send(receiver.url("/trickle"), EVENT);
+
+            assertThat(sent.attempt()).isEqualTo(new Attempt.Answered(200));
+            assertThat(sent.responseExcerpt())
+                    .hasValueSatisfying(
+                            excerpt -> assertThat(excerpt).isNotEmpty().hasSizeLessThan(1_024));
+        }
+    }
+
+    @Test
+    void keepsAResponseThatIsNotUtf8AsText() {
+        byte[] latin1 = {'c', 'a', 'f', (byte) 0xE9, 0, '!'};
+        byte[] cut = Arrays.copyOf("é".getBytes(StandardCharsets.UTF_8), 1);
+
+        assertThat(WebhookClient.text(latin1)).isEqualTo("caf\uFFFD!");
+        assertThat(WebhookClient.text(cut)).isEqualTo("\uFFFD");
     }
 
     private WebhookClient client(HostResolver dns, Predicate<InetAddress> allowed) {

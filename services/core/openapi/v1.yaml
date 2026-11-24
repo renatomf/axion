@@ -38,6 +38,11 @@ tags:
       The HTTPS URLs where Axion sends the tenant's events, each with the
       event types it receives and the secret that signs the requests sent
       to it.
+  - name: Webhook deliveries
+    description: >-
+      The delivery log: each event sent to an endpoint, and every request
+      sent for it with what the endpoint answered. Kept for 30 days after
+      a delivery's last attempt.
   - name: Events
     description: >-
       What Axion sends to the tenant's webhook endpoints: a CloudEvent 1.0
@@ -675,6 +680,122 @@ paths:
             application/problem+json:
               schema:
                 $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
+  /v1/webhook_endpoints/{id}/deliveries:
+    parameters:
+      - $ref: "#/components/parameters/WebhookEndpointId"
+    get:
+      operationId: listWebhookDeliveries
+      tags: [Webhook deliveries]
+      summary: List an endpoint's deliveries
+      description: >-
+        The endpoint's deliveries, newest first, a page at a time, each
+        without its attempts, which retrieving it returns. To read the next
+        page, send the `id` of the last delivery of this one as
+        `starting_after`, while `has_more` is `true`. The log of a deleted
+        endpoint stays readable for 30 days. Requires `webhooks:manage`.
+      parameters:
+        - name: limit
+          in: query
+          description: How many deliveries a page holds, from 1 to 100.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: starting_after
+          in: query
+          description: >-
+            The `id` of the last delivery of the previous page; the page
+            holds the deliveries made before it. Omitted, the page is the
+            first.
+          schema:
+            type: string
+            pattern: "^whd_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        - name: status
+          in: query
+          description: Only the deliveries in this status.
+          schema:
+            $ref: "#/components/schemas/WebhookDeliveryStatus"
+        - name: type
+          in: query
+          description: Only the deliveries of events of this type.
+          schema:
+            type: string
+            enum: [charge.created, charge.paid, charge.expired, charge.refunded, payment.flagged]
+      responses:
+        "200":
+          description: A page of the endpoint's deliveries, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDeliveryList"
+        "400":
+          description: >-
+            A parameter has a value of the wrong type, such as a word for
+            `limit` (`bad_request`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The key lacks `webhooks:manage` (`insufficient_permission`), or
+            its tenant is not active (`tenant_inactive`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "422":
+          description: >-
+            Some parameters are outside their rules (`validation_failed`,
+            with `errors` naming each one).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
+  /v1/webhook_endpoints/{id}/deliveries/{delivery_id}:
+    parameters:
+      - $ref: "#/components/parameters/WebhookEndpointId"
+      - $ref: "#/components/parameters/WebhookDeliveryId"
+    get:
+      operationId: getWebhookDelivery
+      tags: [Webhook deliveries]
+      summary: Retrieve a delivery
+      description: >-
+        The delivery as it is now, with every request sent for it, oldest
+        first. Requires `webhooks:manage`.
+      responses:
+        "200":
+          description: The delivery, with its attempts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDeliveryDetail"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The key lacks `webhooks:manage` (`insufficient_permission`), or
+            its tenant is not active (`tenant_inactive`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
         "429":
           $ref: "components.yaml#/responses/TooManyRequests"
         "500":
@@ -1512,6 +1633,236 @@ components:
             `true` if more endpoints follow this page; send the last one's
             `id` as `starting_after` to read them.
           type: boolean
+    WebhookDeliveryStatus:
+      description: >-
+        Where a delivery stands: `pending` while its next attempt is due or
+        under way; `succeeded` once the endpoint answered `2xx`; `dead`
+        after its last attempt failed, or an answer of `410`; `canceled`
+        when its endpoint was deleted or disabled before it ended.
+      type: string
+      enum: [pending, succeeded, dead, canceled]
+    WebhookDelivery:
+      description: One event sent to one endpoint, without its attempts.
+      type: object
+      required:
+        - id
+        - object
+        - endpoint
+        - event
+        - event_type
+        - status
+        - attempt_count
+        - next_attempt_at
+        - created_at
+      properties:
+        id:
+          description: The delivery's ID.
+          type: string
+          pattern: "^whd_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        object:
+          description: The kind of object, always `webhook_delivery`.
+          type: string
+          const: webhook_delivery
+        endpoint:
+          description: The `id` of the endpoint the event is sent to.
+          type: string
+          pattern: "^we_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        event:
+          description: >-
+            The `id` of the event sent, the `webhook-id` of every request
+            sent for it.
+          type: string
+          pattern: "^evt_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        event_type:
+          description: The type of the event sent.
+          type: string
+          enum: [charge.created, charge.paid, charge.expired, charge.refunded, payment.flagged]
+        status:
+          $ref: "#/components/schemas/WebhookDeliveryStatus"
+        attempt_count:
+          description: >-
+            The scheduled attempts made so far, of at most 9.
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 9
+        next_attempt_at:
+          description: >-
+            When the next attempt is due; null once the delivery is no
+            longer `pending`.
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+      examples:
+        - id: whd_01jdr3b7a8b9c0d1e2f3g4h5j6
+          object: webhook_delivery
+          endpoint: we_01jdr2m4n5p6q7r8s9t0v1w2x3
+          event: evt_01jdr3b6f7g8h9j0k1m2n3p4q5
+          event_type: charge.paid
+          status: succeeded
+          attempt_count: 2
+          next_attempt_at: null
+          created_at: "2026-11-23T14:03:11.482Z"
+    WebhookDeliveryDetail:
+      description: One event sent to one endpoint, with every request sent for it.
+      type: object
+      required:
+        - id
+        - object
+        - endpoint
+        - event
+        - event_type
+        - status
+        - attempt_count
+        - next_attempt_at
+        - created_at
+        - attempts
+      properties:
+        id:
+          description: The delivery's ID.
+          type: string
+          pattern: "^whd_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        object:
+          description: The kind of object, always `webhook_delivery`.
+          type: string
+          const: webhook_delivery
+        endpoint:
+          description: The `id` of the endpoint the event is sent to.
+          type: string
+          pattern: "^we_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        event:
+          description: >-
+            The `id` of the event sent, the `webhook-id` of every request
+            sent for it.
+          type: string
+          pattern: "^evt_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        event_type:
+          description: The type of the event sent.
+          type: string
+          enum: [charge.created, charge.paid, charge.expired, charge.refunded, payment.flagged]
+        status:
+          $ref: "#/components/schemas/WebhookDeliveryStatus"
+        attempt_count:
+          description: >-
+            The scheduled attempts made so far, of at most 9.
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 9
+        next_attempt_at:
+          description: >-
+            When the next attempt is due; null once the delivery is no
+            longer `pending`.
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        attempts:
+          description: >-
+            Every request sent for the delivery, oldest first. A request
+            whose result arrived after its delivery was canceled is listed
+            too: it was sent.
+          type: array
+          items:
+            $ref: "#/components/schemas/WebhookAttempt"
+    WebhookAttempt:
+      description: >-
+        One request sent for a delivery, and what came of it: the endpoint's
+        status code, or the failure that left none.
+      type: object
+      required:
+        - id
+        - object
+        - started_at
+        - duration_ms
+        - status_code
+        - failure
+        - response_excerpt
+      properties:
+        id:
+          description: The attempt's ID.
+          type: string
+          pattern: "^wha_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+        object:
+          description: The kind of object, always `webhook_attempt`.
+          type: string
+          const: webhook_attempt
+        started_at:
+          description: When the request began; its `webhook-timestamp`.
+          type: string
+          format: date-time
+        duration_ms:
+          description: >-
+            From the start of the request to its result, the connection
+            included, in milliseconds.
+          type: integer
+          format: int64
+          minimum: 0
+        status_code:
+          description: >-
+            The status the endpoint answered; null when it answered nothing
+            to judge, for `failure`. Only a `2xx` is a success.
+          type: [integer, "null"]
+          format: int32
+          minimum: 100
+          maximum: 599
+        failure:
+          description: >-
+            Why the request got no answer to judge: no answer in time
+            (`timeout`), a connection refused (`connection_refused`) or
+            failed otherwise (`connection_failed`), a name that does not
+            resolve (`unresolved`) or resolves only to addresses Axion may
+            not send to (`address_refused`), a failed TLS handshake
+            (`tls_error`), or a redirect, which is never followed
+            (`redirect`). Null when the endpoint answered.
+          type: [string, "null"]
+          enum:
+            - timeout
+            - connection_refused
+            - connection_failed
+            - unresolved
+            - address_refused
+            - tls_error
+            - redirect
+            - null
+        response_excerpt:
+          description: >-
+            At most the first 1,024 bytes of the endpoint's answer, as text,
+            bytes that are not UTF-8 replaced by U+FFFD. It is the endpoint
+            talking: show it escaped, never interpret it. Null when there
+            was no answer or it had no body.
+          type: [string, "null"]
+          maxLength: 1024
+      examples:
+        - id: wha_01jdr3b7c8d9e0f1g2h3j4k5m6
+          object: webhook_attempt
+          started_at: "2026-11-23T14:03:11Z"
+          duration_ms: 182
+          status_code: 503
+          failure: null
+          response_excerpt: '{"error":"down for maintenance"}'
+    WebhookDeliveryList:
+      description: A page of an endpoint's deliveries, newest first.
+      type: object
+      required: [object, data, has_more]
+      properties:
+        object:
+          description: The kind of object, always `list`.
+          type: string
+          const: list
+        data:
+          description: The deliveries of the page, at most `limit`.
+          type: array
+          items:
+            $ref: "#/components/schemas/WebhookDelivery"
+        has_more:
+          description: >-
+            `true` if more deliveries follow this page; send the last one's
+            `id` as `starting_after` to read them.
+          type: boolean
     EventSpecVersion:
       description: The CloudEvents version, always `1.0`.
       type: string
@@ -1749,6 +2100,16 @@ components:
       schema:
         type: string
         pattern: "^we_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+    WebhookDeliveryId:
+      name: delivery_id
+      in: path
+      required: true
+      description: >-
+        One of the endpoint's deliveries. A delivery of another endpoint or
+        another tenant answers `404`, like an unknown one.
+      schema:
+        type: string
+        pattern: "^whd_[0-7][0-9a-hjkmnp-tv-z]{25}$"
   securitySchemes:
     api_key:
       description: >-

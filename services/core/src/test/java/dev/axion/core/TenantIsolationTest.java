@@ -25,7 +25,9 @@ import dev.axion.core.tenancy.Permission;
 import dev.axion.core.tenancy.TenancyApi;
 import dev.axion.core.webhooks.CreateEndpointResult;
 import dev.axion.core.webhooks.EndpointRequest;
+import dev.axion.core.webhooks.TestDeliveries;
 import dev.axion.core.webhooks.TestDns;
+import dev.axion.core.webhooks.WebhookDeliveryId;
 import dev.axion.core.webhooks.WebhookEndpointId;
 import dev.axion.core.webhooks.WebhooksApi;
 import java.time.Duration;
@@ -102,6 +104,10 @@ class TenantIsolationTest {
             Map.entry("updateWebhookEndpoint", this::updateWebhookEndpointLeavesAnotherTenantsEndpointAsItWas),
             Map.entry("deleteWebhookEndpoint", this::deleteWebhookEndpointLeavesAnotherTenantsEndpointInPlace),
             Map.entry("rollWebhookEndpointSecret", this::rollWebhookEndpointSecretLeavesAnotherTenantsSecretInPlace),
+            Map.entry("listWebhookDeliveries", this::listWebhookDeliveriesHidesAnotherTenantsLog),
+            Map.entry("getWebhookDelivery", this::getWebhookDeliveryHidesAnotherTenantsDelivery),
+            Map.entry("listTenantWebhookDeliveries", this::listTenantWebhookDeliveriesHidesAnotherTenantsLog),
+            Map.entry("getTenantWebhookDelivery", this::getTenantWebhookDeliveryHidesAnotherTenantsDelivery),
             Map.entry("listTenantWebhookEndpoints", this::listTenantWebhookEndpointsHidesAnotherTenantsEndpoints),
             Map.entry("getTenantWebhookEndpoint", this::getTenantWebhookEndpointHidesAnotherTenantsEndpoint),
             Map.entry("createTenantWebhookEndpoint", this::createTenantWebhookEndpointRegistersNothingForAnotherTenant),
@@ -333,6 +339,33 @@ class TenantIsolationTest {
         assertThat(request.sendWithKey(manager, own.publicId())).hasStatus(HttpStatus.OK);
     }
 
+    private void listWebhookDeliveriesHidesAnotherTenantsLog(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        delivery(scene.other().test(), others);
+        WebhookEndpointId own = endpoint(scene.caller().test());
+        WebhookDeliveryId owned = delivery(scene.caller().test(), own);
+        IssuedApiKey manager = webhookManager(scene);
+
+        assertNotFound(request.sendWithKey(manager, others.publicId()));
+        MvcTestResult result = request.sendWithKey(manager, own.publicId());
+        assertThat(result).hasStatus(HttpStatus.OK);
+        assertThat(result).body().asString().contains(owned.publicId().toString());
+    }
+
+    private void getWebhookDeliveryHidesAnotherTenantsDelivery(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookDeliveryId othersDelivery = delivery(scene.other().test(), others);
+        WebhookEndpointId own = endpoint(scene.caller().test());
+        WebhookDeliveryId owned = delivery(scene.caller().test(), own);
+        IssuedApiKey manager = webhookManager(scene);
+
+        assertNotFound(request.sendWithKey(manager, others.publicId(), othersDelivery.publicId()));
+        // The caller's own endpoint in the path, with the other tenant's delivery.
+        assertNotFound(request.sendWithKey(manager, own.publicId(), othersDelivery.publicId()));
+        assertThat(request.sendWithKey(manager, own.publicId(), owned.publicId()))
+                .hasStatus(HttpStatus.OK);
+    }
+
     private void updateWebhookEndpointLeavesAnotherTenantsEndpointAsItWas(Request request, Scene scene) {
         WebhookEndpointId others = endpoint(scene.other().test());
         WebhookEndpointId own = endpoint(scene.caller().test());
@@ -453,6 +486,37 @@ class TenantIsolationTest {
                 .hasStatus(HttpStatus.OK);
     }
 
+    private void listTenantWebhookDeliveriesHidesAnotherTenantsLog(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        delivery(scene.other().test(), others);
+        WebhookEndpointId own = endpoint(scene.caller().test());
+        WebhookDeliveryId owned = delivery(scene.caller().test(), own);
+
+        assertNotFound(request.send(scene, null, scene.other().test().publicId(), others.publicId()));
+        // The caller's own tenant in the path, with the other tenant's endpoint.
+        assertNotFound(request.send(scene, null, scene.caller().test().publicId(), others.publicId()));
+
+        MvcTestResult result = request.send(scene, null, scene.caller().test().publicId(), own.publicId());
+        assertThat(result).hasStatus(HttpStatus.OK);
+        assertThat(result).body().asString().contains(owned.publicId().toString());
+    }
+
+    private void getTenantWebhookDeliveryHidesAnotherTenantsDelivery(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookDeliveryId othersDelivery = delivery(scene.other().test(), others);
+        WebhookEndpointId own = endpoint(scene.caller().test());
+        WebhookDeliveryId owned = delivery(scene.caller().test(), own);
+        Object callerTenant = scene.caller().test().publicId();
+
+        assertNotFound(request.send(
+                scene, null, scene.other().test().publicId(), others.publicId(), othersDelivery.publicId()));
+        assertNotFound(request.send(scene, null, callerTenant, others.publicId(), othersDelivery.publicId()));
+        assertNotFound(request.send(scene, null, callerTenant, own.publicId(), othersDelivery.publicId()));
+
+        assertThat(request.send(scene, null, callerTenant, own.publicId(), owned.publicId()))
+                .hasStatus(HttpStatus.OK);
+    }
+
     private long secrets(WebhookEndpointId endpoint) {
         return Objects.requireNonNull(owner.jdbc()
                 .sql("SELECT count(*) FROM webhooks.secrets WHERE endpoint_id = ?")
@@ -473,6 +537,12 @@ class TenantIsolationTest {
         var request = new EndpointRequest(ENDPOINT_URL, Optional.empty(), Set.of("charge.paid"));
         var result = TestCaller.call(tenant, Environment.TEST, () -> webhooks.create(request));
         return ((CreateEndpointResult.Created) result).endpoint().endpoint().id();
+    }
+
+    private WebhookDeliveryId delivery(TenantId tenant, WebhookEndpointId endpoint) {
+        UUID id = new TestDeliveries(owner.jdbc())
+                .logged(UUID.randomUUID(), tenant, endpoint, "charge.paid", "SUCCEEDED");
+        return new WebhookDeliveryId(id);
     }
 
     private ChargeId charge(TenantId tenant) {
