@@ -13,4 +13,7 @@ public sealed interface StreamMessage {
      * resuming.
      */
     record Reset() implements StreamMessage {}
+
+    /** Nothing happened: it keeps proxies from closing an idle stream. */
+    record Heartbeat() implements StreamMessage {}
 }

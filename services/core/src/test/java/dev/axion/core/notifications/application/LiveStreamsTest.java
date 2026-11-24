@@ -173,6 +173,26 @@ class LiveStreamsTest {
                 .isEqualTo(OpenResult.TENANT_LIMIT_REACHED);
     }
 
+    @Test
+    void sendsEveryStreamAHeartbeat() {
+        TestSink first = open(member(tenant, Permission.CHARGES_READ));
+        TestSink second = open(member(new TenantId(UUID.randomUUID()), Permission.CHARGES_READ));
+
+        streams.heartbeat();
+
+        assertThat(first.messages()).containsExactly(new StreamMessage.Heartbeat());
+        assertThat(second.messages()).containsExactly(new StreamMessage.Heartbeat());
+    }
+
+    @Test
+    void closesAStreamWhoseQueueIsFullAtTheHeartbeat() {
+        TestSink full = open(member(tenant, Permission.CHARGES_READ), 0);
+
+        streams.heartbeat();
+
+        assertThat(full.closed).isTrue();
+    }
+
     private TestSink open(StreamMember member) {
         return open(member, Integer.MAX_VALUE);
     }

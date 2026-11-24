@@ -129,6 +129,28 @@ public class LiveStreams {
         }
     }
 
+    /**
+     * Sends each stream a heartbeat, so proxies do not close an idle one, and forgets the tenants no
+     * client can resume on. A stream whose queue is full is closed.
+     */
+    public void heartbeat() {
+        Instant now = clock.instant();
+        List<StreamSink> full = new ArrayList<>();
+        lock.lock();
+        try {
+            tenants.values().removeIf(tenant -> tenant.isIdleSince(now));
+            tenants.values()
+                    .forEach(tenant -> tenant.streams.keySet().forEach(sink -> {
+                        if (!sink.offer(new StreamMessage.Heartbeat())) {
+                            full.add(sink);
+                        }
+                    }));
+        } finally {
+            lock.unlock();
+        }
+        full.forEach(StreamSink::close);
+    }
+
     private static void resume(TenantStreams tenant, StreamMember member, StreamSink sink, String last, Instant now) {
         Optional<List<PublicEvent>> missed = parse(last).flatMap(id -> tenant.recent.after(id, now));
         if (missed.isEmpty()) {

@@ -168,6 +168,16 @@ class EventStreamControllerTest {
         assertThat(async.getTimeout()).isBetween(lifetime.minusSeconds(5).toMillis(), lifetime.toMillis());
     }
 
+    @Test
+    void sendsAHeartbeatAsACommentLine(@Autowired LiveStreams streams) throws Exception {
+        MvcResult stream = open(organization.test());
+
+        streams.heartbeat();
+
+        await().atMost(Duration.ofSeconds(1))
+                .untilAsserted(() -> assertThat(content(stream.getResponse())).isEqualTo(":\n\n"));
+    }
+
     private MvcResult open(TenantId tenant) throws Exception {
         return mvc.perform(get(PATH, tenant.publicId())
                         .accept(MediaType.TEXT_EVENT_STREAM)

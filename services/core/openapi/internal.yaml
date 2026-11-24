@@ -723,7 +723,8 @@ paths:
         first receives the events it missed, if the core still keeps them:
         the tenant's last 200, of the last 5 minutes. Otherwise it first
         receives a `reset` message, with no `id`, and refetches what it
-        shows. Requires `charges:read`.
+        shows. A comment line every 15 seconds keeps proxies from closing an
+        idle stream; clients ignore it. Requires `charges:read`.
       parameters:
         - name: Last-Event-ID
           in: header

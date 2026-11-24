@@ -79,6 +79,8 @@ final class SseStream implements StreamSink {
             // With data, or a browser's EventSource would not dispatch it; without an ID, so the
             // client's last event stays the last one it received.
             case StreamMessage.Reset() -> SseEmitter.event().name("reset").data("{}");
+            // A comment line, which clients ignore.
+            case StreamMessage.Heartbeat() -> SseEmitter.event().comment("");
         };
     }
 }
