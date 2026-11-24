@@ -18,7 +18,10 @@ import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.tenancy.NewOrganization;
 import dev.axion.core.tenancy.TenancyApi;
+import jakarta.servlet.AsyncContext;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -36,6 +39,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
  * The live stream on {@code /internal} (events and webhooks design, section 10). Tokens skip
@@ -111,7 +115,7 @@ class EventStreamControllerTest {
         MvcResult resumed = mvc.perform(get(PATH, organization.test().publicId())
                         .accept(MediaType.TEXT_EVENT_STREAM)
                         .header("Last-Event-ID", lastEventId)
-                        .with(jwt().jwt(token -> token.subject(subject))))
+                        .with(member()))
                 .andReturn();
 
         await().atMost(Duration.ofSeconds(1))
@@ -125,7 +129,7 @@ class EventStreamControllerTest {
         MvcResult resumed = mvc.perform(get(PATH, organization.test().publicId())
                         .accept(MediaType.TEXT_EVENT_STREAM)
                         .header("Last-Event-ID", "evt_01jdr3b6f7g8h9j0k1m2n3p4q5")
-                        .with(jwt().jwt(token -> token.subject(subject))))
+                        .with(member()))
                 .andReturn();
 
         await().atMost(Duration.ofSeconds(1))
@@ -141,7 +145,7 @@ class EventStreamControllerTest {
         MvcTestResult refused = tester.get()
                 .uri(PATH, organization.test().publicId())
                 .accept(MediaType.TEXT_EVENT_STREAM)
-                .with(jwt().jwt(token -> token.subject(subject)))
+                .with(member())
                 .exchange();
 
         assertThat(refused).hasStatus(HttpStatus.TOO_MANY_REQUESTS);
@@ -149,11 +153,31 @@ class EventStreamControllerTest {
         OpenApiContract.internal().assertConforms(refused);
     }
 
+    @Test
+    void endsAStreamWhenItsTokenExpires() throws Exception {
+        Duration lifetime = Duration.ofMinutes(5);
+        Instant expiresAt = Instant.now().plus(lifetime);
+
+        MvcResult stream = mvc.perform(get(PATH, organization.test().publicId())
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .with(jwt().jwt(token -> token.subject(subject).expiresAt(expiresAt))))
+                .andReturn();
+
+        // A request whose handling went asynchronous always has its async context.
+        AsyncContext async = Objects.requireNonNull(stream.getRequest().getAsyncContext());
+        assertThat(async.getTimeout()).isBetween(lifetime.minusSeconds(5).toMillis(), lifetime.toMillis());
+    }
+
     private MvcResult open(TenantId tenant) throws Exception {
         return mvc.perform(get(PATH, tenant.publicId())
                         .accept(MediaType.TEXT_EVENT_STREAM)
-                        .with(jwt().jwt(token -> token.subject(subject))))
+                        .with(member()))
                 .andReturn();
+    }
+
+    // A token as Keycloak issues it, which lives 5 minutes.
+    private RequestPostProcessor member() {
+        return jwt().jwt(token -> token.subject(subject).expiresAt(Instant.now().plus(Duration.ofMinutes(5))));
     }
 
     private ChargeView createCharge(TenantId tenant) {

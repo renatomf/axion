@@ -735,7 +735,9 @@ paths:
       responses:
         "200":
           description: >-
-            The stream, open until the client or the core closes it.
+            The stream, open until the client closes it, or until the access
+            token that opened it expires; the client then opens the next
+            with a fresh token and `Last-Event-ID`.
           content:
             text/event-stream:
               schema:
