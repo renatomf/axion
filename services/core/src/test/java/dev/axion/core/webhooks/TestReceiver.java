@@ -1,6 +1,7 @@
 package dev.axion.core.webhooks;
 
 import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsServer;
 import dev.axion.core.webhooks.domain.HostResolver;
@@ -23,6 +24,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
@@ -38,11 +40,13 @@ import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A tenant's server for the tests: HTTPS on the loopback address, with a certificate for {@value
  * #HOST} issued when it starts, recording every request it receives. Each path answers as it was
- * told, {@code 204} unless told otherwise.
+ * told, {@code 204} unless told otherwise. {@link #startLocal()} starts one in plain HTTP instead, as
+ * a developer's server on {@code localhost}, for a core in a process of its own.
  */
 public final class TestReceiver implements AutoCloseable {
 
@@ -71,13 +75,15 @@ public final class TestReceiver implements AutoCloseable {
         record Redirect(String location) implements Answer {}
     }
 
-    private final HttpsServer server;
-    private final SSLContext trust;
+    private final HttpServer server;
+    private final String origin;
+    private final @Nullable SSLContext trust;
     private final List<Request> requests = new CopyOnWriteArrayList<>();
     private final Map<String, Answer> answers = new ConcurrentHashMap<>();
 
-    private TestReceiver(HttpsServer server, SSLContext trust) {
+    private TestReceiver(HttpServer server, String origin, @Nullable SSLContext trust) {
         this.server = server;
+        this.origin = origin;
         this.trust = trust;
     }
 
@@ -87,11 +93,8 @@ public final class TestReceiver implements AutoCloseable {
             X509Certificate certificate = certificate(keys);
             var server = HttpsServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
             server.setHttpsConfigurator(new HttpsConfigurator(serverContext(keys, certificate)));
-            server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
-            var receiver = new TestReceiver(server, clientContext(certificate));
-            server.createContext("/", receiver::handle);
-            server.start();
-            return receiver;
+            return serve(new TestReceiver(
+                    server, "https://" + HOST + ":" + server.getAddress().getPort(), clientContext(certificate)));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } catch (GeneralSecurityException | OperatorCreationException e) {
@@ -99,9 +102,32 @@ public final class TestReceiver implements AutoCloseable {
         }
     }
 
+    /** A receiver in plain HTTP on the loopback address, reached as {@code localhost}. */
+    public static TestReceiver startLocal() {
+        try {
+            var server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+            return serve(new TestReceiver(
+                    server, "http://localhost:" + server.getAddress().getPort(), null));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static TestReceiver serve(TestReceiver receiver) {
+        receiver.server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+        receiver.server.createContext("/", receiver::handle);
+        receiver.server.start();
+        return receiver;
+    }
+
     /** A URL of this receiver, by its name. */
     public URI url(String path) {
-        return URI.create("https://" + HOST + ":" + server.getAddress().getPort() + path);
+        return URI.create(origin + path);
+    }
+
+    /** The port the receiver listens on. */
+    public int port() {
+        return server.getAddress().getPort();
     }
 
     public void answer(String path, Answer answer) {
@@ -114,7 +140,7 @@ public final class TestReceiver implements AutoCloseable {
 
     /** Trusts this receiver's certificate, as a client's trust store trusts a real one. */
     public SSLContext trust() {
-        return trust;
+        return Objects.requireNonNull(trust, "A local receiver serves plain HTTP, with no certificate to trust");
     }
 
     /** Resolves {@value #HOST} and any name under it to the loopback address, and nothing else. */
