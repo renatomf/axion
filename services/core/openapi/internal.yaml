@@ -750,7 +750,15 @@ paths:
         "404":
           $ref: "components.yaml#/responses/NotFound"
         "429":
-          $ref: "components.yaml#/responses/TooManyRequests"
+          description: >-
+            The caller spent its request budget (`rate_limited`, with
+            `Retry-After`), or already has as many streams open as it may:
+            5 for a member, on all their tenants, and 200 for a tenant
+            (`too_many_streams`). A stream frees its place when it closes.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
 components:

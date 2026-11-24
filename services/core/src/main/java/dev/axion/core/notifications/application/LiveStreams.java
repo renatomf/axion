@@ -4,6 +4,7 @@ import dev.axion.core.events.PublicEvent;
 import dev.axion.core.notifications.domain.RecentEvents;
 import dev.axion.core.notifications.domain.StreamPermissions;
 import dev.axion.core.shared.EventId;
+import dev.axion.core.shared.MemberId;
 import dev.axion.core.shared.PublicId;
 import dev.axion.core.shared.TenantId;
 import java.time.Clock;
@@ -35,28 +36,42 @@ import org.springframework.stereotype.Component;
 @Component
 public class LiveStreams {
 
+    public static final int PER_MEMBER = 5;
+
+    public static final int PER_TENANT = 200;
+
     private static final Logger LOG = LoggerFactory.getLogger(LiveStreams.class);
 
     private final Clock clock;
     private final ReentrantLock lock = new ReentrantLock();
     private final Map<TenantId, TenantStreams> tenants = new HashMap<>();
+    private final Map<MemberId, Integer> byMember = new HashMap<>();
 
     LiveStreams(Clock clock) {
         this.clock = clock;
     }
 
     /**
-     * Opens a stream for the member. With the ID of the last event its client received, the stream
-     * first sends the tenant's events since, or {@link StreamMessage.Reset} when they are no longer
-     * all kept.
+     * Opens a stream for the member, within the limits of {@value #PER_MEMBER} streams per member, on
+     * all their tenants, and {@value #PER_TENANT} per tenant. With the ID of the last event its client
+     * received, the stream first sends the tenant's events since, or {@link StreamMessage.Reset} when
+     * they are no longer all kept.
      */
-    public void open(StreamMember member, StreamSink sink, Optional<String> lastEventId) {
+    public OpenResult open(StreamMember member, StreamSink sink, Optional<String> lastEventId) {
         Instant now = clock.instant();
         lock.lock();
         try {
+            if (byMember.getOrDefault(member.member(), 0) == PER_MEMBER) {
+                return OpenResult.MEMBER_LIMIT_REACHED;
+            }
             TenantStreams tenant = tenants.computeIfAbsent(member.tenant(), id -> new TenantStreams());
+            if (tenant.streams.size() == PER_TENANT) {
+                return OpenResult.TENANT_LIMIT_REACHED;
+            }
             lastEventId.ifPresent(last -> resume(tenant, member, sink, last, now));
             tenant.streams.put(sink, member);
+            byMember.merge(member.member(), 1, Integer::sum);
+            return OpenResult.OPENED;
         } finally {
             lock.unlock();
         }
@@ -67,7 +82,11 @@ public class LiveStreams {
         lock.lock();
         try {
             TenantStreams tenant = tenants.get(member.tenant());
-            if (tenant != null && tenant.streams.remove(sink) != null && tenant.streams.isEmpty()) {
+            if (tenant == null || tenant.streams.remove(sink) == null) {
+                return;
+            }
+            byMember.computeIfPresent(member.member(), (id, open) -> open == 1 ? null : open - 1);
+            if (tenant.streams.isEmpty()) {
                 tenant.lastClosedAt = clock.instant();
             }
         } finally {

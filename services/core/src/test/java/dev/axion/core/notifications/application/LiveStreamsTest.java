@@ -146,6 +146,33 @@ class LiveStreamsTest {
         assertThat(resumed.messages()).containsExactly(new StreamMessage.Reset());
     }
 
+    @Test
+    void refusesAMembersStreamBeyondTheirLimitOnAllTheirTenants() {
+        MemberId member = new MemberId(UUID.randomUUID());
+        StreamMember onTest = new StreamMember(tenant, member, Set.of(Permission.CHARGES_READ));
+        StreamMember onLive =
+                new StreamMember(new TenantId(UUID.randomUUID()), member, Set.of(Permission.CHARGES_READ));
+        TestSink first = open(onTest);
+        for (int i = 1; i < LiveStreams.PER_MEMBER; i++) {
+            open(onLive);
+        }
+
+        assertThat(streams.open(onTest, new TestSink(1), Optional.empty())).isEqualTo(OpenResult.MEMBER_LIMIT_REACHED);
+
+        streams.close(onTest, first);
+        assertThat(streams.open(onTest, new TestSink(1), Optional.empty())).isEqualTo(OpenResult.OPENED);
+    }
+
+    @Test
+    void refusesATenantsStreamBeyondItsLimit() {
+        for (int i = 0; i < LiveStreams.PER_TENANT; i++) {
+            open(member(tenant, Permission.CHARGES_READ));
+        }
+
+        assertThat(streams.open(member(tenant, Permission.CHARGES_READ), new TestSink(1), Optional.empty()))
+                .isEqualTo(OpenResult.TENANT_LIMIT_REACHED);
+    }
+
     private TestSink open(StreamMember member) {
         return open(member, Integer.MAX_VALUE);
     }

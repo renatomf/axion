@@ -35,8 +35,13 @@ class EventStreamController {
         StreamMember member = new StreamMember(caller.tenant(), caller.member(), caller.permissions());
         SseEmitter emitter = new SseEmitter();
         SseStream stream = new SseStream(emitter, ended -> streams.close(member, ended));
-        streams.open(member, stream, Optional.ofNullable(lastEventId));
-        stream.start();
-        return emitter;
+        return switch (streams.open(member, stream, Optional.ofNullable(lastEventId))) {
+            case OPENED -> {
+                stream.start();
+                yield emitter;
+            }
+            case MEMBER_LIMIT_REACHED -> throw StreamProblems.memberLimitReached();
+            case TENANT_LIMIT_REACHED -> throw StreamProblems.tenantLimitReached();
+        };
     }
 }

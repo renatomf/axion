@@ -6,12 +6,14 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
 import dev.axion.core.KeycloakTestConfiguration;
+import dev.axion.core.OpenApiContract;
 import dev.axion.core.PostgresTestConfiguration;
 import dev.axion.core.TestCaller;
 import dev.axion.core.billing.BillingApi;
 import dev.axion.core.billing.BillingFixtures;
 import dev.axion.core.billing.ChargeRequest;
 import dev.axion.core.billing.ChargeView;
+import dev.axion.core.notifications.application.LiveStreams;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.tenancy.NewOrganization;
@@ -27,10 +29,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.assertj.MockMvcTester;
+import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
 /**
  * The live stream on {@code /internal} (events and webhooks design, section 10). Tokens skip
@@ -125,6 +130,23 @@ class EventStreamControllerTest {
 
         await().atMost(Duration.ofSeconds(1))
                 .untilAsserted(() -> assertThat(content(resumed.getResponse())).isEqualTo("event:reset\ndata: {}\n\n"));
+    }
+
+    @Test
+    void refusesAStreamBeyondTheMembersLimit(@Autowired MockMvcTester tester) throws Exception {
+        for (int i = 0; i < LiveStreams.PER_MEMBER; i++) {
+            open(organization.test());
+        }
+
+        MvcTestResult refused = tester.get()
+                .uri(PATH, organization.test().publicId())
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .with(jwt().jwt(token -> token.subject(subject)))
+                .exchange();
+
+        assertThat(refused).hasStatus(HttpStatus.TOO_MANY_REQUESTS);
+        assertThat(refused).bodyJson().extractingPath("$.code").isEqualTo("too_many_streams");
+        OpenApiContract.internal().assertConforms(refused);
     }
 
     private MvcResult open(TenantId tenant) throws Exception {
