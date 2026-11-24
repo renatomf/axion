@@ -1,11 +1,11 @@
-package dev.axion.core.billing.web;
+package dev.axion.core.billing.representation;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.axion.core.billing.RefundView;
 import java.time.Instant;
 import java.util.Locale;
 
-record RefundResponse(
+public record RefundResponse(
         String id,
         String object,
         String charge,
@@ -14,7 +14,7 @@ record RefundResponse(
         String status,
         @JsonProperty("created_at") Instant createdAt) {
 
-    static RefundResponse of(RefundView refund) {
+    public static RefundResponse of(RefundView refund) {
         return new RefundResponse(
                 refund.id().publicId().toString(),
                 "refund",

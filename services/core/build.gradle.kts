@@ -71,6 +71,8 @@ dependencies {
     implementation(libs.caffeine)
     // Encrypts webhook signing secrets at rest (AES-256-GCM AEAD).
     implementation(libs.tink)
+    // Sends webhooks, connecting only to addresses the core has checked.
+    implementation(libs.httpclient5)
 
     // Test-only libraries: on the test classpath, never in the packaged JAR.
     testImplementation(libs.spring.boot.starter.test)
@@ -89,6 +91,8 @@ dependencies {
         exclude(group = "tools.jackson.core")
         exclude(group = "tools.jackson.dataformat")
     }
+    // Issues the certificates of the HTTPS servers that receive the tests' webhooks.
+    testImplementation(libs.bcpkix)
     // Reads the YAML contracts; its version comes from Spring Boot's BOM.
     testImplementation(libs.jackson.dataformat.yaml)
     testRuntimeOnly(libs.junit.platform.launcher)

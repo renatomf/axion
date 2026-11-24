@@ -166,6 +166,9 @@ class ChargeEventsTest {
         settlement.handle(credit);
 
         assertThat(events.publications(organization.test()))
+                .containsExactlyInAnyOrder(
+                        ChargeCreated.class.getName(), ChargeExpired.class.getName(), PaymentFlagged.class.getName());
+        assertThat(events.types(organization.test()))
                 .containsExactly(
                         ChargeCreated.class.getName(), ChargeExpired.class.getName(), PaymentFlagged.class.getName());
         assertThat(events.of(organization.test(), ChargeExpired.class))

@@ -218,6 +218,28 @@ class UpdateEndpointTest {
     }
 
     @Test
+    void cancelsThePendingDeliveriesOfAnEndpointItDisables() {
+        EndpointView created = create();
+        var deliveries = new TestDeliveries(owner);
+        UUID pending = deliveries.pending(tenant, created.id());
+
+        update(created.id(), status(EndpointStatus.DISABLED));
+
+        assertThat(deliveries.status(pending)).isEqualTo("CANCELED");
+    }
+
+    @Test
+    void leavesThePendingDeliveriesOfAnEndpointItKeepsEnabled() {
+        EndpointView created = create();
+        var deliveries = new TestDeliveries(owner);
+        UUID pending = deliveries.pending(tenant, created.id());
+
+        update(created.id(), url(NEW_URL));
+
+        assertThat(deliveries.status(pending)).isEqualTo("PENDING");
+    }
+
+    @Test
     void needsATenantBound() {
         assertThatThrownBy(() -> webhooks.update(new WebhookEndpointId(UUID.randomUUID()), url(NEW_URL)))
                 .isInstanceOf(IllegalStateException.class);

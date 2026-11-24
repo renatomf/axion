@@ -1,4 +1,4 @@
-package dev.axion.core.billing.web;
+package dev.axion.core.billing.representation;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.axion.core.billing.ChargeView;
@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.TreeMap;
 import org.jspecify.annotations.Nullable;
 
-record ChargeResponse(
+public record ChargeResponse(
         String id,
         String object,
         String status,
@@ -24,11 +24,11 @@ record ChargeResponse(
         @JsonProperty("created_at") Instant createdAt,
         boolean livemode) {
 
-    record Pix(
+    public record Pix(
             @JsonProperty("transaction_id") String transactionId,
             @JsonProperty("br_code") String brCode) {}
 
-    static ChargeResponse of(ChargeView charge) {
+    public static ChargeResponse of(ChargeView charge) {
         return new ChargeResponse(
                 charge.id().publicId().toString(),
                 "charge",

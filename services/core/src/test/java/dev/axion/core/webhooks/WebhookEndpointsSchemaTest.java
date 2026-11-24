@@ -417,11 +417,42 @@ class WebhookEndpointsSchemaTest {
     }
 
     @Test
-    void deniesTheJobsRoleAnyEndpoint() {
+    void letsTheJobsRoleReadWhereEveryTenantsEndpointsReceive() {
+        var row = endpoint().tenant(UUID.randomUUID());
+        insert(row);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThat(jdbc.sql("SELECT url FROM webhooks.endpoints WHERE id = ? AND status = 'ENABLED'")
+                        .param(row.id)
+                        .query(String.class)
+                        .single())
+                .isEqualTo(row.url);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"tenant_id", "description", "enabled_events", "disabled_reason"})
+    void deniesTheJobsRoleWhatSendingDoesNotNeed(String column) {
         insert(endpoint());
         DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
 
-        assertThatThrownBy(() -> visibleEndpoints()).rootCause().hasMessageContaining("permission denied");
+        assertThatThrownBy(() -> jdbc.sql("SELECT " + column + " FROM webhooks.endpoints")
+                        .query()
+                        .listOfRows())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void deniesTheJobsRoleChangingAnEndpoint() {
+        var row = endpoint();
+        insert(row);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> jdbc.sql("UPDATE webhooks.endpoints SET url = 'https://attacker.example' WHERE id = ?")
+                        .param(row.id)
+                        .update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
     }
 
     private long visibleEndpoints() {

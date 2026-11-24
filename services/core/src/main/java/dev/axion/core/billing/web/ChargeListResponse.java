@@ -2,6 +2,7 @@ package dev.axion.core.billing.web;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.axion.core.billing.ChargePage;
+import dev.axion.core.billing.representation.ChargeResponse;
 import java.util.List;
 
 record ChargeListResponse(

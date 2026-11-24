@@ -38,6 +38,14 @@ tags:
       The HTTPS URLs where Axion sends the tenant's events, each with the
       event types it receives and the secret that signs the requests sent
       to it.
+  - name: Events
+    description: >-
+      What Axion sends to the tenant's webhook endpoints: a CloudEvent 1.0
+      in structured JSON mode, whose `data.object` is the resource as the
+      API returns it at the event's time. An event may arrive more than
+      once and in any order: deduplicate by `id`, and compare `time` or the
+      resource's state before overwriting newer data. Ignore fields and
+      types you do not know; new ones are added without notice.
 paths:
   /v1/charges:
     get:
@@ -667,6 +675,106 @@ paths:
           $ref: "components.yaml#/responses/TooManyRequests"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
+webhooks:
+  charge.created:
+    post:
+      operationId: chargeCreated
+      tags: [Events]
+      summary: A charge was created
+      description: >-
+        Sent when a charge is created; it has no payment yet.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/cloudevents+json:
+            schema:
+              $ref: "#/components/schemas/ChargeCreatedEvent"
+      responses:
+        "2XX":
+          description: >-
+            The event was received. Any other status, a redirect, or no
+            answer within 10 seconds is a failed attempt.
+  charge.paid:
+    post:
+      operationId: chargePaid
+      tags: [Events]
+      summary: A payment settled a charge
+      description: >-
+        Sent once per charge, by the payment that settles it, also when
+        the charge had expired before a payment accepted in time arrived.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/cloudevents+json:
+            schema:
+              $ref: "#/components/schemas/ChargePaidEvent"
+      responses:
+        "2XX":
+          description: >-
+            The event was received. Any other status, a redirect, or no
+            answer within 10 seconds is a failed attempt.
+  charge.expired:
+    post:
+      operationId: chargeExpired
+      tags: [Events]
+      summary: A charge expired unpaid
+      description: >-
+        Sent when an active charge reaches its `expires_at` unpaid.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/cloudevents+json:
+            schema:
+              $ref: "#/components/schemas/ChargeExpiredEvent"
+      responses:
+        "2XX":
+          description: >-
+            The event was received. Any other status, a redirect, or no
+            answer within 10 seconds is a failed attempt.
+  payment.flagged:
+    post:
+      operationId: paymentFlagged
+      tags: [Events]
+      summary: A payment did not settle its charge
+      description: >-
+        Sent for each payment credited to the tenant that did not settle
+        its charge, with its `review_reason`, for the tenant to decide
+        whether to refund it.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/cloudevents+json:
+            schema:
+              $ref: "#/components/schemas/PaymentFlaggedEvent"
+      responses:
+        "2XX":
+          description: >-
+            The event was received. Any other status, a redirect, or no
+            answer within 10 seconds is a failed attempt.
+  charge.refunded:
+    post:
+      operationId: chargeRefunded
+      tags: [Events]
+      summary: A payment of a charge was refunded
+      description: >-
+        Sent for every refund, of the settling payment or of a flagged
+        one.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/cloudevents+json:
+            schema:
+              $ref: "#/components/schemas/ChargeRefundedEvent"
+      responses:
+        "2XX":
+          description: >-
+            The event was received. Any other status, a redirect, or no
+            answer within 10 seconds is a failed attempt.
 components:
   schemas:
     CreateChargeRequest:
@@ -1378,6 +1486,209 @@ components:
             `true` if more endpoints follow this page; send the last one's
             `id` as `starting_after` to read them.
           type: boolean
+    EventSpecVersion:
+      description: The CloudEvents version, always `1.0`.
+      type: string
+      const: "1.0"
+    EventId:
+      description: >-
+        The event's ID, the same in every delivery of it: a receiver that
+        has seen it has nothing more to do.
+      type: string
+      pattern: "^evt_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+    EventSource:
+      description: >-
+        `urn:axion:test` for an event of the test environment,
+        `urn:axion:live` for one of the live environment.
+      type: string
+      enum: ["urn:axion:test", "urn:axion:live"]
+    EventTime:
+      description: When it happened, in UTC with milliseconds.
+      type: string
+      format: date-time
+    EventDataContentType:
+      description: The media type of `data`, always `application/json`.
+      type: string
+      const: application/json
+    ChargeCreatedEvent:
+      description: >-
+        `charge.created`: a charge was created.
+      type: object
+      required: [specversion, id, source, type, subject, time, datacontenttype, dataschema, data]
+      properties:
+        specversion:
+          $ref: "#/components/schemas/EventSpecVersion"
+        id:
+          $ref: "#/components/schemas/EventId"
+        source:
+          $ref: "#/components/schemas/EventSource"
+        type:
+          type: string
+          const: charge.created
+        subject:
+          $ref: "#/components/schemas/Charge/properties/id"
+        time:
+          $ref: "#/components/schemas/EventTime"
+        datacontenttype:
+          $ref: "#/components/schemas/EventDataContentType"
+        dataschema:
+          description: >-
+            The schema of `data` and its version. A change that could break
+            a receiver is sent under a new version, beside the old one for
+            at least six months.
+          type: string
+          const: https://github.com/renatomf/axion/blob/main/services/core/openapi/v1.yaml#charge.created.v1
+        data:
+          $ref: "#/components/schemas/ChargeEventData"
+    ChargePaidEvent:
+      description: >-
+        `charge.paid`: a payment settled the charge.
+      type: object
+      required: [specversion, id, source, type, subject, time, datacontenttype, dataschema, data]
+      properties:
+        specversion:
+          $ref: "#/components/schemas/EventSpecVersion"
+        id:
+          $ref: "#/components/schemas/EventId"
+        source:
+          $ref: "#/components/schemas/EventSource"
+        type:
+          type: string
+          const: charge.paid
+        subject:
+          $ref: "#/components/schemas/Charge/properties/id"
+        time:
+          $ref: "#/components/schemas/EventTime"
+        datacontenttype:
+          $ref: "#/components/schemas/EventDataContentType"
+        dataschema:
+          description: >-
+            The schema of `data` and its version. A change that could break
+            a receiver is sent under a new version, beside the old one for
+            at least six months.
+          type: string
+          const: https://github.com/renatomf/axion/blob/main/services/core/openapi/v1.yaml#charge.paid.v1
+        data:
+          $ref: "#/components/schemas/ChargeEventData"
+    ChargeExpiredEvent:
+      description: >-
+        `charge.expired`: a charge expired unpaid.
+      type: object
+      required: [specversion, id, source, type, subject, time, datacontenttype, dataschema, data]
+      properties:
+        specversion:
+          $ref: "#/components/schemas/EventSpecVersion"
+        id:
+          $ref: "#/components/schemas/EventId"
+        source:
+          $ref: "#/components/schemas/EventSource"
+        type:
+          type: string
+          const: charge.expired
+        subject:
+          $ref: "#/components/schemas/Charge/properties/id"
+        time:
+          $ref: "#/components/schemas/EventTime"
+        datacontenttype:
+          $ref: "#/components/schemas/EventDataContentType"
+        dataschema:
+          description: >-
+            The schema of `data` and its version. A change that could break
+            a receiver is sent under a new version, beside the old one for
+            at least six months.
+          type: string
+          const: https://github.com/renatomf/axion/blob/main/services/core/openapi/v1.yaml#charge.expired.v1
+        data:
+          $ref: "#/components/schemas/ChargeEventData"
+    PaymentFlaggedEvent:
+      description: >-
+        `payment.flagged`: a payment was credited to the tenant without
+        settling its charge. Its `subject` is the payment.
+      type: object
+      required: [specversion, id, source, type, subject, time, datacontenttype, dataschema, data]
+      properties:
+        specversion:
+          $ref: "#/components/schemas/EventSpecVersion"
+        id:
+          $ref: "#/components/schemas/EventId"
+        source:
+          $ref: "#/components/schemas/EventSource"
+        type:
+          type: string
+          const: payment.flagged
+        subject:
+          $ref: "#/components/schemas/Payment/properties/id"
+        time:
+          $ref: "#/components/schemas/EventTime"
+        datacontenttype:
+          $ref: "#/components/schemas/EventDataContentType"
+        dataschema:
+          description: >-
+            The schema of `data` and its version. A change that could break
+            a receiver is sent under a new version, beside the old one for
+            at least six months.
+          type: string
+          const: https://github.com/renatomf/axion/blob/main/services/core/openapi/v1.yaml#payment.flagged.v1
+        data:
+          $ref: "#/components/schemas/PaymentFlaggedEventData"
+    ChargeRefundedEvent:
+      description: >-
+        `charge.refunded`: a payment of the charge was refunded.
+      type: object
+      required: [specversion, id, source, type, subject, time, datacontenttype, dataschema, data]
+      properties:
+        specversion:
+          $ref: "#/components/schemas/EventSpecVersion"
+        id:
+          $ref: "#/components/schemas/EventId"
+        source:
+          $ref: "#/components/schemas/EventSource"
+        type:
+          type: string
+          const: charge.refunded
+        subject:
+          $ref: "#/components/schemas/Charge/properties/id"
+        time:
+          $ref: "#/components/schemas/EventTime"
+        datacontenttype:
+          $ref: "#/components/schemas/EventDataContentType"
+        dataschema:
+          description: >-
+            The schema of `data` and its version. A change that could break
+            a receiver is sent under a new version, beside the old one for
+            at least six months.
+          type: string
+          const: https://github.com/renatomf/axion/blob/main/services/core/openapi/v1.yaml#charge.refunded.v1
+        data:
+          $ref: "#/components/schemas/ChargeRefundedEventData"
+    ChargeEventData:
+      description: The charge as it is after the event.
+      type: object
+      required: [object]
+      properties:
+        object:
+          $ref: "#/components/schemas/ChargeDetail"
+    PaymentFlaggedEventData:
+      description: The flagged payment, and its charge as it is after the payment.
+      type: object
+      required: [object, charge]
+      properties:
+        object:
+          $ref: "#/components/schemas/Payment"
+        charge:
+          $ref: "#/components/schemas/ChargeDetail"
+    ChargeRefundedEventData:
+      description: >-
+        The charge as it is after the refund, and which of its `refunds`
+        the event is about.
+      type: object
+      required: [object, refund]
+      properties:
+        object:
+          $ref: "#/components/schemas/ChargeDetail"
+        refund:
+          description: The `id` of the refund, one of the charge's `refunds`.
+          $ref: "#/components/schemas/Refund/properties/id"
     WebhookEventType:
       description: >-
         A type of event an endpoint can receive, or `*` alone for every

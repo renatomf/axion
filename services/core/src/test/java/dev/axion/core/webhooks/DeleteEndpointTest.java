@@ -122,6 +122,30 @@ class DeleteEndpointTest {
     }
 
     @Test
+    void cancelsItsPendingDeliveriesAndKeepsTheOthers() {
+        EndpointView created = create();
+        var deliveries = new TestDeliveries(owner);
+        UUID pending = deliveries.pending(tenant, created.id());
+        UUID succeeded = deliveries.succeeded(tenant, created.id());
+
+        delete(created.id());
+
+        assertThat(deliveries.status(pending)).isEqualTo("CANCELED");
+        assertThat(deliveries.status(succeeded)).isEqualTo("SUCCEEDED");
+    }
+
+    @Test
+    void leavesTheDeliveriesOfAnotherEndpointPending() {
+        EndpointView deleted = create();
+        EndpointView kept = create();
+        UUID pending = new TestDeliveries(owner).pending(tenant, kept.id());
+
+        delete(deleted.id());
+
+        assertThat(new TestDeliveries(owner).status(pending)).isEqualTo("PENDING");
+    }
+
+    @Test
     void needsATenantBound() {
         assertThatThrownBy(() -> webhooks.delete(new WebhookEndpointId(UUID.randomUUID())))
                 .isInstanceOf(IllegalStateException.class);

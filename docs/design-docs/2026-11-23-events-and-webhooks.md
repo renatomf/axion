@@ -134,7 +134,7 @@ The core uses Spring Modulith's JDBC registry (`spring-modulith-starter-jdbc`). 
 
 ### 4.3 Listeners
 
-A consumer is a method annotated `@ApplicationModuleListener`: it runs after the publishing transaction commits, on another thread, in a new transaction of its own. Before it touches the database, it binds the event's tenant with `TenantContext.run(event.tenant(), event.environment(), …)` (tenancy design, section 5.3), so Row-Level Security applies to the consumer as it does to a request.
+A consumer is a method annotated `@ApplicationModuleListener`: it runs after the publishing transaction commits, on another thread, in a new transaction of its own. Before it touches the database, it binds the event's tenant with `TenantContext.run(event.tenant(), event.environment(), …)` (tenancy design, section 5.3), so Row-Level Security applies to the consumer as it does to a request. The tenant reaches the database when a transaction begins, so such a listener declares `propagation = NOT_SUPPORTED` and begins its transaction inside the binding.
 
 - Listeners run on a bounded executor of virtual threads, 32 at a time; a burst of events waits in the executor's queue, never in a request thread. On shutdown, running listeners get 10 seconds to finish; what is left stays incomplete in the registry (section 4.5).
 - A listener does one thing in one transaction: record an audit record, create deliveries, push to streams. A listener that has to call something slow, such as a tenant's endpoint, records the work and leaves it to a job (section 8).
@@ -192,11 +192,11 @@ A public event is a [CloudEvent 1.0](https://github.com/cloudevents/spec) in str
 | `subject` | The public ID of the resource the event is about |
 | `time` | The domain event's `occurredAt`, in UTC with milliseconds |
 | `dataschema` | The schema of `data` and its version (section 5.2) |
-| `data.object` | The resource as `GET` returns it at the event's time: the charge with its payments and refunds; for `payment.flagged`, the payment with its `charge`; for `charge.refunded`, the charge, with the refund named by `data.refund` |
+| `data.object` | The resource as `GET` returns it at the event's time: the charge with its payments and refunds; for `payment.flagged`, the payment, with the charge after it in `data.charge`; for `charge.refunded`, the charge, with the refund's ID in `data.refund` |
 
 - `data` is rendered once, when `webhooks` records the event (section 8.1), and stored as bytes: every attempt and every replay sends exactly the bytes first sent, so a signature verified once stays valid evidence.
 - The resource is a snapshot, not a pointer: a receiver can act without calling the API. A receiver that needs the current state, because a later event may have changed it, reads the resource by `subject`.
-- `EventCatalog.render(DomainEvent)`, in `events`, is the only place a public event is built. It is a pure function of the event and the clock, with no database access, so `webhooks` and `notifications` can call it without depending on anything slow.
+- `EventCatalog.render(DomainEvent)`, in `events`, is the only place a public event is built. It is a pure function of the event, with no database access, so `webhooks` and `notifications` can call it without depending on anything slow. It writes the resource with the records `billing` exposes for that (its `representation` named interface), the ones its endpoints return, and the core's JSON mapper.
 
 ### 5.2 Versioning
 
@@ -291,11 +291,12 @@ The rules that need no lookup are checked first, so a URL they refuse never make
 
 ### 7.2 At connection
 
-Deliveries use Spring's `RestClient` on Apache HttpClient 5, whose `DnsResolver` the core replaces: it resolves the host, drops every address the policy refuses, and fails the attempt when none is left. The connection is made to an address that was checked, so no second lookup can change it; TLS still verifies the certificate against the host name.
+Deliveries use Apache HttpClient 5, whose `DnsResolver` the core replaces: it resolves the host, drops every address the policy refuses, and fails the attempt when none is left. The connection is made to an address that was checked, so no second lookup can change it; TLS still verifies the certificate against the host name. The client is used directly, not through Spring's `RestClient`: the whole-response timeout cancels the request, which needs the request object, and a body sent as bytes needs no message conversion.
 
 - Redirects are never followed: a `3xx` is a failed attempt. A redirect is the simplest way around the check.
 - No proxy, no cookies, no authentication cache; every attempt is a new, plain request.
 - Connection timeout 5 seconds, whole-response timeout 10 seconds, at most 64 KiB of response body read, of which the first 1 KiB is kept for the delivery log.
+- The connection pool lets one host hold as many connections as all hosts together: endpoints of several tenants may share a host, and the queue, not the pool, bounds what each endpoint holds (section 8.2).
 - In the `local` profile, `axion.webhooks.allowed-local-ports` lets a developer receive webhooks on `localhost` for chosen ports; the setting does not exist in the default profile, so no deployed core can enable it.
 
 ## 8. Delivery
@@ -328,7 +329,7 @@ RETURNING …
 - `SKIP LOCKED` lets several workers, or several instances of the core, claim batches at once without waiting on each other or claiming the same row.
 - The lease, not a held lock, keeps the claim during the HTTP request: no transaction and no connection stays open while a tenant's server takes ten seconds to answer. A worker that dies mid-request leaves its lease to expire, and the delivery is claimed again: at least once, which receivers already handle by `id` (section 5.3).
 - Each attempt's result is written in a second short transaction that updates the delivery and inserts the attempt.
-- No endpoint has more than 4 deliveries in flight; the claim skips deliveries of endpoints at their limit, so one slow endpoint holds at most 4 of the workers' requests and every other endpoint keeps its pace.
+- No endpoint has more than 4 deliveries in flight; the claim takes, for each endpoint with due deliveries, only what its limit leaves, oldest endpoint first, so one slow endpoint holds at most 4 of the workers' requests and every other endpoint keeps its pace. Claims are serialized by a transaction-level advisory lock, so each counts what every earlier claim holds; a claim lasts milliseconds.
 - The job role reads across tenants, like the billing jobs: its policies let it see deliveries, the events they send and their endpoints, and change only a delivery's status, lease, attempt count and next attempt.
 
 ### 8.3 The request
@@ -499,10 +500,11 @@ webhooks.deliveries
   status            text not null            -- PENDING | SUCCEEDED | DEAD | CANCELED (CHECK)
   attempt_count     integer not null         -- 0 to 9 scheduled attempts (CHECK)
   next_attempt_at   timestamptz null         -- set exactly when PENDING (CHECK)
-  leased_until      timestamptz null
+  leased_until      timestamptz null         -- only while PENDING (CHECK)
   created_at        timestamptz not null
   unique (endpoint_id, event_id)
   index (next_attempt_at) where status = 'PENDING'
+  index (endpoint_id, next_attempt_at) where status = 'PENDING'
   index (endpoint_id, id)
 
 webhooks.attempts
@@ -656,14 +658,14 @@ Events and webhooks carry money's news out of the core and requests into other n
 | 1.45d | Rolling a secret with a grace period, and the removal of the old one; `WebhookSecretRolled` | 6.2 |
 | 1.45e | The `/internal` mirror of every endpoint operation, with step-up for changes | 12.2 |
 | 1.46a | The catalog and its schemas in `v1.yaml`; the events and deliveries tables; the listener, the queue and the HTTP client with the check at connection | 5, 7.2, 8.1–8.3 |
-| 1.46b | Signing, with two signatures during a grace period; the webhook guide | 8.4 |
+| 1.46b | Signing, with two signatures during a grace period; the webhook guide, with the `local` profile's ports for receiving on a developer's machine | 7.2, 8.4 |
 | 1.47a | Retries, `410`, disabling and its event; the fault-injection scenarios | 8.5, 8.6 |
 | 1.47b | The attempts table, the delivery log, replay and retention | 8.7, 8.8 |
 | 1.48a | The `audit` module: records, chain heads, appends and the verification job | 9.1–9.3 |
 | 1.48b | The audited events of section 3.3 | 9.4 |
 | 1.49 | The `notifications` module and the live stream | 10 |
 
-1.44a publishes events before any module consumes them: the slice prepares the ground for every consumer of the block, and its tests read the registry. How listeners run (section 4.3) arrives with 1.44b, which makes them idempotent; the first listener of the core follows it. 1.46a delivers unsigned requests for one slice, so that signing, a security boundary, is reviewed on its own in 1.46b; nothing is deployed in between. Endpoints arrive in four slices, each small enough to review with care: registration, with the encryption of secrets, a security boundary of its own; changes; rolling; and the console's mirror. Until the catalog arrives with 1.46a, the event types an endpoint may receive are listed in `webhooks`, and 1.46a checks them against it. Deliveries arrive with 1.46a too, so the cancellation of a deleted endpoint's pending deliveries arrives with them.
+1.44a publishes events before any module consumes them: the slice prepares the ground for every consumer of the block, and its tests read the registry. How listeners run (section 4.3) arrives with 1.44b, which makes them idempotent; the first listener of the core follows it. 1.46a delivers unsigned requests for one slice, so that signing, a security boundary, is reviewed on its own in 1.46b; nothing is deployed in between. Until retries arrive with 1.47a, a delivery has one attempt and is `DEAD` when it fails. The `local` profile's ports arrive with the guide that tells a developer how to receive webhooks on their machine. Endpoints arrive in four slices, each small enough to review with care: registration, with the encryption of secrets, a security boundary of its own; changes; rolling; and the console's mirror. Until the catalog arrives with 1.46a, the event types an endpoint may receive are listed in `webhooks`, and 1.46a checks them against it. Deliveries arrive with 1.46a too, so the cancellation of a deleted endpoint's pending deliveries arrives with them.
 
 ## 17. Decisions from review
 
