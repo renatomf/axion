@@ -65,9 +65,21 @@ class WebhookEndpointsSchemaTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"http://example.com/hooks", "ftp://example.com/hooks", "example.com"})
+    @ValueSource(
+            strings = {
+                "http://example.com/hooks",
+                "http://localhost.example.com/hooks",
+                "http://localhost/hooks",
+                "ftp://example.com/hooks",
+                "example.com"
+            })
     void rejectsAUrlThatIsNotHttps(String url) {
         assertRejected(endpoint().url(url), "endpoints_url_check");
+    }
+
+    @Test
+    void acceptsAnHttpUrlToALocalReceiver() {
+        insert(endpoint().url("http://localhost:4000/hooks"));
     }
 
     @Test

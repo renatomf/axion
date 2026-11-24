@@ -2,21 +2,25 @@ package dev.axion.core.webhooks.http;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.sun.net.httpserver.HttpServer;
 import dev.axion.core.webhooks.TestReceiver;
 import dev.axion.core.webhooks.domain.Attempt;
 import dev.axion.core.webhooks.domain.AttemptFailure;
 import dev.axion.core.webhooks.domain.HostResolver;
+import dev.axion.core.webhooks.domain.LocalReceivers;
 import dev.axion.core.webhooks.domain.PublicAddressPolicy;
 import dev.axion.core.webhooks.domain.UrlValidation;
 import dev.axion.core.webhooks.domain.WebhookUrlValidator;
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 import javax.net.ssl.SSLContext;
@@ -133,6 +137,33 @@ class WebhookClientTest {
 
         try (var client = client(mixed, loopbackOnly)) {
             assertThat(client.send(receiver.url("/hooks"), EVENT).succeeded()).isTrue();
+        }
+    }
+
+    @Test
+    void postsOverHttpToALocalReceiverOnALocalPort() throws IOException {
+        HttpServer server =
+                HttpServer.create(new InetSocketAddress(InetAddress.getByAddress(new byte[] {127, 0, 0, 1}), 0), 0);
+        server.createContext("/hooks", exchange -> {
+            try (exchange) {
+                exchange.sendResponseHeaders(204, -1);
+            }
+        });
+        server.start();
+        int port = server.getAddress().getPort();
+        URI url = URI.create("http://localhost:" + port + "/hooks");
+        HostResolver loopback = host -> List.of(InetAddress.getByAddress(host, new byte[] {127, 0, 0, 1}));
+        try (var local = new WebhookClient(
+                        new CheckedDnsResolver(
+                                loopback, PublicAddressPolicy::isPublic, new LocalReceivers(Set.of(port))),
+                        receiver.trust(),
+                        WebhookClient.Timeouts.DEFAULT,
+                        4);
+                var deployed = client(loopback, PublicAddressPolicy::isPublic)) {
+            assertThat(local.send(url, EVENT)).isEqualTo(new Attempt.Answered(204));
+            assertThat(deployed.send(url, EVENT)).isEqualTo(new Attempt.Failed(AttemptFailure.ADDRESS_REFUSED));
+        } finally {
+            server.stop(0);
         }
     }
 
