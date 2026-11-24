@@ -381,6 +381,56 @@ class DeliveryQueueTest {
         });
     }
 
+    /**
+     * The tenant's server is down for an hour after a charge is created: the attempts within it fail,
+     * and the first one after it delivers the event, the same body under the same ID.
+     */
+    @Test
+    void deliversTheEventOnceItsEndpointRecoversFromAnHourLongOutage(
+            @Autowired TenancyApi tenancy, @Autowired BillingApi billing) throws Exception {
+        TenantId organization = tenancy.createOrganization("Mercearia Boa Vista", "subject-" + UUID.randomUUID())
+                .test();
+        String path = "/" + UUID.randomUUID();
+        receiver.answer(path, new TestReceiver.Answer.Status(503));
+        endpoint(organization, path, Set.of("charge.created"));
+        Instant outageEnds = clock.instant().plus(Duration.ofHours(1));
+
+        TestCaller.call(
+                organization,
+                Environment.TEST,
+                () -> billing.createCharge(ChargeRequest.of(BillingFixtures.brl(10_000))));
+        await().atMost(Duration.ofSeconds(5)).until(() -> pendingDeliveries(organization) == 1);
+        UUID delivery = deliveryOf(organization);
+        drainAndWait();
+        while (deliveries.nextAttemptAt(delivery).orElseThrow().isBefore(outageEnds)) {
+            clock.advance(Duration.between(
+                    clock.instant(), deliveries.nextAttemptAt(delivery).orElseThrow()));
+            drainAndWait();
+        }
+        assertThat(receiver.requests(path)).as("attempts during the outage").hasSize(4);
+        clock.advance(Duration.between(clock.instant(), outageEnds));
+        receiver.answer(path, new TestReceiver.Answer.Status(204));
+        clock.advance(Duration.between(
+                clock.instant(), deliveries.nextAttemptAt(delivery).orElseThrow()));
+        drainAndWait();
+
+        assertThat(deliveries.status(delivery)).isEqualTo("SUCCEEDED");
+        assertThat(deliveries.attemptCount(delivery)).isEqualTo(5);
+        List<TestReceiver.Request> requests = receiver.requests(path);
+        assertThat(requests).hasSize(5);
+        assertThat(requests.stream().map(request -> request.header("webhook-id")))
+                .containsOnly(requests.getFirst().header("webhook-id"));
+        assertThat(requests.stream().map(TestReceiver.Request::body)).containsOnly(deliveries.body(delivery));
+    }
+
+    private UUID deliveryOf(TenantId owner) {
+        return this.owner
+                .sql("SELECT id FROM webhooks.deliveries WHERE tenant_id = ?")
+                .param(owner.value())
+                .query(UUID.class)
+                .single();
+    }
+
     private void drainAndWait() throws InterruptedException, ExecutionException {
         waitFor(queue.drain());
     }
