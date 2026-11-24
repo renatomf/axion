@@ -655,6 +655,51 @@ paths:
           $ref: "components.yaml#/responses/TooManyRequests"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
+  /internal/tenants/{tenant_id}/webhook_endpoints/{endpoint_id}/deliveries/{delivery_id}/replay:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/WebhookEndpointId"
+      - $ref: "#/components/parameters/WebhookDeliveryId"
+    post:
+      operationId: replayTenantWebhookDelivery
+      tags: [Webhook deliveries]
+      summary: Replay one of an endpoint's deliveries
+      description: >-
+        Sends the delivery's event to the endpoint again, now, as
+        `POST /v1/webhook_endpoints/{id}/deliveries/{delivery_id}/replay`
+        does: the same `webhook-id` and body, with a fresh timestamp and
+        signature, at most 10 times in 24 hours. The request follows within
+        seconds in the delivery's attempts. A retried request queues another
+        replay. Requires `webhooks:manage`.
+      responses:
+        "202":
+          description: >-
+            The replay is queued. The body is the delivery as it is, which
+            the replay does not change.
+          content:
+            application/json:
+              schema:
+                $ref: "v1.yaml#/components/schemas/WebhookDelivery"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          $ref: "components.yaml#/responses/Forbidden"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "409":
+          description: >-
+            The endpoint is disabled (`endpoint_disabled`), or the delivery
+            was replayed 10 times in the last 24 hours
+            (`replay_limit_reached`; `detail` says from when it can be
+            replayed again).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
 components:
   parameters:
     KeyId:

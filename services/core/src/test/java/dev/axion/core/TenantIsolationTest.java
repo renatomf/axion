@@ -109,6 +109,7 @@ class TenantIsolationTest {
             Map.entry("replayWebhookDelivery", this::replayWebhookDeliveryQueuesNothingForAnotherTenant),
             Map.entry("listTenantWebhookDeliveries", this::listTenantWebhookDeliveriesHidesAnotherTenantsLog),
             Map.entry("getTenantWebhookDelivery", this::getTenantWebhookDeliveryHidesAnotherTenantsDelivery),
+            Map.entry("replayTenantWebhookDelivery", this::replayTenantWebhookDeliveryQueuesNothingForAnotherTenant),
             Map.entry("listTenantWebhookEndpoints", this::listTenantWebhookEndpointsHidesAnotherTenantsEndpoints),
             Map.entry("getTenantWebhookEndpoint", this::getTenantWebhookEndpointHidesAnotherTenantsEndpoint),
             Map.entry("createTenantWebhookEndpoint", this::createTenantWebhookEndpointRegistersNothingForAnotherTenant),
@@ -534,6 +535,25 @@ class TenantIsolationTest {
 
         assertThat(request.send(scene, null, callerTenant, own.publicId(), owned.publicId()))
                 .hasStatus(HttpStatus.OK);
+    }
+
+    private void replayTenantWebhookDeliveryQueuesNothingForAnotherTenant(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookDeliveryId othersDelivery = delivery(scene.other().test(), others);
+        WebhookEndpointId own = endpoint(scene.caller().test());
+        WebhookDeliveryId owned = delivery(scene.caller().test(), own);
+        Object callerTenant = scene.caller().test().publicId();
+        var deliveries = new TestDeliveries(owner.jdbc());
+
+        assertNotFound(request.send(
+                scene, null, scene.other().test().publicId(), others.publicId(), othersDelivery.publicId()));
+        assertNotFound(request.send(scene, null, callerTenant, others.publicId(), othersDelivery.publicId()));
+        assertNotFound(request.send(scene, null, callerTenant, own.publicId(), othersDelivery.publicId()));
+        assertThat(deliveries.replays(othersDelivery.value())).isEmpty();
+
+        assertThat(request.send(scene, null, callerTenant, own.publicId(), owned.publicId()))
+                .hasStatus(HttpStatus.ACCEPTED);
+        assertThat(deliveries.replays(owned.value())).containsExactly("PENDING");
     }
 
     private long secrets(WebhookEndpointId endpoint) {
