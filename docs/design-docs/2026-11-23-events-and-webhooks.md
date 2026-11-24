@@ -410,8 +410,8 @@ audit.records
   tenant_id       uuid not null      -- the platform tenant for platform actions
   sequence        bigint not null    -- 1, 2, 3 … within the chain
   occurred_at     timestamptz not null
-  actor_type      text not null      -- MEMBER | API_KEY | SYSTEM (CHECK)
-  actor_id        text not null
+  actor_type      text not null      -- MEMBER | API_KEY | JOB (CHECK)
+  actor_id        text not null      -- the member's or the key's UUID, or the job's name
   action          text not null      -- such as api_key.issued, charge.refunded
   resource_type   text not null
   resource_id     text not null
@@ -426,20 +426,24 @@ audit.records
 - Each tenant has its own chain; actions of the platform itself go to the platform tenant's chain (tenancy design, section 5.5). Records of one tenant never wait on another's, and a tenant's chain can be verified, and one day exported, without the others.
 - `details` holds the facts of the action, such as a key's name and scopes or a refund's amount, never a secret and never personal data.
 - `event_id` is unique, so a duplicate event finds its record and adds nothing (section 4.4).
+- `actor_type` names the kinds of `Actor` (section 4.1); a job is `JOB`, as in the code.
 
 ### 9.2 The chain
 
-A record's hash is SHA-256 over the previous record's hash and the record's fields, each encoded as its length and its UTF-8 bytes, in the column order above. Length prefixes make the encoding unambiguous: no two different records produce the same bytes. `details` is stored as the exact text that was hashed, not as `jsonb`, which would reorder its keys; it is rendered canonically once, with sorted keys and no insignificant whitespace.
+A record's hash is SHA-256 over the previous record's hash and the record's fields, each encoded as its length and its UTF-8 bytes, in the column order above. Length prefixes make the encoding unambiguous: no two different records produce the same bytes. The length takes four bytes, big-endian; UUIDs are written in lowercase, the sequence in decimal, and `occurred_at` in UTC with six fraction digits, such as `2026-11-24T15:04:05.123456Z`, the microseconds PostgreSQL keeps, so the hash recomputed from a stored record is the one computed before it was stored. `details` is stored as the exact text that was hashed, not as `jsonb`, which would reorder its keys; it is rendered canonically once, with sorted keys and no insignificant whitespace.
 
-Appending takes the chain's head: `audit.chain_heads` holds each chain's last sequence and hash, and the listener locks its chain's row (`SELECT … FOR UPDATE`), computes the new record, inserts it and moves the head, in one transaction. Appends to one chain are serialized; appends to different chains are not.
+Appending takes the chain's head: `audit.chain_heads` holds each chain's last sequence and hash, and the listener locks its chain's row (`SELECT … FOR UPDATE`), computes the new record, inserts it and moves the head, in one transaction. Appends to one chain are serialized; appends to different chains are not. A chain's first append inserts its head at sequence 0 with 32 zero bytes before locking it, ignoring a conflict, so two first appends meet on the head's key and the second waits for the first. An event already recorded conflicts on `event_id`: nothing is inserted and the head stays.
 
 `axion_audit` may insert records and read them, never update or delete them; it updates only `chain_heads`. No role but the owner can change a record, and the chain shows it if the owner does.
 
 ### 9.3 Verification
 
-`AuditApi.verify(chain)` walks a chain in sequence order, recomputes every hash and compares it, and checks that sequences have no gaps and that the head matches the last record. A changed record breaks its own hash; a deleted one leaves a gap; a reordered one breaks the next hash.
+`AuditApi.verify(chain)` walks a chain in sequence order, recomputes every hash and compares it, and checks that sequences have no gaps and that the head matches the last record. A changed record breaks its own hash; a deleted one leaves a gap; a reordered one breaks its own hash, since its sequence is hashed; a changed one whose hash was recomputed breaks the next record's link.
 
-A job verifies every chain each night, as `axion_audit_checks`, and publishes the result (`axion_audit_chain_verified`, 1 or 0 per chain) and each head's hash in the log. Deleting the last records of a chain together with its head is the one change the chain alone cannot show; the heads written to the log each night, outside the database, are the anchor it is checked against.
+- The walk reads the head and the records, a thousand at a time, in one `REPEATABLE READ` snapshot, so a record appended meanwhile cannot look like a head that moved past the chain.
+- It reports the first break, with its sequence and kind (`ALTERED`, `UNLINKED`, `MISSING` or `HEAD_MISMATCH`), and stops: what follows a break cannot be trusted to describe the chain. A chain with no record is intact.
+
+A job verifies every chain each night, at 03:00 in America/Sao_Paulo, as `axion_audit_checks`, and publishes the result (`axion_audit_chain_verified`, 1 or 0 per chain) and each head's hash in the log. Deleting the last records of a chain together with its head is the one change the chain alone cannot show; the heads written to the log each night, outside the database, are the anchor it is checked against. Every tenant with a head or with records is verified, so a chain whose head was removed is found too. Each chain is verified in a snapshot of its own; the log line carries the chain's tenant in `tenant_id`, and the [runbook](../operations/runbooks/broken-audit-chain.md) describes what to do with a broken one.
 
 ### 9.4 What is audited
 
@@ -554,7 +558,7 @@ webhooks.replays
 audit.records                            -- section 9.1
 audit.chain_heads
   tenant_id         uuid primary key         -- one chain per tenant (section 9.1)
-  sequence          bigint not null
+  sequence          bigint not null          -- 0 before the chain's first record (section 9.2)
   hash              bytea not null
 
 <schema>.consumed_events                 -- section 4.4, in each consuming module that needs it

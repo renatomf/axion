@@ -32,6 +32,7 @@ class ModuleStructureTest {
                         "risk",
                         "rails",
                         "events",
-                        "webhooks");
+                        "webhooks",
+                        "audit");
     }
 }

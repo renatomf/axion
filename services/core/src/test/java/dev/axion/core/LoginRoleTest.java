@@ -29,7 +29,9 @@ class LoginRoleTest {
             "axion_risk_jobs",
             "axion_rails",
             "axion_events",
-            "axion_webhooks");
+            "axion_webhooks",
+            "axion_audit",
+            "axion_audit_checks");
 
     private final JdbcClient jdbc;
 
