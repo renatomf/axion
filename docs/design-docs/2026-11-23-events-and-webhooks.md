@@ -297,7 +297,7 @@ Deliveries use Apache HttpClient 5, whose `DnsResolver` the core replaces: it re
 - No proxy, no cookies, no authentication cache; every attempt is a new, plain request.
 - Connection timeout 5 seconds, whole-response timeout 10 seconds, at most 64 KiB of response body read, of which the first 1 KiB is kept for the delivery log.
 - The connection pool lets one host hold as many connections as all hosts together: endpoints of several tenants may share a host, and the queue, not the pool, bounds what each endpoint holds (section 8.2).
-- In the `local` profile, `axion.webhooks.allowed-local-ports` lets a developer receive webhooks on `localhost` for chosen ports; the setting does not exist in the default profile, so no deployed core can enable it.
+- In the `local` profile, `axion.webhooks.allowed-local-ports` lets a developer receive webhooks on `localhost` for chosen ports, 1024 or above: a URL to `localhost` on one of them is accepted before the rules of section 7.1, over `http` or `https`, since TLS on the loopback interface protects nothing, and the name resolves to the loopback addresses without a lookup. The setting is read in that profile only, so no deployed core can enable it. The table's check admits `http://localhost:` as well as `https://`; the module is what refuses it outside the profile.
 
 ## 8. Delivery
 
@@ -330,7 +330,7 @@ RETURNING …
 - The lease, not a held lock, keeps the claim during the HTTP request: no transaction and no connection stays open while a tenant's server takes ten seconds to answer. A worker that dies mid-request leaves its lease to expire, and the delivery is claimed again: at least once, which receivers already handle by `id` (section 5.3).
 - Each attempt's result is written in a second short transaction that updates the delivery and inserts the attempt.
 - No endpoint has more than 4 deliveries in flight; the claim takes, for each endpoint with due deliveries, only what its limit leaves, oldest endpoint first, so one slow endpoint holds at most 4 of the workers' requests and every other endpoint keeps its pace. Claims are serialized by a transaction-level advisory lock, so each counts what every earlier claim holds; a claim lasts milliseconds.
-- The job role reads across tenants, like the billing jobs: its policies let it see deliveries, the events they send and their endpoints, and change only a delivery's status, lease, attempt count and next attempt.
+- The job role reads across tenants, like the billing jobs: its policies let it see deliveries, the events they send, their endpoints and the ciphertext of the secrets that sign them, and change only a delivery's status, lease, attempt count and next attempt. A claim returns each delivery with those ciphertexts, current secret first.
 
 ### 8.3 The request
 
@@ -355,6 +355,7 @@ The signature follows Standard Webhooks: HMAC-SHA256, keyed with the secret's 32
 - `webhook-timestamp` is the attempt's time in Unix seconds, so a replay of an old attempt is signed afresh. Receivers reject a timestamp more than five minutes from their clock, which bounds the replay of a captured request; the signed `webhook-id` lets them reject one inside that window.
 - During a secret's grace period, `webhook-signature` carries two signatures separated by a space, new first; a receiver accepts the request if any one verifies.
 - The body is signed as the bytes sent, never re-serialized, so a receiver verifies the raw body before parsing it. The webhook guide (`docs/api/webhooks.md`) shows how, with the reference libraries.
+- A request is never sent unsigned. A delivery whose secrets do not decrypt, because the key-encryption key changed, is logged as an error and keeps its lease, so it is claimed again once the lease passes and sent once the key is fixed.
 
 ### 8.5 Retries
 
@@ -463,7 +464,7 @@ events.event_publication                 -- Modulith 2.1's table, unchanged (sec
 webhooks.endpoints
   id                uuid primary key
   tenant_id         uuid not null
-  url               text not null            -- https, at most 2,048 characters (CHECK)
+  url               text not null            -- https, or http://localhost: (section 7.2); at most 2,048 characters (CHECK)
   description       text null                -- 1–140 characters (CHECK)
   enabled_events    text[] not null          -- 1–20 types, or {*} (CHECK)
   status            text not null            -- ENABLED | DISABLED (CHECK)
