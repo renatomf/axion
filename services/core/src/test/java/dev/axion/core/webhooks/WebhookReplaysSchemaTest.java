@@ -209,6 +209,27 @@ class WebhookReplaysSchemaTest {
         assertThat(setStatus("PENDING", "leased_until = NULL")).isZero();
     }
 
+    @Test
+    void letsTheJobsRoleLeaseAPendingReplayAndMarkItSent() {
+        insertReplay(other, othersDelivery, "PENDING", null);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThat(setStatus("PENDING", "leased_until = now() + interval '30 seconds'"))
+                .isOne();
+        assertThat(setStatus("SENT", "leased_until = NULL")).isOne();
+    }
+
+    @Test
+    void deniesTheJobsRoleKeepingALeaseOnAReplayThatEnded() {
+        insertReplay(tenant, delivery, "PENDING", "now()");
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() ->
+                        jdbc.sql("UPDATE webhooks.replays SET status = 'SENT'").update())
+                .rootCause()
+                .hasMessageContaining(RLS_VIOLATION);
+    }
+
     private int setStatus(String status, String alsoSet) {
         return jdbc.sql("UPDATE webhooks.replays SET status = ?, " + alsoSet)
                 .param(status)

@@ -23,6 +23,18 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class JdbcQueue {
 
+    // What each endpoint has in flight: its deliveries and replays leased, counted together against
+    // one limit.
+    private static final String HELD = """
+            SELECT endpoint_id, count(*) AS leased FROM (
+                SELECT endpoint_id FROM webhooks.deliveries
+                 WHERE status = 'PENDING' AND leased_until > :now
+                UNION ALL
+                SELECT delivery.endpoint_id FROM webhooks.replays AS replay
+                  JOIN webhooks.deliveries AS delivery ON delivery.id = replay.delivery_id
+                 WHERE replay.status = 'PENDING' AND replay.leased_until > :now) AS leases
+             GROUP BY endpoint_id""";
+
     private final JdbcClient jdbc;
 
     public JdbcQueue(JdbcClient jdbc) {
@@ -31,9 +43,9 @@ public class JdbcQueue {
 
     /**
      * Leases at most {@code limit} due deliveries until {@code leasedUntil}, oldest first, and at most
-     * {@code perEndpoint} of one endpoint at a time, counting those already held: an endpoint at its
-     * limit holds no worker that another endpoint could use. A delivery whose lease has passed is
-     * due again, so one a worker dropped is sent anew.
+     * {@code perEndpoint} of one endpoint at a time, counting the deliveries and replays already held:
+     * an endpoint at its limit holds no worker that another endpoint could use. A delivery whose
+     * lease has passed is due again, so one a worker dropped is sent anew.
      */
     public List<ClaimedDelivery> claim(Instant now, Instant leasedUntil, int limit, int perEndpoint) {
         // Claims follow one another, so each counts the deliveries every earlier claim holds; SKIP
@@ -42,10 +54,7 @@ public class JdbcQueue {
                 .query()
                 .singleRow();
         return jdbc.sql("""
-                        WITH held AS (
-                            SELECT endpoint_id, count(*) AS leased FROM webhooks.deliveries
-                             WHERE status = 'PENDING' AND leased_until > :now
-                             GROUP BY endpoint_id),
+                        WITH held AS (%s),
                         waiting AS (
                             SELECT endpoint_id, min(next_attempt_at) AS oldest FROM webhooks.deliveries
                              WHERE status = 'PENDING' AND next_attempt_at <= :now
@@ -74,13 +83,82 @@ public class JdbcQueue {
                                          WHERE secret.endpoint_id = delivery.endpoint_id
                                            AND (secret.expires_at IS NULL OR secret.expires_at > :now)
                                          ORDER BY secret.expires_at DESC NULLS FIRST) AS secrets
-                        """)
+                        """.formatted(HELD))
                 .param("now", utc(now))
                 .param("leasedUntil", utc(leasedUntil))
                 .param("limit", limit)
                 .param("perEndpoint", perEndpoint)
                 .query(JdbcQueue::claimed)
                 .list();
+    }
+
+    /**
+     * Leases at most {@code limit} replays asked for by {@code now} until {@code leasedUntil}, oldest
+     * first, with the limit per endpoint of {@link #claim}, which counts the deliveries and replays
+     * already held alike. Called in the transaction of a {@link #claim}, after it, so the two count
+     * each other's leases.
+     */
+    public List<ClaimedReplay> claimReplays(Instant now, Instant leasedUntil, int limit, int perEndpoint) {
+        return jdbc.sql("""
+                        WITH held AS (%s),
+                        waiting AS (
+                            SELECT delivery.endpoint_id, min(replay.requested_at) AS oldest
+                              FROM webhooks.replays AS replay
+                              JOIN webhooks.deliveries AS delivery ON delivery.id = replay.delivery_id
+                             WHERE replay.status = 'PENDING' AND replay.requested_at <= :now
+                               AND (replay.leased_until IS NULL OR replay.leased_until <= :now)
+                             GROUP BY delivery.endpoint_id),
+                        claimed AS (
+                            SELECT due.id FROM waiting
+                              LEFT JOIN held USING (endpoint_id)
+                             CROSS JOIN LATERAL (
+                                SELECT replay.id, replay.requested_at FROM webhooks.replays AS replay
+                                  JOIN webhooks.deliveries AS delivery ON delivery.id = replay.delivery_id
+                                 WHERE delivery.endpoint_id = waiting.endpoint_id AND replay.status = 'PENDING'
+                                   AND replay.requested_at <= :now
+                                   AND (replay.leased_until IS NULL OR replay.leased_until <= :now)
+                                 ORDER BY replay.requested_at
+                                 LIMIT greatest(:perEndpoint - coalesce(held.leased, 0), 0)
+                                   FOR UPDATE OF replay SKIP LOCKED) AS due
+                             ORDER BY waiting.oldest, due.requested_at
+                             LIMIT :limit)
+                        UPDATE webhooks.replays AS replay
+                           SET leased_until = :leasedUntil
+                          FROM webhooks.deliveries AS delivery, webhooks.endpoints AS endpoint,
+                               webhooks.events AS event
+                         WHERE replay.id IN (SELECT id FROM claimed) AND delivery.id = replay.delivery_id
+                           AND endpoint.id = delivery.endpoint_id AND event.id = delivery.event_id
+                        RETURNING replay.id, replay.delivery_id, replay.tenant_id, delivery.endpoint_id,
+                                  delivery.event_id, endpoint.url, event.body, replay.leased_until,
+                                  ARRAY(SELECT secret.ciphertext FROM webhooks.secrets AS secret
+                                         WHERE secret.endpoint_id = delivery.endpoint_id
+                                           AND (secret.expires_at IS NULL OR secret.expires_at > :now)
+                                         ORDER BY secret.expires_at DESC NULLS FIRST) AS secrets
+                        """.formatted(HELD))
+                .param("now", utc(now))
+                .param("leasedUntil", utc(leasedUntil))
+                .param("limit", limit)
+                .param("perEndpoint", perEndpoint)
+                .query(JdbcQueue::claimedReplay)
+                .list();
+    }
+
+    /**
+     * Records that a replay was sent, its lease released. Nothing changes if the replay is no longer
+     * the worker's: canceled meanwhile, or its lease passed and another worker claimed it.
+     *
+     * @return whether the replay was still the worker's
+     */
+    public boolean sent(ClaimedReplay replay) {
+        return jdbc.sql("""
+                        UPDATE webhooks.replays
+                           SET status = 'SENT', leased_until = NULL
+                         WHERE id = :id AND status = 'PENDING' AND leased_until = :leasedUntil
+                        """)
+                        .param("id", replay.id())
+                        .param("leasedUntil", utc(replay.leasedUntil()))
+                        .update()
+                == 1;
     }
 
     /**
@@ -126,12 +204,12 @@ public class JdbcQueue {
     }
 
     /**
-     * Records a request sent for the delivery in its tenant's log, whether or not its result still
-     * changes the delivery: the request was sent either way.
+     * Records a request sent for the delivery in its tenant's log, as a replay if it was one, whether
+     * or not its result still changes the delivery or the replay: the request was sent either way.
      *
      * @param startedAt when the request began
      */
-    public void recordAttempt(UUID id, ClaimedDelivery delivery, Instant startedAt, SentAttempt sent) {
+    public void recordAttempt(UUID id, Claim claim, Instant startedAt, SentAttempt sent) {
         Integer statusCode = null;
         String failure = null;
         switch (sent.attempt()) {
@@ -140,13 +218,15 @@ public class JdbcQueue {
         }
         jdbc.sql("""
                         INSERT INTO webhooks.attempts
-                               (id, tenant_id, delivery_id, started_at, duration_ms, status_code, failure,
-                                response_excerpt)
-                        VALUES (:id, :tenant, :delivery, :startedAt, :durationMs, :statusCode, :failure, :excerpt)
+                               (id, tenant_id, delivery_id, replay, started_at, duration_ms, status_code,
+                                failure, response_excerpt)
+                        VALUES (:id, :tenant, :delivery, :replay, :startedAt, :durationMs, :statusCode, :failure,
+                                :excerpt)
                         """)
                 .param("id", id)
-                .param("tenant", delivery.tenant())
-                .param("delivery", delivery.id())
+                .param("tenant", claim.tenant())
+                .param("delivery", claim.delivery())
+                .param("replay", claim instanceof ClaimedReplay)
                 .param("startedAt", utc(startedAt))
                 .param("durationMs", (int) Math.min(sent.duration().toMillis(), Integer.MAX_VALUE))
                 .param("statusCode", statusCode)
@@ -233,6 +313,19 @@ public class JdbcQueue {
                          WHERE replay.status = 'PENDING' AND delivery.id = replay.delivery_id
                            AND delivery.endpoint_id = :endpoint
                         """).param("endpoint", endpoint).update();
+    }
+
+    private static ClaimedReplay claimedReplay(ResultSet row, int rowNumber) throws SQLException {
+        return new ClaimedReplay(
+                row.getObject("id", UUID.class),
+                row.getObject("delivery_id", UUID.class),
+                row.getObject("tenant_id", UUID.class),
+                row.getObject("endpoint_id", UUID.class),
+                row.getObject("event_id", UUID.class),
+                URI.create(row.getString("url")),
+                new String(row.getBytes("body"), StandardCharsets.UTF_8),
+                List.of((byte[][]) row.getArray("secrets").getArray()),
+                row.getObject("leased_until", OffsetDateTime.class).toInstant());
     }
 
     private static ClaimedDelivery claimed(ResultSet row, int rowNumber) throws SQLException {

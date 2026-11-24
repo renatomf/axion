@@ -86,12 +86,13 @@ public final class TestDeliveries {
             int durationMs,
             @Nullable Integer statusCode,
             @Nullable String failure,
-            @Nullable String responseExcerpt) {}
+            @Nullable String responseExcerpt,
+            boolean replay) {}
 
     /** The delivery's attempts in the log, oldest first. */
     public List<RecordedAttempt> attempts(UUID delivery) {
         return owner.sql("""
-                        SELECT started_at, duration_ms, status_code, failure, response_excerpt
+                        SELECT started_at, duration_ms, status_code, failure, response_excerpt, replay
                           FROM webhooks.attempts WHERE delivery_id = ? ORDER BY started_at, id
                         """)
                 .param(delivery)
@@ -100,7 +101,8 @@ public final class TestDeliveries {
                         row.getInt("duration_ms"),
                         row.getObject("status_code", Integer.class),
                         row.getString("failure"),
-                        row.getString("response_excerpt")))
+                        row.getString("response_excerpt"),
+                        row.getBoolean("replay")))
                 .list();
     }
 
