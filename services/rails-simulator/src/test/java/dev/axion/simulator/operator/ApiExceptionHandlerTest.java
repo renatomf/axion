@@ -34,8 +34,9 @@ class ApiExceptionHandlerTest {
                 .hasStatus(HttpStatus.NOT_FOUND)
                 .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .bodyJson()
-                .extractingPath("$.status")
-                .isEqualTo(404);
+                .isLenientlyEqualTo("""
+                        {"title": "Not Found", "status": 404, "instance": "/no/such/path"}
+                        """);
     }
 
     @Test

@@ -1,14 +1,17 @@
 package dev.axion.simulator.operator;
 
+import java.net.URI;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
@@ -29,5 +32,18 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         HttpStatus status = HttpStatus.INTERNAL_SERVER_ERROR;
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, "An unexpected error occurred.");
         return handleExceptionInternal(ex, problem, new HttpHeaders(), status, request);
+    }
+
+    // Every Spring MVC error passes here, so the request's path, the contract's instance, is added
+    // in one place.
+    @Override
+    protected ResponseEntity<Object> createResponseEntity(
+            @Nullable Object body, HttpHeaders headers, HttpStatusCode statusCode, WebRequest request) {
+        if (body instanceof ProblemDetail problem
+                && problem.getInstance() == null
+                && request instanceof ServletWebRequest servlet) {
+            problem.setInstance(URI.create(servlet.getRequest().getRequestURI()));
+        }
+        return super.createResponseEntity(body, headers, statusCode, request);
     }
 }
