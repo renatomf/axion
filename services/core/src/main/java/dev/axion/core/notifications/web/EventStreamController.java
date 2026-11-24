@@ -5,8 +5,11 @@ import dev.axion.core.access.RequiresPermission;
 import dev.axion.core.notifications.application.LiveStreams;
 import dev.axion.core.notifications.application.StreamMember;
 import dev.axion.core.tenancy.Permission;
+import java.util.Optional;
+import org.jspecify.annotations.Nullable;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -26,11 +29,13 @@ class EventStreamController {
 
     @RequiresPermission(Permission.CHARGES_READ)
     @GetMapping(path = "/internal/tenants/{tenant_id}/events/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    SseEmitter stream(MemberCaller caller) {
+    SseEmitter stream(
+            MemberCaller caller,
+            @RequestHeader(name = "Last-Event-ID", required = false) @Nullable String lastEventId) {
         StreamMember member = new StreamMember(caller.tenant(), caller.member(), caller.permissions());
         SseEmitter emitter = new SseEmitter();
         SseStream stream = new SseStream(emitter, ended -> streams.close(member, ended));
-        streams.open(member, stream);
+        streams.open(member, stream, Optional.ofNullable(lastEventId));
         stream.start();
         return emitter;
     }

@@ -7,4 +7,10 @@ public sealed interface StreamMessage {
 
     /** A public event of the tenant, as the catalog wrote it. */
     record Event(PublicEvent event) implements StreamMessage {}
+
+    /**
+     * Some events the client missed are no longer kept: it refetches what it shows instead of
+     * resuming.
+     */
+    record Reset() implements StreamMessage {}
 }

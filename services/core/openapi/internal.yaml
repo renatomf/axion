@@ -719,7 +719,19 @@ paths:
         events need `charges:read`. Events arrive at least once and in no
         guaranteed order, as webhooks do; the console tells them apart by
         `id`. The stream is a convenience, not a record: what it misses, the
-        next query shows. Requires `charges:read`.
+        next query shows. A client that reconnects sends `Last-Event-ID` and
+        first receives the events it missed, if the core still keeps them:
+        the tenant's last 200, of the last 5 minutes. Otherwise it first
+        receives a `reset` message, with no `id`, and refetches what it
+        shows. Requires `charges:read`.
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          description: >-
+            The `id` of the last message the client received, to resume
+            from.
+          schema:
+            type: string
       responses:
         "200":
           description: >-
