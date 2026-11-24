@@ -59,11 +59,11 @@ public final class TestDeliveries {
 
     /** When the delivery's next attempt is due; empty once it is no longer pending. */
     public Optional<Instant> nextAttemptAt(UUID delivery) {
-        return Optional.ofNullable(owner.sql("SELECT next_attempt_at FROM webhooks.deliveries WHERE id = ?")
-                        .param(delivery)
-                        .query(OffsetDateTime.class)
-                        .single())
-                .map(OffsetDateTime::toInstant);
+        return owner.sql("SELECT next_attempt_at FROM webhooks.deliveries WHERE id = ?")
+                .param(delivery)
+                .query((row, number) -> Optional.ofNullable(row.getObject("next_attempt_at", OffsetDateTime.class))
+                        .map(OffsetDateTime::toInstant))
+                .single();
     }
 
     public boolean leased(UUID delivery) {
@@ -101,6 +101,14 @@ public final class TestDeliveries {
                         row.getObject("status_code", Integer.class),
                         row.getString("failure"),
                         row.getString("response_excerpt")))
+                .list();
+    }
+
+    /** The statuses of the delivery's replays, in the order they were asked for. */
+    public List<String> replays(UUID delivery) {
+        return owner.sql("SELECT status FROM webhooks.replays WHERE delivery_id = ? ORDER BY requested_at, id")
+                .param(delivery)
+                .query((row, number) -> row.getString("status"))
                 .list();
     }
 

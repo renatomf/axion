@@ -95,6 +95,17 @@ public interface WebhooksApi {
      */
     Optional<DeliveryDetail> delivery(WebhookEndpointId endpoint, WebhookDeliveryId id);
 
+    /**
+     * Queues one of an endpoint's deliveries to be sent again, now: a worker sends the same event and
+     * body with a fresh timestamp and signature, and records the request in the log as a replay. A
+     * delivery in any status can be replayed; the replay changes neither its status nor its schedule.
+     *
+     * @return {@link ReplayResult.DeliveryNotFound} for an unknown delivery, one of another endpoint,
+     *     of a deleted endpoint and of another tenant alike
+     * @throws IllegalStateException if no tenant is bound, a bug in the caller
+     */
+    ReplayResult replay(WebhookEndpointId endpoint, WebhookDeliveryId id);
+
     /** The most endpoints, or deliveries, one page of {@link #endpoints} or {@link #deliveries} holds. */
     int MAX_PAGE_SIZE = 100;
 
@@ -109,4 +120,9 @@ public interface WebhooksApi {
     Duration MAX_SECRET_GRACE = Duration.ofDays(7);
 
     Duration DEFAULT_SECRET_GRACE = Duration.ofHours(24);
+
+    /** The most times one delivery is replayed within {@link #REPLAY_WINDOW}. */
+    int MAX_REPLAYS = 10;
+
+    Duration REPLAY_WINDOW = Duration.ofDays(1);
 }
