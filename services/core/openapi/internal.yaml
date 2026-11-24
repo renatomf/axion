@@ -714,11 +714,12 @@ paths:
       description: >-
         A stream of server-sent events: each message is one of the tenant's
         public events, with the event's `id` as its `id`, its type as its
-        `event`, and the event, as webhooks send it, as its `data`. A member
-        receives only the types their permissions allow; charge and payment
-        events need `charges:read`. Events arrive at least once and in no
-        guaranteed order, as webhooks do; the console tells them apart by
-        `id`. The stream is a convenience, not a record: what it misses, the
+        `event`, and the event as its `data`: a CloudEvent, as webhooks send
+        it. A member receives only the types their permissions allow: charge
+        and payment events need `charges:read`; `webhook_endpoint.disabled`,
+        which only the stream carries, needs `webhooks:manage`. Events
+        arrive at least once and in no guaranteed order, as webhooks do;
+        the console tells them apart by `id`. The stream is a convenience, not a record: what it misses, the
         next query shows. A client that reconnects sends `Last-Event-ID` and
         first receives the events it missed, if the core still keeps them:
         the tenant's last 200, of the last 5 minutes. Otherwise it first
