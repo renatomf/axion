@@ -11,6 +11,8 @@ import dev.axion.core.tenancy.NewOrganization;
 import dev.axion.core.tenancy.Permission;
 import dev.axion.core.tenancy.TenancyApi;
 import dev.axion.core.webhooks.TestReceiver;
+import dev.axion.core.webhooks.WebhooksApi;
+import dev.axion.core.webhooks.domain.EventTypes;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.http.HttpClient;
@@ -18,6 +20,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -40,10 +44,10 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * The fault-injection scenarios of webhooks (events and webhooks design, section 13): a core killed
- * after a settlement's commit still delivers its webhook once it starts again. The core runs as a
- * process of its own, which the suite kills and starts again on the same database, and receives the
- * payments of the rails simulator's image; tenants register their endpoints and create their
- * charges through its API, as clients do.
+ * after a settlement's commit still delivers its webhook once it starts again, and endpoints that
+ * time out do not slow settlement. The core runs as a process of its own, which the suite kills and
+ * starts again on the same database, and receives the payments of the rails simulator's image;
+ * tenants register their endpoints and create their charges through its API, as clients do.
  *
  * <p>This JVM's own context only creates the tenants and their keys. Its jobs are off, as in every
  * test, so it never touches what the core's process leaves in the database.
@@ -64,6 +68,21 @@ class WebhookFaultInjectionTest {
 
     /** How long a worker holds a delivery it claimed (events and webhooks design, section 8.2). */
     private static final Duration LEASE = Duration.ofSeconds(30);
+
+    /** The response timeout of a webhook's request (events and webhooks design, section 7.2). */
+    private static final Duration WEBHOOK_TIMEOUT = Duration.ofSeconds(10);
+
+    /** The most webhook requests the core has in flight at once (section 8.2). */
+    private static final int IN_FLIGHT = 20;
+
+    /** The payments of each phase of the latency scenario. */
+    private static final int LATENCY_PAYMENTS = 20;
+
+    /**
+     * How much slower settlement may be while endpoints time out: two passes of the rails' processor,
+     * every 500 ms, for the noise of a shared machine. Waiting on a webhook would cost the timeout.
+     */
+    private static final Duration LATENCY_MARGIN = Duration.ofSeconds(1);
 
     /** Long enough for a notification to be settled and its webhook delivered. */
     private static final Duration PATIENCE = Duration.ofSeconds(30);
@@ -196,6 +215,71 @@ class WebhookFaultInjectionTest {
         assertThat(requests.getLast().body()).isEqualTo(requests.getFirst().body());
         await(() -> deliveries("charge.paid"), List.of("SUCCEEDED")::equals);
         assertThat(attempts("charge.paid")).as("attempts recorded").isOne();
+    }
+
+    /**
+     * Settlement does not wait on webhooks: with every endpoint of the tenant timing out, and the
+     * workers' requests all waiting on them, credits settle as fast as they do with no endpoint at
+     * all. Latency is the core's own, from receiving a credit to settling it, so the rails' delivery
+     * does not count.
+     */
+    @Test
+    void settlesAtTheSamePaceWhileEveryEndpointTimesOut() throws InterruptedException {
+        Duration alone = p95(settle(charges(LATENCY_PAYMENTS)));
+
+        String path = "/timing-out";
+        RECEIVER.answer(path, new TestReceiver.Answer.Late(WEBHOOK_TIMEOUT.plusSeconds(5), 204));
+        List<String> endpoints = new ArrayList<>();
+        try {
+            for (int i = 0; i < WebhooksApi.MAX_ENDPOINTS; i++) {
+                endpoints.add(endpoint(path, EventTypes.ALL));
+            }
+            List<String> brCodes = charges(LATENCY_PAYMENTS);
+            await(() -> RECEIVER.requests(path), requests -> requests.size() >= IN_FLIGHT);
+            Instant saturated = Instant.now();
+
+            Duration timingOut = p95(settle(brCodes));
+
+            assertThat(Duration.between(saturated, Instant.now()))
+                    .as("the credits settled while every worker waited on an endpoint")
+                    .isLessThan(WEBHOOK_TIMEOUT);
+            assertThat(timingOut)
+                    .as("settlement's p95 while every endpoint times out, against %s with none", alone)
+                    .isLessThanOrEqualTo(alone.plus(LATENCY_MARGIN));
+        } finally {
+            endpoints.forEach(id -> send("DELETE", "/v1/webhook_endpoints/" + id, null, 204));
+        }
+    }
+
+    /** Pays each code and waits until every credit settles; returns how long each took in the core. */
+    private List<Duration> settle(List<String> brCodes) throws InterruptedException {
+        List<String> endToEndIds = brCodes.stream().map(RAILS::pay).toList();
+        return await(() -> settlementTimes(endToEndIds), times -> times.size() == endToEndIds.size());
+    }
+
+    private List<Duration> settlementTimes(List<String> endToEndIds) {
+        return owner.jdbc()
+                .sql("""
+                        SELECT received_at, processed_at FROM rails.pix_credits
+                         WHERE end_to_end_id IN (:ids) AND processed_at IS NOT NULL""")
+                .param("ids", endToEndIds)
+                .query((row, number) -> Duration.between(
+                        row.getObject("received_at", OffsetDateTime.class),
+                        row.getObject("processed_at", OffsetDateTime.class)))
+                .list();
+    }
+
+    private static Duration p95(List<Duration> durations) {
+        List<Duration> sorted = durations.stream().sorted().toList();
+        return sorted.get((int) Math.ceil(sorted.size() * 0.95) - 1);
+    }
+
+    private List<String> charges(int count) {
+        List<String> brCodes = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            brCodes.add(charge());
+        }
+        return brCodes;
     }
 
     /**
