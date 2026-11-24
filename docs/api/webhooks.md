@@ -157,7 +157,35 @@ To test your check, the specification's vector must verify: secret `whsec_MfKQ9r
 
 - **A `2xx` within 10 seconds** is a success; anything else is a failure: another status, a timeout, a redirect, a refused connection or a TLS error. The body of your response is ignored.
 - **Answer first, process later.** Record the event and answer; do the work in the background, so a slow job does not turn into a timeout.
-- **One attempt, for now.** A delivery that fails is not attempted again yet; retries with exponential backoff, the delivery log and manual replay are on the [roadmap](../roadmap.md) (item 1.47). Until then, a receiver that was down reads what it missed from the API.
+- **`410 Gone` stops the delivery.** Answer `410` when the URL is not coming back: Axion stops attempting that delivery at once. To stop receiving altogether, disable or delete the endpoint.
+
+## Retries
+
+A delivery that fails is attempted again, later each time:
+
+| Attempt | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
+|---|---|---|---|---|---|---|---|---|---|
+| After the previous | immediately | 1 min | 5 min | 30 min | 2 h | 6 h | 12 h | 24 h | 24 h |
+
+Each delay varies by up to 10%, so the deliveries held back by an outage of your server do not all return in the same second. The nine attempts span about 68 hours; after the ninth failure the delivery is dead and is not attempted again.
+
+Every attempt carries the same `webhook-id` and body, and a fresh `webhook-timestamp` and signature. A request your server took but answered too late is sent again: deduplicate by `webhook-id` (see [Duplicates and order](#duplicates-and-order)).
+
+## When an endpoint keeps failing
+
+An endpoint whose attempts have been failing for **three days**, with its last **20 attempts** all failed, is disabled: its `status` becomes `disabled`, its `disabled_reason` `failing`, its pending deliveries are canceled and it receives no new events. Both conditions must hold, so an endpoint that receives one event a week is not disabled by a single bad night, nor one that receives thousands by a few bad minutes. One success clears the count.
+
+Once your server is fixed, enable the endpoint again:
+
+```http
+PATCH /v1/webhook_endpoints/{id} HTTP/1.1
+Authorization: Bearer sk_test_…
+Content-Type: application/merge-patch+json
+
+{"status": "enabled"}
+```
+
+It starts afresh: it receives the events that happen from then on, and the deliveries canceled while it was disabled are not sent. Read what you missed from the API; the delivery log and manual replay are on the [roadmap](../roadmap.md) (item 1.47c).
 
 ## Duplicates and order
 

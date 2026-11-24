@@ -509,9 +509,10 @@ paths:
         Changes the endpoint's URL, description, event types or status with
         a JSON merge patch (RFC 7396): a field left out keeps its value. A
         new `url` is checked as at registration. Setting `status` to
-        `enabled` clears `disabled_reason`; setting it to `disabled`
-        disables an enabled endpoint `by_tenant` and leaves a disabled one
-        with its reason. Sending the same patch again changes nothing more.
+        `enabled` clears `disabled_reason` and starts the endpoint afresh:
+        the deliveries canceled while it was disabled are not sent. Setting
+        it to `disabled` disables an enabled endpoint `by_tenant` and leaves
+        a disabled one with its reason. Sending the same patch again changes nothing more.
         Requires `webhooks:manage`.
       requestBody:
         required: true
@@ -1403,7 +1404,8 @@ components:
         disabled_reason:
           description: >-
             Why a disabled endpoint receives nothing: its deliveries kept
-            failing (`failing`), or the tenant disabled it (`by_tenant`).
+            failing for three days (`failing`), or the tenant disabled it
+            (`by_tenant`).
             Null while it is enabled.
           type: [string, "null"]
           enum: [failing, by_tenant, null]
@@ -1474,7 +1476,8 @@ components:
         disabled_reason:
           description: >-
             Why a disabled endpoint receives nothing: its deliveries kept
-            failing (`failing`), or the tenant disabled it (`by_tenant`).
+            failing for three days (`failing`), or the tenant disabled it
+            (`by_tenant`).
             Null while it is enabled.
           type: [string, "null"]
           enum: [failing, by_tenant, null]
