@@ -230,6 +230,34 @@ class WebhookReplaysSchemaTest {
                 .hasMessageContaining(RLS_VIOLATION);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"SENT", "CANCELED"})
+    void letsTheJobsRoleRemoveAReplayThatEndedOnceItsRetentionEnds(String status) {
+        insertReplay(tenant, delivery, status, null, "now() - interval '31 days'");
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThat(jdbc.sql("DELETE FROM webhooks.replays").update()).isOne();
+    }
+
+    @Test
+    void hidesAYoungOrPendingReplayFromTheJobsRolesRemovals() {
+        insertReplay(tenant, delivery, "SENT", null, "now() - interval '29 days'");
+        insertReplay(tenant, delivery, "PENDING", null, "now() - interval '31 days'");
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThat(jdbc.sql("DELETE FROM webhooks.replays").update()).isZero();
+    }
+
+    @Test
+    void deniesTheModuleRoleRemovingAReplay() {
+        insertReplay(tenant, delivery, "SENT", null, "now() - interval '31 days'");
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        assertThatThrownBy(() -> jdbc.sql("DELETE FROM webhooks.replays").update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
     private int setStatus(String status, String alsoSet) {
         return jdbc.sql("UPDATE webhooks.replays SET status = ?, " + alsoSet)
                 .param(status)
@@ -256,10 +284,15 @@ class WebhookReplaysSchemaTest {
     }
 
     private void insertReplay(UUID owner, UUID of, String status, @Nullable String leasedUntil) {
+        insertReplay(owner, of, status, leasedUntil, "now()");
+    }
+
+    // The times are SQL expressions; no lease when null.
+    private void insertReplay(UUID owner, UUID of, String status, @Nullable String leasedUntil, String requestedAt) {
         jdbc.sql("""
                         INSERT INTO webhooks.replays (id, tenant_id, delivery_id, status, requested_at, leased_until)
-                        VALUES (gen_random_uuid(), ?, ?, ?, now(), %s)
-                        """.formatted(leasedUntil == null ? "NULL" : leasedUntil))
+                        VALUES (gen_random_uuid(), ?, ?, ?, %s, %s)
+                        """.formatted(requestedAt, leasedUntil == null ? "NULL" : leasedUntil))
                 .params(owner, of, status)
                 .update();
     }

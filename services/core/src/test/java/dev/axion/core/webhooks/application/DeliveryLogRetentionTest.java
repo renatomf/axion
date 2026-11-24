@@ -7,6 +7,8 @@ import dev.axion.core.PostgresTestConfiguration;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -77,6 +79,33 @@ class DeliveryLogRetentionTest {
 
         assertThat(exists("deliveries", delivery)).isTrue();
         assertThat(attempts(delivery)).isEqualTo(2);
+    }
+
+    @Test
+    void removesAnExpiredDeliveryWithTheReplaysItEnded() {
+        UUID endpoint = endpoint(null);
+        UUID delivery = delivery(endpoint, event(EXPIRED), "DEAD", EXPIRED);
+        attempt(delivery, EXPIRED);
+        replay(delivery, "SENT", EXPIRED);
+        replay(delivery, "CANCELED", EXPIRED);
+
+        retention.removeExpired();
+
+        assertThat(exists("deliveries", delivery)).isFalse();
+        assertThat(replays(delivery)).isZero();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"SENT, RETAINED", "CANCELED, RETAINED", "PENDING, EXPIRED"})
+    void keepsAnOldDeliveryWithAReplayWithinItsRetentionOrPending(String status, String requested) {
+        UUID endpoint = endpoint(null);
+        UUID delivery = delivery(endpoint, event(EXPIRED), "DEAD", EXPIRED);
+        replay(delivery, status, requested.equals("RETAINED") ? RETAINED : EXPIRED);
+
+        retention.removeExpired();
+
+        assertThat(exists("deliveries", delivery)).isTrue();
+        assertThat(replays(delivery)).isOne();
     }
 
     @Test
@@ -207,6 +236,20 @@ class DeliveryLogRetentionTest {
                 .params(id, tenant, endpoint, event, status, pending ? 0 : 1)
                 .update();
         return id;
+    }
+
+    private void replay(UUID delivery, String status, String requestedAt) {
+        owner.sql("""
+                        INSERT INTO webhooks.replays (id, tenant_id, delivery_id, status, requested_at)
+                        VALUES (gen_random_uuid(), ?, ?, ?, %s)
+                        """.formatted(requestedAt)).params(tenant, delivery, status).update();
+    }
+
+    private int replays(UUID delivery) {
+        return owner.sql("SELECT count(*) FROM webhooks.replays WHERE delivery_id = ?")
+                .param(delivery)
+                .query(Integer.class)
+                .single();
     }
 
     private void attempt(UUID delivery, String startedAt) {
