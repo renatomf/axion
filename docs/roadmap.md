@@ -224,7 +224,7 @@ Quality is never traded for schedule: if a phase runs late, the timeline moves, 
 | ↳ 1.48a | Audit chain | Hash-chained audit table and the check that the chain is intact ([#272](https://github.com/renatomf/axion/pull/272)) |
 | ↳ 1.48b | Audited events | Key, endpoint, settlement, flagged payment and refund events recorded with their actor; member events with member management ([#274](https://github.com/renatomf/axion/pull/274)) |
 | 1.49 | Live notifications | Per-tenant SSE stream for the BFF |
-| ↳ 1.49a | Live stream | The `notifications` module; a member's stream of their tenant's charge and payment events, resumed with `Last-Event-ID`, within its limits |
+| ↳ 1.49a | Live stream | The `notifications` module; a member's stream of their tenant's charge and payment events, resumed with `Last-Event-ID`, within its limits ([#276](https://github.com/renatomf/axion/pull/276)) |
 | ↳ 1.49b | Disabled endpoints on the stream | `webhook_endpoint.disabled` on the stream of members who manage webhooks, rendered by the catalog without a cycle between modules |
 
 ### 4.8 Block H — Console
