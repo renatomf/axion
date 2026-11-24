@@ -75,7 +75,7 @@ Code follows the [comment standard](docs/architecture/engineering-standards.md#c
 | Profile | Active when | Differences |
 |---|---|---|
 | default | No profile is set, as in the container image | Database from `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME` (`axion_app`), `SPRING_DATASOURCE_PASSWORD`; migrations as the schemas' owner from `SPRING_FLYWAY_USER`, `SPRING_FLYWAY_PASSWORD`; Keycloak realm from `AXION_MEMBERS_ISSUER`, required; the rails' public signing key from `AXION_RAILS_SIGNING_KEY_ID` and `AXION_RAILS_SIGNING_PUBLIC_KEY`, required; the key that encrypts webhook signing secrets from `AXION_WEBHOOK_SECRETS_KEY`, 32 bytes in base64, required |
-| `local` | `./gradlew bootRun`, or `SPRING_PROFILES_ACTIVE=local` | The PostgreSQL of `just up` and the Keycloak of `just up auth`, with the settings of `infra/compose/.env`, including the rails simulator's public key and the webhook secrets key; detailed health; plain-text logs |
+| `local` | `./gradlew bootRun`, or `SPRING_PROFILES_ACTIVE=local` | The PostgreSQL of `just up` and the Keycloak of `just up auth`, with the settings of `infra/compose/.env`, including the rails simulator's public key and the webhook secrets key; webhooks to `localhost` on the ports of `AXION_WEBHOOK_LOCAL_PORTS`; detailed health; plain-text logs |
 
 The service listens on port 8080. Only the health endpoint is exposed (`/actuator/health`, `/liveness`, `/readiness`); exposing another Actuator endpoint is a security decision and needs a reason in the pull request.
 

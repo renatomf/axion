@@ -14,18 +14,24 @@ import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.tenancy.TenancyApi;
 import dev.axion.core.webhooks.CreateEndpointResult;
+import dev.axion.core.webhooks.CreatedEndpoint;
 import dev.axion.core.webhooks.EndpointRequest;
+import dev.axion.core.webhooks.RollSecretResult;
 import dev.axion.core.webhooks.TestDeliveries;
 import dev.axion.core.webhooks.TestDns;
 import dev.axion.core.webhooks.TestReceiver;
 import dev.axion.core.webhooks.WebhookEndpointId;
 import dev.axion.core.webhooks.WebhooksApi;
+import dev.axion.core.webhooks.domain.SigningSecret;
+import dev.axion.core.webhooks.domain.WebhookSignature;
 import dev.axion.core.webhooks.http.CheckedDnsResolver;
 import dev.axion.core.webhooks.http.WebhookClient;
 import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -78,8 +84,7 @@ class DeliveryQueueTest {
                     new CheckedDnsResolver(TestReceiver.loopbackDns(), InetAddress::isLoopbackAddress),
                     receiver.trust(),
                     WebhookClient.Timeouts.DEFAULT,
-                    DeliveryQueue.IN_FLIGHT,
-                    clock);
+                    DeliveryQueue.IN_FLIGHT);
         }
     }
 
@@ -126,6 +131,62 @@ class DeliveryQueueTest {
         assertThat(deliveries.status(delivery)).isEqualTo("SUCCEEDED");
         assertThat(deliveries.attemptCount(delivery)).isOne();
         assertThat(deliveries.leased(delivery)).isFalse();
+    }
+
+    @Test
+    void signsTheRequestWithTheEndpointsSecretAtTheAttemptsTime() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        var created = create(tenant, path, Set.of("*"));
+        UUID delivery = deliveries.pending(tenant, created.endpoint().id(), clock.instant(), null);
+
+        drainAndWait();
+
+        assertThat(receiver.requests(path)).singleElement().satisfies(request -> {
+            assertThat(request.headers()).containsEntry("webhook-timestamp", String.valueOf(START.getEpochSecond()));
+            assertThat(request.header("webhook-signature")).isEqualTo(signature(request, created.secret()));
+        });
+        assertThat(deliveries.status(delivery)).isEqualTo("SUCCEEDED");
+    }
+
+    @Test
+    void signsWithTheNewSecretFirstAndTheRolledOneDuringItsGracePeriod() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        var created = create(tenant, path, Set.of("*"));
+        WebhookEndpointId endpoint = created.endpoint().id();
+        var rolled = (RollSecretResult.Rolled)
+                TestCaller.call(tenant, Environment.TEST, () -> webhooks.rollSecret(endpoint, Duration.ofHours(1)));
+        // The tests' clock stands in the past; the policy that shows a rolled secret compares its end
+        // with the database's own time.
+        owner.sql("UPDATE webhooks.secrets SET expires_at = now() + interval '1 hour' WHERE endpoint_id = ?"
+                        + " AND expires_at IS NOT NULL")
+                .param(endpoint.value())
+                .update();
+        deliveries.pending(tenant, endpoint, clock.instant(), null);
+
+        drainAndWait();
+
+        assertThat(receiver.requests(path))
+                .singleElement()
+                .satisfies(request -> assertThat(
+                                request.header("webhook-signature").split(" "))
+                        .containsExactly(
+                                signature(request, rolled.secret().secret()), signature(request, created.secret())));
+    }
+
+    @Test
+    void sendsNothingItCannotSign() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        WebhookEndpointId endpoint = endpoint(path);
+        owner.sql("UPDATE webhooks.secrets SET ciphertext = '\\x00' WHERE endpoint_id = ?")
+                .param(endpoint.value())
+                .update();
+        UUID delivery = deliveries.pending(tenant, endpoint, clock.instant(), null);
+
+        drainAndWait();
+
+        assertThat(receiver.requests(path)).isEmpty();
+        assertThat(deliveries.status(delivery)).isEqualTo("PENDING");
+        assertThat(deliveries.leased(delivery)).isTrue();
     }
 
     @Test
@@ -282,8 +343,22 @@ class DeliveryQueueTest {
     }
 
     private WebhookEndpointId endpoint(TenantId owner, String path, Set<String> types) {
+        return create(owner, path, types).endpoint().id();
+    }
+
+    private CreatedEndpoint create(TenantId owner, String path, Set<String> types) {
         var request = new EndpointRequest(receiver.url(path).toString(), Optional.empty(), types);
         var result = TestCaller.call(owner, Environment.TEST, () -> webhooks.create(request));
-        return ((CreateEndpointResult.Created) result).endpoint().endpoint().id();
+        return ((CreateEndpointResult.Created) result).endpoint();
+    }
+
+    // The signature a receiver computes from the secret it was shown and the request it received.
+    private static String signature(TestReceiver.Request request, String secret) {
+        var key = SigningSecret.of(Base64.getDecoder().decode(secret.substring(SigningSecret.PREFIX.length())));
+        return WebhookSignature.header(
+                List.of(key),
+                request.header("webhook-id"),
+                Long.parseLong(request.header("webhook-timestamp")),
+                request.body().getBytes(StandardCharsets.UTF_8));
     }
 }

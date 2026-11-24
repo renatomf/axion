@@ -12,6 +12,7 @@ import java.util.regex.Pattern;
  * Checks a webhook URL when it is registered (events and webhooks design, section 7.1): an {@code
  * https} URL to a public DNS name, on port 443 or an unprivileged port, whose every address is
  * public. The rules that need no lookup run first, so a refused name is never sent to the resolver.
+ * A developer's {@link LocalReceivers} are accepted before every rule.
  */
 public final class WebhookUrlValidator {
 
@@ -31,9 +32,15 @@ public final class WebhookUrlValidator {
     private static final List<String> LOCAL_SUFFIXES = List.of(".localhost", ".local", ".internal", ".home.arpa");
 
     private final HostResolver resolver;
+    private final LocalReceivers local;
 
     public WebhookUrlValidator(HostResolver resolver) {
+        this(resolver, LocalReceivers.NONE);
+    }
+
+    public WebhookUrlValidator(HostResolver resolver, LocalReceivers local) {
         this.resolver = resolver;
+        this.local = local;
     }
 
     public UrlValidation validate(String text) {
@@ -42,6 +49,9 @@ public final class WebhookUrlValidator {
             url = new URI(text);
         } catch (URISyntaxException e) {
             return refused(UrlRefusal.MALFORMED);
+        }
+        if (local.accepts(url)) {
+            return new UrlValidation.Accepted(url);
         }
         if (!"https".equalsIgnoreCase(url.getScheme())) {
             return refused(UrlRefusal.MUST_BE_HTTPS);

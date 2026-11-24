@@ -8,6 +8,7 @@ import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -128,6 +129,23 @@ class WebhookUrlValidatorTest {
     @ValueSource(strings = {"https://unknown.example.com/hooks", "https://empty.example.com/hooks"})
     void refusesANameThatDoesNotResolve(String url) {
         assertThat(validator.validate(url)).isEqualTo(refused(UrlRefusal.MUST_RESOLVE));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"http://localhost:4000/hooks", "https://localhost:4000/hooks"})
+    void acceptsALocalReceiverWithoutLookingItUp(String url) {
+        var local = new WebhookUrlValidator(this::resolve, new LocalReceivers(Set.of(4000)));
+
+        assertThat(local.validate(url)).isEqualTo(new UrlValidation.Accepted(URI.create(url)));
+        assertThat(lookups).isEmpty();
+    }
+
+    @Test
+    void appliesEveryRuleToLocalhostOnAPortNotListed() {
+        var local = new WebhookUrlValidator(this::resolve, new LocalReceivers(Set.of(4000)));
+
+        assertThat(local.validate("http://localhost:4001/hooks")).isEqualTo(refused(UrlRefusal.MUST_BE_HTTPS));
+        assertThat(local.validate("https://localhost:4001/hooks")).isEqualTo(refused(UrlRefusal.MUST_BE_PUBLIC));
     }
 
     /** A name the rules refuse is never sent to the resolver, so a URL cannot make the core look it up. */

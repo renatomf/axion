@@ -1,0 +1,196 @@
+# Webhooks
+
+Axion tells your system what happened to its charges by sending an HTTPS request to a URL you registered: a webhook. Each request is signed, so your server can tell Axion's requests from forged ones, and carries the resource as it was at the event's time, so you can act without calling the API.
+
+This guide is for developers of systems that receive Axion's events. The contract, [`v1.yaml`](../../services/core/openapi/v1.yaml), is the reference for the endpoints API and for each event's schema; the design behind it is in the [events and webhooks design](../design-docs/2026-11-23-events-and-webhooks.md).
+
+## Registering an endpoint
+
+```http
+POST /v1/webhook_endpoints HTTP/1.1
+Authorization: Bearer sk_test_…
+Idempotency-Key: <a new UUID for this operation>
+Content-Type: application/json
+
+{"url": "https://example.com/axion/webhooks", "enabled_events": ["charge.paid", "charge.refunded"]}
+```
+
+The response carries the endpoint's `secret`, `whsec_` followed by 32 bytes in base64. It is shown **once**: store it where your server reads its other secrets. A repeat of the request with the same `Idempotency-Key` returns the endpoint with `secret` set to `null`; if you lost the secret, roll it (see [Rolling the secret](#rolling-the-secret)).
+
+- The URL is `https`, with a domain name that resolves only to public addresses, on port 443 or between 1024 and 65535. Axion checks the addresses again every time it connects, and never follows a redirect.
+- `enabled_events` lists the types you want, or `["*"]` for all of them. A test API key manages test endpoints, which receive test events only.
+- An endpoint receives the events that happen after it is created; a disabled one receives none.
+
+| Type | When |
+|---|---|
+| `charge.created` | A charge was created |
+| `charge.paid` | The payment that settles a charge arrived |
+| `charge.expired` | A charge reached its expiry unpaid |
+| `payment.flagged` | A payment arrived that does not settle its charge, with the reason |
+| `charge.refunded` | A refund of a charge was sent |
+
+## What a request looks like
+
+```http
+POST /axion/webhooks HTTP/1.1
+Host: example.com
+Content-Type: application/cloudevents+json; charset=utf-8
+User-Agent: Axion-Webhooks/1.0
+webhook-id: evt_01jdr3b6f7g8h9j0k1m2n3p4q5
+webhook-timestamp: 1795442591
+webhook-signature: v1,K5oZfzN95Z9UVu1EsfQmfVNQhnkZ2pj9o9NDN/H/pI4=
+
+{"specversion":"1.0","id":"evt_01jdr3b6f7g8h9j0k1m2n3p4q5","source":"urn:axion:test","type":"charge.paid",…}
+```
+
+The body is a [CloudEvent 1.0](https://github.com/cloudevents/spec) in JSON:
+
+| Attribute | Value |
+|---|---|
+| `id` | The event's ID, the same as `webhook-id`, on every delivery of the event |
+| `source` | `urn:axion:test` or `urn:axion:live` |
+| `type` | One of the types above |
+| `subject` | The ID of the resource the event is about |
+| `time` | When it happened, in UTC |
+| `dataschema` | The schema of `data` and its version, in `v1.yaml` |
+| `data.object` | The resource as `GET` returns it at the event's time |
+
+Ignore fields you do not know: new optional fields are added without a new version.
+
+## Verifying a request
+
+The headers follow [Standard Webhooks](https://www.standardwebhooks.com). `webhook-signature` is HMAC-SHA256, keyed with the 32 bytes of your secret (the base64 after `whsec_`), over the text `{webhook-id}.{webhook-timestamp}.{body}`, in base64 after the version `v1,`. Verify every request before you trust anything in it:
+
+1. **Read the raw body.** Verify the bytes you received, before parsing them: JSON parsed and serialized again is not the same bytes, and its signature will not match.
+2. **Check the timestamp.** Refuse a `webhook-timestamp` more than five minutes from your clock. That bounds how long a captured request can be replayed.
+3. **Check the signature.** `webhook-signature` holds one or more signatures separated by spaces. Compute yours, and accept the request if any `v1` entry equals it, comparing in constant time.
+4. **Deduplicate by `webhook-id`.** A request repeated inside the five minutes carries the same ID; so does a delivery sent again after its response was lost. Keep the IDs you processed for longer than the timestamp tolerance, and skip a repeat while still answering `2xx`.
+
+Answer `400` or `401` to a request that fails, and do not act on it.
+
+The [Standard Webhooks libraries](https://github.com/standard-webhooks/standard-webhooks/tree/main/libraries) do steps 2 and 3 for many languages. Without one, the check is short.
+
+**Node.js**, with Express reading the body as raw bytes:
+
+```js
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+const TOLERANCE_SECONDS = 5 * 60;
+
+export function verifyWebhook(secret, headers, rawBody, nowSeconds = Date.now() / 1000) {
+  const id = headers["webhook-id"];
+  const timestamp = headers["webhook-timestamp"];
+  const signatures = headers["webhook-signature"];
+  if (!id || !timestamp || !signatures) return false;
+
+  const seconds = Number(timestamp);
+  if (!Number.isInteger(seconds) || Math.abs(nowSeconds - seconds) > TOLERANCE_SECONDS) return false;
+
+  const key = Buffer.from(secret.slice("whsec_".length), "base64");
+  const expected = createHmac("sha256", key).update(`${id}.${timestamp}.`).update(rawBody).digest();
+
+  return signatures.split(" ").some((entry) => {
+    if (!entry.startsWith("v1,")) return false;
+    const received = Buffer.from(entry.slice("v1,".length), "base64");
+    return received.length === expected.length && timingSafeEqual(received, expected);
+  });
+}
+
+app.post("/axion/webhooks", express.raw({ type: "application/cloudevents+json" }), (req, res) => {
+  if (!verifyWebhook(process.env.AXION_WEBHOOK_SECRET, req.headers, req.body)) {
+    return res.sendStatus(401);
+  }
+  // Record the event and answer at once; process it afterwards.
+  res.sendStatus(204);
+});
+```
+
+**Java**, with the JDK alone:
+
+```java
+public final class WebhookVerifier {
+
+    private static final Duration TOLERANCE = Duration.ofMinutes(5);
+
+    private final byte[] key;
+
+    public WebhookVerifier(String secret) {
+        this.key = Base64.getDecoder().decode(secret.substring("whsec_".length()));
+    }
+
+    public boolean verify(String id, String timestamp, String signatures, byte[] rawBody, Instant now)
+            throws GeneralSecurityException {
+        long seconds;
+        try {
+            seconds = Long.parseLong(timestamp);
+        } catch (NumberFormatException e) {
+            return false;
+        }
+        if (Math.abs(now.getEpochSecond() - seconds) > TOLERANCE.toSeconds()) {
+            return false;
+        }
+        Mac mac = Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(key, "HmacSHA256"));
+        mac.update((id + "." + timestamp + ".").getBytes(StandardCharsets.UTF_8));
+        byte[] expected = mac.doFinal(rawBody);
+        for (String entry : signatures.split(" ")) {
+            if (!entry.startsWith("v1,")) {
+                continue;
+            }
+            try {
+                byte[] received = Base64.getDecoder().decode(entry.substring("v1,".length()));
+                if (MessageDigest.isEqual(expected, received)) {
+                    return true;
+                }
+            } catch (IllegalArgumentException notBase64) {
+                // Another entry may still verify.
+            }
+        }
+        return false;
+    }
+}
+```
+
+To test your check, the specification's vector must verify: secret `whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw`, `webhook-id` `msg_p5jXN8AQM9LWM0D4loKWxJek`, `webhook-timestamp` `1614265330`, body `{"test": 2432232314}`, signature `v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=` (with your clock at that timestamp).
+
+## Answering
+
+- **A `2xx` within 10 seconds** is a success; anything else is a failure: another status, a timeout, a redirect, a refused connection or a TLS error. The body of your response is ignored.
+- **Answer first, process later.** Record the event and answer; do the work in the background, so a slow job does not turn into a timeout.
+- **One attempt, for now.** A delivery that fails is not attempted again yet; retries with exponential backoff, the delivery log and manual replay are on the [roadmap](../roadmap.md) (item 1.47). Until then, a receiver that was down reads what it missed from the API.
+
+## Duplicates and order
+
+Events are delivered **at least once** and in **no guaranteed order**. A delivery may arrive twice, and a `charge.paid` may arrive before the `charge.created` of the same charge.
+
+- Deduplicate by `webhook-id`, as in step 4 above.
+- Compare `time`, or the resource's status, before overwriting newer data with an older event.
+- Each event carries the resource as it was then. When you need its current state, read it by `subject`.
+
+## Rolling the secret
+
+`POST /v1/webhook_endpoints/{id}/secret/roll` issues a new secret and keeps the old one signing for a grace period, 24 hours unless you ask for another, up to 7 days. During it, every request carries two signatures, the new secret's first:
+
+```
+webhook-signature: v1,<signed with the new secret> v1,<signed with the old secret>
+```
+
+A receiver that accepts any one signature keeps working throughout: deploy the new secret within the grace period, and the old one stops signing when it ends. A secret can be rolled again once the grace period of the previous roll has ended.
+
+## Receiving on your machine
+
+A deployed Axion never sends a webhook to a private or loopback address. When you run the core on your machine (the `local` profile, see [`CONTRIBUTING.md`](../../CONTRIBUTING.md)), you can let it reach a server of yours on `localhost`:
+
+1. Choose the port your server listens on, 1024 or above, and list it in `infra/compose/.env`:
+
+   ```
+   AXION_WEBHOOK_LOCAL_PORTS=4000
+   ```
+
+   Several ports are separated by commas. The core reads the setting at start, in the `local` profile only.
+
+2. Register `http://localhost:4000/axion/webhooks`, or `https://` if your server has a certificate the core's JVM trusts. Only `localhost` is accepted, not `127.0.0.1`, and only on the ports listed.
+
+3. Start your server and create a test charge: the `charge.created` event reaches it within a second or two, signed as in any environment.
+
+Requests to a local port are verified the same way, so the code you test on your machine is the code you deploy.

@@ -8,7 +8,6 @@ import java.net.ConnectException;
 import java.net.URI;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
-import java.time.Clock;
 import java.time.Duration;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -49,7 +48,6 @@ public final class WebhookClient implements AutoCloseable {
 
     private final CloseableHttpClient client;
     private final Timeouts timeouts;
-    private final Clock clock;
     // Cancels a request whose whole response has not arrived in time, however slowly it trickles in.
     private final ScheduledExecutorService deadlines = Executors.newSingleThreadScheduledExecutor(
             Thread.ofPlatform().daemon().name("webhook-deadlines").factory());
@@ -59,9 +57,8 @@ public final class WebhookClient implements AutoCloseable {
      *     the tests
      * @param connections the most connections open at once, to every receiver together
      */
-    public WebhookClient(CheckedDnsResolver resolver, SSLContext tls, Timeouts timeouts, int connections, Clock clock) {
+    public WebhookClient(CheckedDnsResolver resolver, SSLContext tls, Timeouts timeouts, int connections) {
         this.timeouts = timeouts;
-        this.clock = clock;
         this.client = HttpClients.custom()
                 .setConnectionManager(PoolingHttpClientConnectionManagerBuilder.create()
                         .setDnsResolver(resolver)
@@ -84,16 +81,13 @@ public final class WebhookClient implements AutoCloseable {
                 .build();
     }
 
-    /**
-     * Posts the event's body, as the bytes given, to the URL.
-     *
-     * @param eventId the event's public ID, which receivers deduplicate by
-     */
-    public Attempt send(URI url, String eventId, byte[] body) {
+    /** Posts the event's body, as the bytes signed, to the URL, with the headers that verify it. */
+    public Attempt send(URI url, SignedEvent event) {
         var request = new HttpPost(url);
-        request.setHeader("webhook-id", eventId);
-        request.setHeader("webhook-timestamp", String.valueOf(clock.instant().getEpochSecond()));
-        request.setEntity(new ByteArrayEntity(body, CLOUD_EVENT));
+        request.setHeader("webhook-id", event.id());
+        request.setHeader("webhook-timestamp", String.valueOf(event.timestamp()));
+        request.setHeader("webhook-signature", event.signature());
+        request.setEntity(new ByteArrayEntity(event.body(), CLOUD_EVENT));
         var expired = new AtomicBoolean();
         ScheduledFuture<?> deadline = deadlines.schedule(
                 () -> {

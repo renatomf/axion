@@ -49,7 +49,17 @@ public final class TestReceiver implements AutoCloseable {
     public static final String HOST = "receiver.example.com";
 
     /** A request as it arrived; header names in lowercase, the body as UTF-8 text. */
-    public record Request(String path, Map<String, String> headers, String body) {}
+    public record Request(String path, Map<String, String> headers, String body) {
+
+        /** The value of a header the request must carry. */
+        public String header(String name) {
+            String value = headers.get(name);
+            if (value == null) {
+                throw new AssertionError("The request has no " + name + " header");
+            }
+            return value;
+        }
+    }
 
     /** How a path answers. */
     public sealed interface Answer {

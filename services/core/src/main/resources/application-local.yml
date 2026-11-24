@@ -34,6 +34,12 @@ axion:
       keys:
         - id: ${RAILS_SIMULATOR_SIGNING_KEY_ID}
           public-key: ${RAILS_SIMULATOR_SIGNING_PUBLIC_KEY}
+  webhooks:
+    # The ports of localhost where a developer's own server receives
+    # webhooks, over http or https (events and webhooks design, section 7.2;
+    # docs/api/webhooks.md). Read in this profile only: no other profile can
+    # let the core reach its own host. Empty, the default: none.
+    allowed-local-ports: ${AXION_WEBHOOK_LOCAL_PORTS:}
 
 management:
   endpoint:
