@@ -8,7 +8,7 @@ Start with the [platform overview](design-docs/2026-11-17-platform-overview.md) 
 | [adr/](adr/) | Architecture Decision Records |
 | [design-docs/](design-docs/) | One design doc per significant feature |
 | [domain/](domain/) | Glossary and domain model |
-| [api/](api/) | OpenAPI reference, webhook event catalog, idempotency guide |
+| [api/](api/) | OpenAPI reference, webhook guide, idempotency guide |
 | [security/](security/) | Threat model, ASVS mapping, AI golden rule |
 | [ai/](ai/) | Model inventory, model cards, evaluation and red-team reports |
 | [design/](design/) | Design principles and design system documentation |
