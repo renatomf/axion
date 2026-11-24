@@ -2,7 +2,10 @@ package dev.axion.core.webhooks.persistence;
 
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.TenantId;
+import dev.axion.core.webhooks.domain.Attempt;
+import dev.axion.core.webhooks.domain.AttemptFailure;
 import dev.axion.core.webhooks.domain.EndpointHealth;
+import dev.axion.core.webhooks.domain.SentAttempt;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
@@ -65,7 +68,7 @@ public class JdbcQueue {
                           FROM webhooks.endpoints AS endpoint, webhooks.events AS event
                          WHERE delivery.id IN (SELECT id FROM claimed)
                            AND endpoint.id = delivery.endpoint_id AND event.id = delivery.event_id
-                        RETURNING delivery.id, delivery.endpoint_id, delivery.event_id, endpoint.url,
+                        RETURNING delivery.id, delivery.tenant_id, delivery.endpoint_id, delivery.event_id, endpoint.url,
                                   event.body, delivery.attempt_count, delivery.leased_until,
                                   ARRAY(SELECT secret.ciphertext FROM webhooks.secrets AS secret
                                          WHERE secret.endpoint_id = delivery.endpoint_id
@@ -120,6 +123,36 @@ public class JdbcQueue {
                         .param("leasedUntil", utc(delivery.leasedUntil()))
                         .update()
                 == 1;
+    }
+
+    /**
+     * Records a request sent for the delivery in its tenant's log, whether or not its result still
+     * changes the delivery: the request was sent either way.
+     *
+     * @param startedAt when the request began
+     */
+    public void recordAttempt(UUID id, ClaimedDelivery delivery, Instant startedAt, SentAttempt sent) {
+        Integer statusCode = null;
+        String failure = null;
+        switch (sent.attempt()) {
+            case Attempt.Answered(int code) -> statusCode = code;
+            case Attempt.Failed(AttemptFailure reason) -> failure = reason.name();
+        }
+        jdbc.sql("""
+                        INSERT INTO webhooks.attempts
+                               (id, tenant_id, delivery_id, started_at, duration_ms, status_code, failure,
+                                response_excerpt)
+                        VALUES (:id, :tenant, :delivery, :startedAt, :durationMs, :statusCode, :failure, :excerpt)
+                        """)
+                .param("id", id)
+                .param("tenant", delivery.tenant())
+                .param("delivery", delivery.id())
+                .param("startedAt", utc(startedAt))
+                .param("durationMs", (int) Math.min(sent.duration().toMillis(), Integer.MAX_VALUE))
+                .param("statusCode", statusCode)
+                .param("failure", failure)
+                .param("excerpt", sent.responseExcerpt().orElse(null))
+                .update();
     }
 
     /**
@@ -189,6 +222,7 @@ public class JdbcQueue {
     private static ClaimedDelivery claimed(ResultSet row, int rowNumber) throws SQLException {
         return new ClaimedDelivery(
                 row.getObject("id", UUID.class),
+                row.getObject("tenant_id", UUID.class),
                 row.getObject("endpoint_id", UUID.class),
                 row.getObject("event_id", UUID.class),
                 URI.create(row.getString("url")),

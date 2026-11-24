@@ -10,6 +10,7 @@ import dev.axion.core.webhooks.WebhookEndpointId;
 import dev.axion.core.webhooks.domain.Attempt;
 import dev.axion.core.webhooks.domain.EndpointHealth;
 import dev.axion.core.webhooks.domain.RetryPolicy;
+import dev.axion.core.webhooks.domain.SentAttempt;
 import dev.axion.core.webhooks.domain.SigningSecret;
 import dev.axion.core.webhooks.domain.WebhookSignature;
 import dev.axion.core.webhooks.http.SignedEvent;
@@ -43,7 +44,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * Drains the delivery queue (events and webhooks design, section 8.2). Each pass claims the due
  * deliveries it has room for in a short transaction, which commits before anything is sent; each is
  * then signed and sent on a virtual thread of its own, and its result recorded in a second short
- * transaction.
+ * transaction, with the attempt in the delivery log (section 8.7).
  * No transaction or connection stays open while a tenant's server answers, and a slow endpoint holds
  * at most {@value #PER_ENDPOINT} of the {@value #IN_FLIGHT} requests in flight.
  *
@@ -154,12 +155,14 @@ public class DeliveryQueue implements DisposableBean {
                     e);
             return;
         }
-        Attempt attempt = client.send(delivery.url(), signed).attempt();
+        Instant started = now();
+        SentAttempt sent = client.send(delivery.url(), signed);
+        Attempt attempt = sent.attempt();
         Instant ended = now();
         int number = delivery.attemptCount() + 1;
         RetryPolicy.Next next = retries.after(number, attempt, ended);
         Recorded recorded = Objects.requireNonNull(transactions.execute(transaction -> {
-            Recorded made = roles.call(ROLE, () -> record(delivery, attempt, next, ended));
+            Recorded made = roles.call(ROLE, () -> record(delivery, started, sent, next, ended));
             // Published after the role switch returns: the registry is written with the login role
             // (events and webhooks design, section 4.2).
             made.disabled().ifPresent(disabled -> events.publishEvent(disabledEvent(disabled, run, ended)));
@@ -215,15 +218,19 @@ public class DeliveryQueue implements DisposableBean {
     private record Disabled(DisabledEndpoint endpoint, Instant failingSince) {}
 
     // The endpoint is locked before its delivery, as every change of an endpoint locks it before its
-    // deliveries: two transactions never wait on each other's rows in opposite orders. Only an attempt
-    // whose result is recorded counts toward the endpoint's health.
-    private Recorded record(ClaimedDelivery delivery, Attempt attempt, RetryPolicy.Next next, Instant ended) {
+    // deliveries: two transactions never wait on each other's rows in opposite orders. Every request
+    // sent goes in the log, but only an attempt whose result is recorded counts toward the endpoint's
+    // health.
+    private Recorded record(
+            ClaimedDelivery delivery, Instant started, SentAttempt sent, RetryPolicy.Next next, Instant ended) {
+        Attempt attempt = sent.attempt();
         Optional<EndpointHealth> health = queue.lockEndpoint(delivery.endpoint());
         boolean recorded = switch (next) {
             case RetryPolicy.Next.Succeeded() -> queue.finish(delivery, "SUCCEEDED");
             case RetryPolicy.Next.RetryAt(Instant at) -> queue.retry(delivery, at);
             case RetryPolicy.Next.Dead() -> queue.finish(delivery, "DEAD");
         };
+        queue.recordAttempt(ids.next(), delivery, started, sent);
         if (!recorded) {
             return Recorded.DROPPED;
         }

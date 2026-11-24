@@ -6,6 +6,7 @@ import dev.axion.core.webhooks.domain.EndpointHealth;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
@@ -77,6 +78,30 @@ public final class TestDeliveries {
                 .param(delivery)
                 .query(String.class)
                 .single();
+    }
+
+    /** An attempt as the log stores it. */
+    public record RecordedAttempt(
+            Instant startedAt,
+            int durationMs,
+            @Nullable Integer statusCode,
+            @Nullable String failure,
+            @Nullable String responseExcerpt) {}
+
+    /** The delivery's attempts in the log, oldest first. */
+    public List<RecordedAttempt> attempts(UUID delivery) {
+        return owner.sql("""
+                        SELECT started_at, duration_ms, status_code, failure, response_excerpt
+                          FROM webhooks.attempts WHERE delivery_id = ? ORDER BY started_at, id
+                        """)
+                .param(delivery)
+                .query((row, number) -> new RecordedAttempt(
+                        row.getObject("started_at", OffsetDateTime.class).toInstant(),
+                        row.getInt("duration_ms"),
+                        row.getObject("status_code", Integer.class),
+                        row.getString("failure"),
+                        row.getString("response_excerpt")))
+                .list();
     }
 
     /** How the endpoint has fared since its last success, as stored. */
