@@ -33,6 +33,7 @@ class ModuleStructureTest {
                         "rails",
                         "events",
                         "webhooks",
-                        "audit");
+                        "audit",
+                        "notifications");
     }
 }

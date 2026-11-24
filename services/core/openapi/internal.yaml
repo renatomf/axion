@@ -38,6 +38,10 @@ tags:
     description: >-
       Each endpoint's delivery log, as the public API shows it, for the
       console.
+  - name: Events
+    description: >-
+      The tenant's events as they happen, for the console to update what it
+      shows without polling.
 paths:
   /internal/me:
     get:
@@ -698,6 +702,66 @@ paths:
                 $ref: "components.yaml#/schemas/Problem"
         "429":
           $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
+  /internal/tenants/{tenant_id}/events/stream:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      operationId: streamTenantEvents
+      tags: [Events]
+      summary: The tenant's events, as they happen
+      description: >-
+        A stream of server-sent events: each message is one of the tenant's
+        public events, with the event's `id` as its `id`, its type as its
+        `event`, and the event, as webhooks send it, as its `data`. A member
+        receives only the types their permissions allow; charge and payment
+        events need `charges:read`. Events arrive at least once and in no
+        guaranteed order, as webhooks do; the console tells them apart by
+        `id`. The stream is a convenience, not a record: what it misses, the
+        next query shows. A client that reconnects sends `Last-Event-ID` and
+        first receives the events it missed, if the core still keeps them:
+        the tenant's last 200, of the last 5 minutes. Otherwise it first
+        receives a `reset` message, with no `id`, and refetches what it
+        shows. A comment line every 15 seconds keeps proxies from closing an
+        idle stream; clients ignore it. Requires `charges:read`.
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          description: >-
+            The `id` of the last message the client received, to resume
+            from.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: >-
+            The stream, open until the client closes it, or until the access
+            token that opened it expires; the client then opens the next
+            with a fresh token and `Last-Event-ID`.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: >-
+                  Messages in the format of the HTML Living Standard's
+                  server-sent events.
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          $ref: "components.yaml#/responses/Forbidden"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "429":
+          description: >-
+            The caller spent its request budget (`rate_limited`, with
+            `Retry-After`), or already has as many streams open as it may:
+            5 for a member, on all their tenants, and 200 for a tenant
+            (`too_many_streams`). A stream frees its place when it closes.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
 components:
