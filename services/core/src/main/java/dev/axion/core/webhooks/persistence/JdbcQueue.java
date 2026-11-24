@@ -77,7 +77,7 @@ public class JdbcQueue {
     }
 
     /**
-     * Records the end of an attempt: the delivery succeeded or is dead, its lease released. Nothing
+     * Records the last attempt: the delivery succeeded or is dead, its lease released. Nothing
      * changes if the delivery is no longer the worker's: canceled meanwhile, or its lease passed and
      * another worker claimed it.
      *
@@ -92,6 +92,26 @@ public class JdbcQueue {
                          WHERE id = :id AND status = 'PENDING' AND leased_until = :leasedUntil
                         """)
                         .param("status", status)
+                        .param("id", delivery.id())
+                        .param("leasedUntil", utc(delivery.leasedUntil()))
+                        .update()
+                == 1;
+    }
+
+    /**
+     * Records a failed attempt that another follows: the delivery stays pending, due at the time, its
+     * lease released. Nothing changes if the delivery is no longer the worker's, as for {@link
+     * #finish}.
+     *
+     * @return whether the delivery was still the worker's
+     */
+    public boolean retry(ClaimedDelivery delivery, Instant at) {
+        return jdbc.sql("""
+                        UPDATE webhooks.deliveries
+                           SET attempt_count = attempt_count + 1, next_attempt_at = :at, leased_until = NULL
+                         WHERE id = :id AND status = 'PENDING' AND leased_until = :leasedUntil
+                        """)
+                        .param("at", utc(at))
                         .param("id", delivery.id())
                         .param("leasedUntil", utc(delivery.leasedUntil()))
                         .update()

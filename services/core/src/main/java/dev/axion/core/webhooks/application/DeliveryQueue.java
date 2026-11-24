@@ -4,6 +4,7 @@ import dev.axion.core.ModuleRoles;
 import dev.axion.core.shared.EventId;
 import dev.axion.core.webhooks.WebhookEndpointId;
 import dev.axion.core.webhooks.domain.Attempt;
+import dev.axion.core.webhooks.domain.RetryPolicy;
 import dev.axion.core.webhooks.domain.SigningSecret;
 import dev.axion.core.webhooks.domain.WebhookSignature;
 import dev.axion.core.webhooks.http.SignedEvent;
@@ -37,9 +38,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * No transaction or connection stays open while a tenant's server answers, and a slow endpoint holds
  * at most {@value #PER_ENDPOINT} of the {@value #IN_FLIGHT} requests in flight.
  *
- * <p>A delivery has one attempt until retries arrive: it succeeds on a {@code 2xx}, and is dead
- * otherwise. One that cannot be signed is not sent: it keeps its lease until it passes, and is
- * claimed again.
+ * <p>A delivery that fails is attempted again as {@link RetryPolicy} schedules, until it succeeds
+ * or its attempts run out (section 8.5). One that cannot be signed is not sent: it keeps its lease
+ * until it passes, and is claimed again.
  */
 @Service
 public class DeliveryQueue implements DisposableBean {
@@ -58,6 +59,7 @@ public class DeliveryQueue implements DisposableBean {
     private final JdbcQueue queue;
     private final WebhookClient client;
     private final SecretCipher cipher;
+    private final RetryPolicy retries;
     private final ModuleRoles roles;
     private final TransactionTemplate transactions;
     private final Clock clock;
@@ -69,12 +71,14 @@ public class DeliveryQueue implements DisposableBean {
             JdbcQueue queue,
             WebhookClient client,
             SecretCipher cipher,
+            RetryPolicy retries,
             ModuleRoles roles,
             TransactionTemplate transactions,
             Clock clock) {
         this.queue = queue;
         this.client = client;
         this.cipher = cipher;
+        this.retries = retries;
         this.roles = roles;
         this.transactions = transactions;
         this.clock = clock;
@@ -90,7 +94,7 @@ public class DeliveryQueue implements DisposableBean {
         if (free == 0) {
             return List.of();
         }
-        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
+        Instant now = now();
         List<ClaimedDelivery> claimed = Objects.requireNonNull(transactions.execute(
                 status -> roles.call(ROLE, () -> queue.claim(now, now.plus(LEASE), free, PER_ENDPOINT))));
         List<Future<?>> sends = new ArrayList<>(claimed.size());
@@ -131,25 +135,49 @@ public class DeliveryQueue implements DisposableBean {
             return;
         }
         Attempt attempt = client.send(delivery.url(), signed);
-        String status = attempt.succeeded() ? "SUCCEEDED" : "DEAD";
+        int number = delivery.attemptCount() + 1;
+        RetryPolicy.Next next = retries.after(number, attempt, now());
         boolean recorded = Objects.requireNonNull(
-                transactions.execute(transaction -> roles.call(ROLE, () -> queue.finish(delivery, status))));
+                transactions.execute(transaction -> roles.call(ROLE, () -> record(delivery, next))));
         // The URL is left out: its path or query may hold the tenant's token.
         if (!recorded) {
             LOG.info(
                     "Webhook delivery {} of event {} changed during its attempt; its result was dropped",
                     delivery.id(),
                     event);
-        } else if (attempt.succeeded()) {
-            LOG.info("Delivered event {} to webhook endpoint {} ({})", event, delivery.endpoint(), attempt);
-        } else {
-            LOG.warn(
-                    "Webhook delivery {} of event {} to endpoint {} failed: {}",
-                    delivery.id(),
-                    event,
-                    delivery.endpoint(),
-                    attempt);
+            return;
         }
+        switch (next) {
+            case RetryPolicy.Next.Succeeded() ->
+                LOG.info("Delivered event {} to webhook endpoint {} ({})", event, delivery.endpoint(), attempt);
+            case RetryPolicy.Next.RetryAt(Instant at) ->
+                LOG.warn(
+                        "Webhook delivery {} of event {} to endpoint {} failed: {}; attempt {} of {}, the next at {}",
+                        delivery.id(),
+                        event,
+                        delivery.endpoint(),
+                        attempt,
+                        number,
+                        RetryPolicy.ATTEMPTS,
+                        at);
+            case RetryPolicy.Next.Dead() ->
+                LOG.warn(
+                        "Webhook delivery {} of event {} to endpoint {} failed: {}; attempt {} of {}, no other follows",
+                        delivery.id(),
+                        event,
+                        delivery.endpoint(),
+                        attempt,
+                        number,
+                        RetryPolicy.ATTEMPTS);
+        }
+    }
+
+    private boolean record(ClaimedDelivery delivery, RetryPolicy.Next next) {
+        return switch (next) {
+            case RetryPolicy.Next.Succeeded() -> queue.finish(delivery, "SUCCEEDED");
+            case RetryPolicy.Next.RetryAt(Instant at) -> queue.retry(delivery, at);
+            case RetryPolicy.Next.Dead() -> queue.finish(delivery, "DEAD");
+        };
     }
 
     // Signed at the attempt's time, so a request sent again is signed afresh.
@@ -162,6 +190,11 @@ public class DeliveryQueue implements DisposableBean {
         long timestamp = clock.instant().getEpochSecond();
         byte[] body = delivery.body().getBytes(StandardCharsets.UTF_8);
         return new SignedEvent(event, timestamp, WebhookSignature.header(secrets, event, timestamp, body), body);
+    }
+
+    // PostgreSQL keeps microseconds; a time compared with a stored one must match it.
+    private Instant now() {
+        return clock.instant().truncatedTo(ChronoUnit.MICROS);
     }
 
     @Override

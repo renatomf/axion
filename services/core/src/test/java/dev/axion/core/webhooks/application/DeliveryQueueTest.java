@@ -22,6 +22,7 @@ import dev.axion.core.webhooks.TestDns;
 import dev.axion.core.webhooks.TestReceiver;
 import dev.axion.core.webhooks.WebhookEndpointId;
 import dev.axion.core.webhooks.WebhooksApi;
+import dev.axion.core.webhooks.domain.RetryPolicy;
 import dev.axion.core.webhooks.domain.SigningSecret;
 import dev.axion.core.webhooks.domain.WebhookSignature;
 import dev.axion.core.webhooks.http.CheckedDnsResolver;
@@ -39,6 +40,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.random.RandomGenerator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -53,8 +55,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * {@link DeliveryQueue} against a real PostgreSQL and a local HTTPS receiver (events and webhooks
- * design, sections 8.2 and 8.3). The tests' clock stands in a past no other test uses, so a pass
- * claims only the deliveries these tests made due.
+ * design, sections 8.2, 8.3 and 8.5). The tests' clock stands in a past no other test uses, so a
+ * pass claims only the deliveries these tests made due; tests of the retries move it forward.
  */
 @SpringBootTest
 @Import({PostgresTestConfiguration.class, TestDns.class, DeliveryQueueTest.Receiving.class})
@@ -69,6 +71,23 @@ class DeliveryQueueTest {
         @Primary
         MutableClock mutableClock() {
             return new MutableClock(START);
+        }
+
+        // No jitter, so each retry is due exactly when the schedule says.
+        @Bean
+        @Primary
+        RetryPolicy exactRetryPolicy() {
+            return new RetryPolicy(new RandomGenerator() {
+                @Override
+                public long nextLong() {
+                    throw new UnsupportedOperationException("The policy draws doubles only");
+                }
+
+                @Override
+                public double nextDouble() {
+                    return 0.5;
+                }
+            });
         }
 
         @Bean
@@ -137,12 +156,13 @@ class DeliveryQueueTest {
     void signsTheRequestWithTheEndpointsSecretAtTheAttemptsTime() throws Exception {
         String path = "/" + UUID.randomUUID();
         var created = create(tenant, path, Set.of("*"));
-        UUID delivery = deliveries.pending(tenant, created.endpoint().id(), clock.instant(), null);
+        Instant now = clock.instant();
+        UUID delivery = deliveries.pending(tenant, created.endpoint().id(), now, null);
 
         drainAndWait();
 
         assertThat(receiver.requests(path)).singleElement().satisfies(request -> {
-            assertThat(request.headers()).containsEntry("webhook-timestamp", String.valueOf(START.getEpochSecond()));
+            assertThat(request.headers()).containsEntry("webhook-timestamp", String.valueOf(now.getEpochSecond()));
             assertThat(request.header("webhook-signature")).isEqualTo(signature(request, created.secret()));
         });
         assertThat(deliveries.status(delivery)).isEqualTo("SUCCEEDED");
@@ -190,9 +210,50 @@ class DeliveryQueueTest {
     }
 
     @Test
-    void recordsADeliveryThatFailedAsDead() throws Exception {
+    void attemptsAFailedDeliveryAgainAMinuteLater() throws Exception {
         String path = "/" + UUID.randomUUID();
         receiver.answer(path, new TestReceiver.Answer.Status(500));
+        Instant now = clock.instant();
+        UUID delivery = deliveries.pending(tenant, endpoint(path), now, null);
+
+        drainAndWait();
+
+        assertThat(deliveries.status(delivery)).isEqualTo("PENDING");
+        assertThat(deliveries.attemptCount(delivery)).isOne();
+        assertThat(deliveries.nextAttemptAt(delivery)).contains(now.plus(Duration.ofMinutes(1)));
+        assertThat(deliveries.leased(delivery)).isFalse();
+    }
+
+    @Test
+    void followsTheScheduleUntilTheNinthFailureEndsTheDelivery() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        receiver.answer(path, new TestReceiver.Answer.Status(503));
+        UUID delivery = deliveries.pending(tenant, endpoint(path), clock.instant(), null);
+        Instant first = clock.instant();
+
+        drainAndWait();
+        for (int attempt = 2; attempt <= RetryPolicy.ATTEMPTS; attempt++) {
+            Instant due = deliveries.nextAttemptAt(delivery).orElseThrow();
+            clock.advance(Duration.between(clock.instant(), due).minusSeconds(1));
+            drainAndWait();
+            assertThat(deliveries.attemptCount(delivery))
+                    .as("attempts before it is due")
+                    .isEqualTo(attempt - 1);
+            clock.advance(Duration.ofSeconds(1));
+            drainAndWait();
+        }
+
+        assertThat(deliveries.status(delivery)).isEqualTo("DEAD");
+        assertThat(deliveries.attemptCount(delivery)).isEqualTo(RetryPolicy.ATTEMPTS);
+        assertThat(receiver.requests(path).stream()
+                        .map(request -> Long.parseLong(request.header("webhook-timestamp")) - first.getEpochSecond()))
+                .containsExactly(0L, 60L, 360L, 2_160L, 9_360L, 30_960L, 74_160L, 160_560L, 246_960L);
+    }
+
+    @Test
+    void endsADeliveryAtOnceWhenTheReceiverAnswersGone() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        receiver.answer(path, new TestReceiver.Answer.Status(410));
         UUID delivery = deliveries.pending(tenant, endpoint(path), clock.instant(), null);
 
         drainAndWait();

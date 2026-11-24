@@ -3,6 +3,8 @@ package dev.axion.core.webhooks;
 import dev.axion.core.shared.EventId;
 import dev.axion.core.shared.TenantId;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.util.Optional;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -49,6 +51,15 @@ public final class TestDeliveries {
                 .param(delivery)
                 .query(Integer.class)
                 .single();
+    }
+
+    /** When the delivery's next attempt is due; empty once it is no longer pending. */
+    public Optional<Instant> nextAttemptAt(UUID delivery) {
+        return Optional.ofNullable(owner.sql("SELECT next_attempt_at FROM webhooks.deliveries WHERE id = ?")
+                        .param(delivery)
+                        .query(OffsetDateTime.class)
+                        .single())
+                .map(OffsetDateTime::toInstant);
     }
 
     public boolean leased(UUID delivery) {
