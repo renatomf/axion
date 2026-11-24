@@ -2,11 +2,16 @@ package dev.axion.core.webhooks.application;
 
 import dev.axion.core.ModuleRoles;
 import dev.axion.core.shared.EventId;
+import dev.axion.core.webhooks.WebhookEndpointId;
 import dev.axion.core.webhooks.domain.Attempt;
+import dev.axion.core.webhooks.domain.SigningSecret;
+import dev.axion.core.webhooks.domain.WebhookSignature;
+import dev.axion.core.webhooks.http.SignedEvent;
 import dev.axion.core.webhooks.http.WebhookClient;
 import dev.axion.core.webhooks.persistence.ClaimedDelivery;
 import dev.axion.core.webhooks.persistence.JdbcQueue;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -27,12 +32,14 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * Drains the delivery queue (events and webhooks design, section 8.2). Each pass claims the due
  * deliveries it has room for in a short transaction, which commits before anything is sent; each is
- * then sent on a virtual thread of its own, and its result recorded in a second short transaction.
+ * then signed and sent on a virtual thread of its own, and its result recorded in a second short
+ * transaction.
  * No transaction or connection stays open while a tenant's server answers, and a slow endpoint holds
  * at most {@value #PER_ENDPOINT} of the {@value #IN_FLIGHT} requests in flight.
  *
  * <p>A delivery has one attempt until retries arrive: it succeeds on a {@code 2xx}, and is dead
- * otherwise.
+ * otherwise. One that cannot be signed is not sent: it keeps its lease until it passes, and is
+ * claimed again.
  */
 @Service
 public class DeliveryQueue implements DisposableBean {
@@ -50,6 +57,7 @@ public class DeliveryQueue implements DisposableBean {
 
     private final JdbcQueue queue;
     private final WebhookClient client;
+    private final SecretCipher cipher;
     private final ModuleRoles roles;
     private final TransactionTemplate transactions;
     private final Clock clock;
@@ -58,9 +66,15 @@ public class DeliveryQueue implements DisposableBean {
             Thread.ofVirtual().name("webhook-sender-", 1).factory());
 
     DeliveryQueue(
-            JdbcQueue queue, WebhookClient client, ModuleRoles roles, TransactionTemplate transactions, Clock clock) {
+            JdbcQueue queue,
+            WebhookClient client,
+            SecretCipher cipher,
+            ModuleRoles roles,
+            TransactionTemplate transactions,
+            Clock clock) {
         this.queue = queue;
         this.client = client;
+        this.cipher = cipher;
         this.roles = roles;
         this.transactions = transactions;
         this.clock = clock;
@@ -96,7 +110,27 @@ public class DeliveryQueue implements DisposableBean {
 
     private void send(ClaimedDelivery delivery) {
         String event = new EventId(delivery.event()).publicId().toString();
-        Attempt attempt = client.send(delivery.url(), event, delivery.body().getBytes(StandardCharsets.UTF_8));
+        if (delivery.secrets().isEmpty()) {
+            LOG.error(
+                    "Webhook delivery {} of event {} to endpoint {} was not sent: the endpoint has no secret that signs",
+                    delivery.id(),
+                    event,
+                    delivery.endpoint());
+            return;
+        }
+        SignedEvent signed;
+        try {
+            signed = sign(delivery, event);
+        } catch (GeneralSecurityException e) {
+            LOG.error(
+                    "Webhook delivery {} of event {} to endpoint {} was not sent: its secrets do not decrypt",
+                    delivery.id(),
+                    event,
+                    delivery.endpoint(),
+                    e);
+            return;
+        }
+        Attempt attempt = client.send(delivery.url(), signed);
         String status = attempt.succeeded() ? "SUCCEEDED" : "DEAD";
         boolean recorded = Objects.requireNonNull(
                 transactions.execute(transaction -> roles.call(ROLE, () -> queue.finish(delivery, status))));
@@ -116,6 +150,18 @@ public class DeliveryQueue implements DisposableBean {
                     delivery.endpoint(),
                     attempt);
         }
+    }
+
+    // Signed at the attempt's time, so a request sent again is signed afresh.
+    private SignedEvent sign(ClaimedDelivery delivery, String event) throws GeneralSecurityException {
+        var endpoint = new WebhookEndpointId(delivery.endpoint());
+        List<SigningSecret> secrets = new ArrayList<>(delivery.secrets().size());
+        for (byte[] ciphertext : delivery.secrets()) {
+            secrets.add(cipher.decrypt(ciphertext, endpoint));
+        }
+        long timestamp = clock.instant().getEpochSecond();
+        byte[] body = delivery.body().getBytes(StandardCharsets.UTF_8);
+        return new SignedEvent(event, timestamp, WebhookSignature.header(secrets, event, timestamp, body), body);
     }
 
     @Override

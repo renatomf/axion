@@ -62,7 +62,11 @@ public class JdbcQueue {
                          WHERE delivery.id IN (SELECT id FROM claimed)
                            AND endpoint.id = delivery.endpoint_id AND event.id = delivery.event_id
                         RETURNING delivery.id, delivery.endpoint_id, delivery.event_id, endpoint.url,
-                                  event.body, delivery.attempt_count, delivery.leased_until
+                                  event.body, delivery.attempt_count, delivery.leased_until,
+                                  ARRAY(SELECT secret.ciphertext FROM webhooks.secrets AS secret
+                                         WHERE secret.endpoint_id = delivery.endpoint_id
+                                           AND (secret.expires_at IS NULL OR secret.expires_at > :now)
+                                         ORDER BY secret.expires_at DESC NULLS FIRST) AS secrets
                         """)
                 .param("now", utc(now))
                 .param("leasedUntil", utc(leasedUntil))
@@ -101,6 +105,7 @@ public class JdbcQueue {
                 row.getObject("event_id", UUID.class),
                 URI.create(row.getString("url")),
                 new String(row.getBytes("body"), StandardCharsets.UTF_8),
+                List.of((byte[][]) row.getArray("secrets").getArray()),
                 row.getInt("attempt_count"),
                 row.getObject("leased_until", OffsetDateTime.class).toInstant());
     }

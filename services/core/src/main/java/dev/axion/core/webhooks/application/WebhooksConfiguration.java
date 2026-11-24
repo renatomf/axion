@@ -6,7 +6,6 @@ import dev.axion.core.webhooks.domain.WebhookUrlValidator;
 import dev.axion.core.webhooks.http.CheckedDnsResolver;
 import dev.axion.core.webhooks.http.WebhookClient;
 import java.security.NoSuchAlgorithmException;
-import java.time.Clock;
 import javax.net.ssl.SSLContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -28,12 +27,11 @@ class WebhooksConfiguration {
     // Connects only to public addresses and trusts the JVM's certificate authorities. Closed with
     // the context, as an AutoCloseable bean.
     @Bean
-    WebhookClient webhookClient(HostResolver resolver, Clock clock) throws NoSuchAlgorithmException {
+    WebhookClient webhookClient(HostResolver resolver) throws NoSuchAlgorithmException {
         return new WebhookClient(
                 new CheckedDnsResolver(resolver, PublicAddressPolicy::isPublic),
                 SSLContext.getDefault(),
                 WebhookClient.Timeouts.DEFAULT,
-                DeliveryQueue.IN_FLIGHT,
-                clock);
+                DeliveryQueue.IN_FLIGHT);
     }
 }
