@@ -10,7 +10,7 @@
  */
 @ApplicationModule(
         displayName = "Audit",
-        allowedDependencies = {"shared", "access", "tenancy", "webhooks"})
+        allowedDependencies = {"shared", "access", "tenancy", "webhooks", "billing"})
 @NullMarked
 package dev.axion.core.audit;
 

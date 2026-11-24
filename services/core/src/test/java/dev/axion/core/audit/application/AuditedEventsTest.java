@@ -10,6 +10,15 @@ import dev.axion.core.access.AccessApi;
 import dev.axion.core.access.AccessFixtures;
 import dev.axion.core.access.IssuedApiKey;
 import dev.axion.core.audit.domain.AuditActor;
+import dev.axion.core.billing.BillingApi;
+import dev.axion.core.billing.BillingFixtures;
+import dev.axion.core.billing.ChargeRequest;
+import dev.axion.core.billing.ChargeView;
+import dev.axion.core.billing.RefundRequest;
+import dev.axion.core.billing.RefundResult;
+import dev.axion.core.billing.RefundView;
+import dev.axion.core.rails.PixCredit;
+import dev.axion.core.rails.PixCreditHandler;
 import dev.axion.core.shared.Actor;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.TenantId;
@@ -21,6 +30,7 @@ import dev.axion.core.webhooks.EndpointRequest;
 import dev.axion.core.webhooks.TestDns;
 import dev.axion.core.webhooks.WebhookEndpointId;
 import dev.axion.core.webhooks.WebhooksApi;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -82,6 +92,40 @@ class AuditedEventsTest {
                 organization.test(),
                 "webhook_endpoint.created",
                 endpoint.publicId().toString(),
+                AuditActor.of(TestCaller.ACTOR));
+    }
+
+    @Test
+    void recordsASettlementWithItsJobAndARefundWithTheCallerWhoMadeIt(
+            @Autowired BillingApi billing, @Autowired PixCreditHandler settlement, @Autowired Clock clock) {
+        ChargeView charge = TestCaller.call(
+                organization.test(),
+                Environment.TEST,
+                () -> BillingFixtures.created(billing.createCharge(ChargeRequest.of(BillingFixtures.brl(10_000)))));
+
+        settlement.handle(new PixCredit(
+                BillingFixtures.endToEndId(),
+                "M99990011" + UUID.randomUUID().toString().replace("-", "").substring(0, 23),
+                charge.transactionId(),
+                BillingFixtures.brl(10_000),
+                clock.instant(),
+                "99990011"));
+        var refunded = TestCaller.call(
+                organization.test(),
+                Environment.TEST,
+                () -> billing.refund(
+                        charge.id(), new RefundRequest(Optional.empty(), Optional.empty(), TestCaller.CORRELATION_ID)));
+
+        RefundView refund = ((RefundResult.Refunded) refunded).refund();
+        assertRecordedEventually(
+                organization.test(),
+                "charge.paid",
+                charge.id().publicId().toString(),
+                AuditActor.of(new Actor.Job("pix-settlement")));
+        assertRecordedEventually(
+                organization.test(),
+                "charge.refunded",
+                refund.id().publicId().toString(),
                 AuditActor.of(TestCaller.ACTOR));
     }
 
