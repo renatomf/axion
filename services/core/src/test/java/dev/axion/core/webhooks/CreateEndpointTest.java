@@ -81,6 +81,17 @@ class CreateEndpointTest {
     }
 
     @Test
+    void registersTheEndpointInTheEnvironmentOfItsTenant() {
+        CreatedEndpoint created = created(TestCaller.call(tenant, Environment.LIVE, () -> webhooks.create(request())));
+
+        assertThat(owner.sql("SELECT environment FROM webhooks.endpoints WHERE id = ?")
+                        .param(created.endpoint().id().value())
+                        .query(String.class)
+                        .single())
+                .isEqualTo("LIVE");
+    }
+
+    @Test
     void givesEachEndpointItsOwnSecret() {
         CreatedEndpoint first = created(create(request()));
         CreatedEndpoint second = created(create(request()));

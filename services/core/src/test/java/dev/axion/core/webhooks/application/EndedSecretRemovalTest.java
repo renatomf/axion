@@ -35,8 +35,8 @@ class EndedSecretRemovalTest {
     void insertEndpoint() {
         owner.jdbc().sql("""
                         INSERT INTO webhooks.endpoints
-                               (id, tenant_id, url, enabled_events, status, created_at, updated_at)
-                        VALUES (?, ?, 'https://orders.example.com/axion', '{charge.paid}', 'ENABLED', now(), now())
+                               (id, tenant_id, environment, url, enabled_events, status, created_at, updated_at)
+                        VALUES (?, ?, 'TEST', 'https://orders.example.com/axion', '{charge.paid}', 'ENABLED', now(), now())
                         """).params(endpoint, tenant).update();
     }
 

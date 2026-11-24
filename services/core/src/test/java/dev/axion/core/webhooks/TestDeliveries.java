@@ -2,14 +2,19 @@ package dev.axion.core.webhooks;
 
 import dev.axion.core.shared.EventId;
 import dev.axion.core.shared.TenantId;
+import dev.axion.core.webhooks.domain.EndpointHealth;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.Optional;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
  * Deliveries arranged and read by the database's owner, for tests of the queue and of what an
- * endpoint's changes do to deliveries: each with an event of its own, committed at once.
+ * endpoint's changes do to deliveries: each with an event of its own, committed at once. Also how
+ * an endpoint has fared, which its deliveries' attempts change.
  */
 public final class TestDeliveries {
 
@@ -51,6 +56,15 @@ public final class TestDeliveries {
                 .single();
     }
 
+    /** When the delivery's next attempt is due; empty once it is no longer pending. */
+    public Optional<Instant> nextAttemptAt(UUID delivery) {
+        return Optional.ofNullable(owner.sql("SELECT next_attempt_at FROM webhooks.deliveries WHERE id = ?")
+                        .param(delivery)
+                        .query(OffsetDateTime.class)
+                        .single())
+                .map(OffsetDateTime::toInstant);
+    }
+
     public boolean leased(UUID delivery) {
         return owner.sql("SELECT leased_until IS NOT NULL FROM webhooks.deliveries WHERE id = ?")
                 .param(delivery)
@@ -63,6 +77,24 @@ public final class TestDeliveries {
                 .param(delivery)
                 .query(String.class)
                 .single();
+    }
+
+    /** How the endpoint has fared since its last success, as stored. */
+    public EndpointHealth health(WebhookEndpointId endpoint) {
+        return owner.sql("SELECT failing_since, consecutive_failures FROM webhooks.endpoints WHERE id = ?")
+                .param(endpoint.value())
+                .query((row, number) -> new EndpointHealth(
+                        Optional.ofNullable(row.getObject("failing_since", OffsetDateTime.class))
+                                .map(OffsetDateTime::toInstant),
+                        row.getInt("consecutive_failures")))
+                .single();
+    }
+
+    /** Arranges the endpoint as failing since the time, with as many attempts failed since. */
+    public void failing(WebhookEndpointId endpoint, Instant since, int failures) {
+        owner.sql("UPDATE webhooks.endpoints SET failing_since = ?, consecutive_failures = ? WHERE id = ?")
+                .params(since.atOffset(ZoneOffset.UTC), failures, endpoint.value())
+                .update();
     }
 
     // The times are SQL expressions, such as now(), or NULL.

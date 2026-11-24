@@ -128,6 +128,30 @@ class WebhookEndpointsSchemaTest {
     }
 
     @Test
+    void storesTheEnvironmentOfItsTenant() {
+        var row = endpoint().environment("LIVE");
+        insert(row);
+
+        assertThat(jdbc.sql("SELECT environment FROM webhooks.endpoints WHERE id = ?")
+                        .param(row.id)
+                        .query(String.class)
+                        .single())
+                .isEqualTo("LIVE");
+    }
+
+    @Test
+    void rejectsAnUnknownEnvironment() {
+        assertRejected(endpoint().environment("STAGING"), "endpoints_environment_check");
+    }
+
+    @Test
+    void rejectsAnEndpointWithNoEnvironment() {
+        assertThatThrownBy(() -> insert(endpoint().environment(null)))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("environment");
+    }
+
+    @Test
     void rejectsAnUnknownStatus() {
         assertRejected(endpoint().status("PAUSED", null), "endpoints_status_check");
     }
@@ -151,6 +175,24 @@ class WebhookEndpointsSchemaTest {
     @Test
     void rejectsAnUnknownDisabledReason() {
         assertRejected(endpoint().status("DISABLED", "TIRED"), "endpoints_disabled_reason_check");
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "failing_since = now()",
+                "consecutive_failures = 3",
+                "failing_since = now(), consecutive_failures = -1"
+            })
+    void rejectsAFailingTimeAndAFailureCountThatDisagree(String assignment) {
+        var row = endpoint();
+        insert(row);
+
+        assertThatThrownBy(() -> jdbc.sql("UPDATE webhooks.endpoints SET " + assignment + " WHERE id = ?")
+                        .param(row.id)
+                        .update())
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("endpoints_");
     }
 
     @Test
@@ -334,6 +376,21 @@ class WebhookEndpointsSchemaTest {
     }
 
     @Test
+    void letsTheModuleRoleStartAnEndpointAfresh() {
+        var row = endpoint();
+        insert(row);
+        markFailing(row);
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        int updated = jdbc.sql("""
+                        UPDATE webhooks.endpoints SET failing_since = NULL, consecutive_failures = 0
+                         WHERE id = ?
+                        """).param(row.id).update();
+
+        assertThat(updated).isOne();
+    }
+
+    @Test
     void deniesTheModuleRoleDeletingAnEndpoint() {
         var row = endpoint();
         insert(row);
@@ -456,15 +513,57 @@ class WebhookEndpointsSchemaTest {
                 .isEqualTo(row.url);
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"tenant_id", "description", "enabled_events", "disabled_reason"})
-    void deniesTheJobsRoleWhatSendingDoesNotNeed(String column) {
-        insert(endpoint());
+    @Test
+    void letsTheJobsRoleDisableAReceivingEndpointForFailing() {
+        var row = endpoint().tenant(UUID.randomUUID());
+        insert(row);
         DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
 
-        assertThatThrownBy(() -> jdbc.sql("SELECT " + column + " FROM webhooks.endpoints")
-                        .query()
-                        .listOfRows())
+        assertThat(jdbc.sql("""
+                                UPDATE webhooks.endpoints
+                                   SET status = 'DISABLED', disabled_reason = 'FAILING', updated_at = now()
+                                 WHERE id = ?
+                                RETURNING tenant_id, environment, description, enabled_events, created_at
+                                """).param(row.id).query().listOfRows()).hasSize(1);
+    }
+
+    @Test
+    void deniesTheJobsRoleDisablingAnEndpointForTheTenant() {
+        var row = endpoint();
+        insert(row);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> jdbc.sql("""
+                                UPDATE webhooks.endpoints SET status = 'DISABLED', disabled_reason = 'BY_TENANT'
+                                 WHERE id = ?
+                                """).param(row.id).update())
+                .rootCause()
+                .hasMessageContaining(RLS_VIOLATION);
+    }
+
+    @Test
+    void hidesFromTheJobsRoleAnEndpointToEnableAgain() {
+        var row = endpoint().status("DISABLED", "FAILING");
+        insert(row);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        int updated = jdbc.sql("""
+                        UPDATE webhooks.endpoints SET status = 'ENABLED', disabled_reason = NULL WHERE id = ?
+                        """).param(row.id).update();
+
+        assertThat(updated).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"deleted_at = now()", "tenant_id = gen_random_uuid()", "environment = 'LIVE'"})
+    void deniesTheJobsRoleChangingWhatDisablingDoesNotSet(String assignment) {
+        var row = endpoint();
+        insert(row);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThatThrownBy(() -> jdbc.sql("UPDATE webhooks.endpoints SET " + assignment + " WHERE id = ?")
+                        .param(row.id)
+                        .update())
                 .rootCause()
                 .hasMessageContaining("permission denied");
     }
@@ -480,6 +579,12 @@ class WebhookEndpointsSchemaTest {
                         .update())
                 .rootCause()
                 .hasMessageContaining("permission denied");
+    }
+
+    private void markFailing(Endpoint row) {
+        jdbc.sql("UPDATE webhooks.endpoints SET failing_since = now(), consecutive_failures = 4 WHERE id = ?")
+                .param(row.id)
+                .update();
     }
 
     private long visibleEndpoints() {
@@ -501,13 +606,14 @@ class WebhookEndpointsSchemaTest {
     private void insert(Endpoint row) {
         jdbc.sql("""
                         INSERT INTO webhooks.endpoints
-                               (id, tenant_id, url, description, enabled_events, status, disabled_reason,
-                                created_at, updated_at)
-                        VALUES (:id, :tenant, :url, :description, :events, :status, :reason,
-                                :createdAt, :createdAt)
+                               (id, tenant_id, environment, url, description, enabled_events, status,
+                                disabled_reason, created_at, updated_at)
+                        VALUES (:id, :tenant, :environment, :url, :description, :events, :status,
+                                :reason, :createdAt, :createdAt)
                         """)
                 .param("id", row.id)
                 .param("tenant", row.tenant)
+                .param("environment", row.environment)
                 .param("url", row.url)
                 .param("description", row.description)
                 .param("events", row.events)
@@ -542,6 +648,7 @@ class WebhookEndpointsSchemaTest {
 
         private final UUID id = UUID.randomUUID();
         private UUID tenant;
+        private @Nullable String environment = "TEST";
         private String url = "https://example.com/axion/webhooks";
         private @Nullable String description = "Order service";
         private @Nullable String[] events = {"charge.paid", "charge.refunded"};
@@ -555,6 +662,11 @@ class WebhookEndpointsSchemaTest {
 
         Endpoint tenant(UUID value) {
             tenant = value;
+            return this;
+        }
+
+        Endpoint environment(@Nullable String value) {
+            environment = value;
             return this;
         }
 

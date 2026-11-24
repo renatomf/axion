@@ -3,11 +3,13 @@ package dev.axion.core.webhooks.application;
 import dev.axion.core.webhooks.domain.HostResolver;
 import dev.axion.core.webhooks.domain.LocalReceivers;
 import dev.axion.core.webhooks.domain.PublicAddressPolicy;
+import dev.axion.core.webhooks.domain.RetryPolicy;
 import dev.axion.core.webhooks.domain.WebhookUrlValidator;
 import dev.axion.core.webhooks.http.CheckedDnsResolver;
 import dev.axion.core.webhooks.http.WebhookClient;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
+import java.util.Random;
 import java.util.Set;
 import javax.net.ssl.SSLContext;
 import org.springframework.boot.context.properties.bind.Bindable;
@@ -33,6 +35,12 @@ class WebhooksConfiguration {
     @Bean
     WebhookUrlValidator webhookUrlValidator(HostResolver resolver, LocalReceivers local) {
         return new WebhookUrlValidator(resolver, local);
+    }
+
+    // java.util.Random is safe across threads, which every sender needs of the jitter's source.
+    @Bean
+    RetryPolicy retryPolicy() {
+        return new RetryPolicy(new Random());
     }
 
     // Connects only to public addresses, and to localhost for a developer's local receivers; trusts

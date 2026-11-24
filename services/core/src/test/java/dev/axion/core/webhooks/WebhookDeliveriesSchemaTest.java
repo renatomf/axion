@@ -47,8 +47,8 @@ class WebhookDeliveriesSchemaTest {
     void insertAnEndpointAndAnEvent() {
         jdbc.sql("""
                         INSERT INTO webhooks.endpoints
-                               (id, tenant_id, url, enabled_events, status, created_at, updated_at)
-                        VALUES (?, ?, 'https://example.com/axion/webhooks', '{*}', 'ENABLED', now(), now())
+                               (id, tenant_id, environment, url, enabled_events, status, created_at, updated_at)
+                        VALUES (?, ?, 'TEST', 'https://example.com/axion/webhooks', '{*}', 'ENABLED', now(), now())
                         """).params(endpoint, tenant).update();
         insertEvent(event);
     }
@@ -243,16 +243,16 @@ class WebhookDeliveriesSchemaTest {
     }
 
     @Test
-    void deniesTheJobsRoleCancellingADelivery() {
-        insertDelivery(endpoint, event, "PENDING", 0, "now()", null);
+    void letsTheJobsRoleCancelThePendingDeliveriesOfAnEndpointItDisables() {
+        insertDelivery(endpoint, event, "PENDING", 0, "now()", "now() + interval '30 seconds'");
         DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
 
-        assertThatThrownBy(() -> jdbc.sql("""
-                                UPDATE webhooks.deliveries SET status = 'CANCELED', next_attempt_at = NULL
-                                 WHERE endpoint_id = ?
-                                """).param(endpoint).update())
-                .rootCause()
-                .hasMessageContaining(RLS_VIOLATION);
+        int canceled = jdbc.sql("""
+                        UPDATE webhooks.deliveries SET status = 'CANCELED', next_attempt_at = NULL, leased_until = NULL
+                         WHERE endpoint_id = ? AND status = 'PENDING'
+                        """).param(endpoint).update();
+
+        assertThat(canceled).isOne();
     }
 
     @Test

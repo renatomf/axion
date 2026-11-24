@@ -1,5 +1,6 @@
 package dev.axion.core.webhooks.persistence;
 
+import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.webhooks.DisabledReason;
 import dev.axion.core.webhooks.EndpointStatus;
@@ -22,7 +23,7 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class JdbcEndpoints {
 
-    private static final String COLUMNS = "id, url, description, enabled_events, status, disabled_reason, created_at";
+    static final String COLUMNS = "id, url, description, enabled_events, status, disabled_reason, created_at";
 
     // A deleted endpoint is never read: it receives nothing and is never listed.
     private static final String SELECT = "SELECT " + COLUMNS + " FROM webhooks.endpoints WHERE deleted_at IS NULL";
@@ -49,16 +50,18 @@ public class JdbcEndpoints {
                 .single();
     }
 
-    public void insert(TenantId tenant, EndpointView endpoint) {
+    /** Registers the endpoint for the tenant, which acts in the environment. */
+    public void insert(TenantId tenant, Environment environment, EndpointView endpoint) {
         jdbc.sql("""
                         INSERT INTO webhooks.endpoints
-                               (id, tenant_id, url, description, enabled_events, status, disabled_reason,
-                                created_at, updated_at)
-                        VALUES (:id, :tenant, :url, :description, :events, :status, :reason,
-                                :createdAt, :createdAt)
+                               (id, tenant_id, environment, url, description, enabled_events, status,
+                                disabled_reason, created_at, updated_at)
+                        VALUES (:id, :tenant, :environment, :url, :description, :events, :status,
+                                :reason, :createdAt, :createdAt)
                         """)
                 .param("id", endpoint.id().value())
                 .param("tenant", tenant.value())
+                .param("environment", environment.name())
                 .param("url", endpoint.url())
                 .param("description", endpoint.description().orElse(null))
                 .param("events", sortedTypes(endpoint))
@@ -164,6 +167,14 @@ public class JdbcEndpoints {
                 .update();
     }
 
+    /** Clears how the endpoint has been failing, so enabled again it starts afresh. */
+    public void startAfresh(TenantId tenant, WebhookEndpointId id) {
+        jdbc.sql("""
+                        UPDATE webhooks.endpoints SET failing_since = NULL, consecutive_failures = 0
+                         WHERE tenant_id = :tenant AND id = :id
+                        """).param("tenant", tenant.value()).param("id", id.value()).update();
+    }
+
     /**
      * Marks the endpoint deleted, keeping its row for its delivery log; empty if it is unknown or
      * already deleted, so of concurrent deletions only one succeeds.
@@ -202,7 +213,7 @@ public class JdbcEndpoints {
                 .list();
     }
 
-    private static EndpointView view(ResultSet row, int rowNumber) throws SQLException {
+    static EndpointView view(ResultSet row, int rowNumber) throws SQLException {
         String[] types = (String[]) row.getArray("enabled_events").getArray();
         return new EndpointView(
                 new WebhookEndpointId(row.getObject("id", UUID.class)),

@@ -35,6 +35,7 @@ import dev.axion.core.webhooks.EndpointStatus;
 import dev.axion.core.webhooks.EndpointView;
 import dev.axion.core.webhooks.WebhookEndpointCreated;
 import dev.axion.core.webhooks.WebhookEndpointDeleted;
+import dev.axion.core.webhooks.WebhookEndpointDisabled;
 import dev.axion.core.webhooks.WebhookEndpointId;
 import dev.axion.core.webhooks.WebhookEndpointUpdated;
 import dev.axion.core.webhooks.WebhookSecretRolled;
@@ -83,7 +84,8 @@ public final class EventFixtures {
                 new WebhookEndpointUpdated(
                         header(new Actor.ApiKey(new ApiKeyId(UUID.randomUUID()))), endpoint(), endpoint()),
                 new WebhookEndpointDeleted(header(new Actor.ApiKey(new ApiKeyId(UUID.randomUUID()))), endpoint()),
-                new WebhookSecretRolled(header(new Actor.ApiKey(new ApiKeyId(UUID.randomUUID()))), endpoint(), NOW));
+                new WebhookSecretRolled(header(new Actor.ApiKey(new ApiKeyId(UUID.randomUUID()))), endpoint(), NOW),
+                new WebhookEndpointDisabled(header(new Actor.Job("webhook-delivery")), endpoint(), NOW));
     }
 
     /** The catalog's event of the type. */
