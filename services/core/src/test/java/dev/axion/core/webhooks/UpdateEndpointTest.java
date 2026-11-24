@@ -9,6 +9,7 @@ import dev.axion.core.TestCaller;
 import dev.axion.core.events.CommittedEvents;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.TenantId;
+import dev.axion.core.webhooks.domain.EndpointHealth;
 import dev.axion.core.webhooks.domain.UrlRefusal;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -112,6 +113,7 @@ class UpdateEndpointTest {
 
         assertThat(enabled.status()).isEqualTo(EndpointStatus.ENABLED);
         assertThat(enabled.disabledReason()).isEmpty();
+        assertThat(new TestDeliveries(owner).health(created.id())).isEqualTo(EndpointHealth.HEALTHY);
     }
 
     @Test
@@ -287,11 +289,14 @@ class UpdateEndpointTest {
         return new EndpointChanges(Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(status));
     }
 
-    // What the delivery job will do (section 8.6), arranged by the owner.
+    // What the delivery job does (section 8.6), arranged by the owner.
     private void disableForFailing(WebhookEndpointId id) {
-        owner.sql("UPDATE webhooks.endpoints SET status = 'DISABLED', disabled_reason = 'FAILING' WHERE id = ?")
-                .param(id.value())
-                .update();
+        owner.sql("""
+                        UPDATE webhooks.endpoints
+                           SET status = 'DISABLED', disabled_reason = 'FAILING',
+                               failing_since = now() - interval '72 hours', consecutive_failures = 20
+                         WHERE id = ?
+                        """).param(id.value()).update();
     }
 
     private Instant updatedAt(WebhookEndpointId id) {

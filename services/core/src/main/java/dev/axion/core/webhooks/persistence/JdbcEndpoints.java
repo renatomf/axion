@@ -164,6 +164,14 @@ public class JdbcEndpoints {
                 .update();
     }
 
+    /** Clears how the endpoint has been failing, so enabled again it starts afresh. */
+    public void startAfresh(TenantId tenant, WebhookEndpointId id) {
+        jdbc.sql("""
+                        UPDATE webhooks.endpoints SET failing_since = NULL, consecutive_failures = 0
+                         WHERE tenant_id = :tenant AND id = :id
+                        """).param("tenant", tenant.value()).param("id", id.value()).update();
+    }
+
     /**
      * Marks the endpoint deleted, keeping its row for its delivery log; empty if it is unknown or
      * already deleted, so of concurrent deletions only one succeeds.

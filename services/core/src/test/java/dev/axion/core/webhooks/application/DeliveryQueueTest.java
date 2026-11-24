@@ -22,6 +22,7 @@ import dev.axion.core.webhooks.TestDns;
 import dev.axion.core.webhooks.TestReceiver;
 import dev.axion.core.webhooks.WebhookEndpointId;
 import dev.axion.core.webhooks.WebhooksApi;
+import dev.axion.core.webhooks.domain.EndpointHealth;
 import dev.axion.core.webhooks.domain.RetryPolicy;
 import dev.axion.core.webhooks.domain.SigningSecret;
 import dev.axion.core.webhooks.domain.WebhookSignature;
@@ -263,6 +264,34 @@ class DeliveryQueueTest {
     }
 
     @Test
+    void countsAFailedAttemptOnItsEndpointFromTheFirst() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        receiver.answer(path, new TestReceiver.Answer.Status(500));
+        WebhookEndpointId endpoint = endpoint(path);
+        Instant first = clock.instant();
+        deliveries.pending(tenant, endpoint, first, null);
+        drainAndWait();
+        clock.advance(Duration.ofSeconds(30));
+        deliveries.pending(tenant, endpoint, clock.instant(), null);
+
+        drainAndWait();
+
+        assertThat(deliveries.health(endpoint)).isEqualTo(new EndpointHealth(Optional.of(first), 2));
+    }
+
+    @Test
+    void clearsTheEndpointsFailuresWithASuccess() throws Exception {
+        String path = "/" + UUID.randomUUID();
+        WebhookEndpointId endpoint = endpoint(path);
+        deliveries.failing(endpoint, clock.instant().minus(Duration.ofHours(5)), 7);
+        deliveries.pending(tenant, endpoint, clock.instant(), null);
+
+        drainAndWait();
+
+        assertThat(deliveries.health(endpoint)).isEqualTo(EndpointHealth.HEALTHY);
+    }
+
+    @Test
     void sendsNothingBeforeItIsDue() throws Exception {
         String path = "/" + UUID.randomUUID();
         UUID delivery =
@@ -344,7 +373,7 @@ class DeliveryQueueTest {
     @Test
     void dropsTheResultOfADeliveryCanceledDuringItsAttempt() throws Exception {
         String path = "/" + UUID.randomUUID();
-        receiver.answer(path, new TestReceiver.Answer.Late(Duration.ofMillis(500), 204));
+        receiver.answer(path, new TestReceiver.Answer.Late(Duration.ofMillis(500), 500));
         WebhookEndpointId endpoint = endpoint(path);
         UUID delivery = deliveries.pending(tenant, endpoint, clock.instant(), null);
 
@@ -354,6 +383,7 @@ class DeliveryQueueTest {
 
         assertThat(receiver.requests(path)).hasSize(1);
         assertThat(deliveries.status(delivery)).isEqualTo("CANCELED");
+        assertThat(deliveries.health(endpoint)).isEqualTo(EndpointHealth.HEALTHY);
     }
 
     @Test

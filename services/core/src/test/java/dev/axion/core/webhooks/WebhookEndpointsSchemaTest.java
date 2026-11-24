@@ -153,6 +153,24 @@ class WebhookEndpointsSchemaTest {
         assertRejected(endpoint().status("DISABLED", "TIRED"), "endpoints_disabled_reason_check");
     }
 
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "failing_since = now()",
+                "consecutive_failures = 3",
+                "failing_since = now(), consecutive_failures = -1"
+            })
+    void rejectsAFailingTimeAndAFailureCountThatDisagree(String assignment) {
+        var row = endpoint();
+        insert(row);
+
+        assertThatThrownBy(() -> jdbc.sql("UPDATE webhooks.endpoints SET " + assignment + " WHERE id = ?")
+                        .param(row.id)
+                        .update())
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("endpoints_");
+    }
+
     @Test
     void rejectsASecretOfNoEndpoint() {
         assertThatThrownBy(() -> insertSecret(UUID.randomUUID(), tenant))
@@ -334,6 +352,21 @@ class WebhookEndpointsSchemaTest {
     }
 
     @Test
+    void letsTheModuleRoleStartAnEndpointAfresh() {
+        var row = endpoint();
+        insert(row);
+        markFailing(row);
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        int updated = jdbc.sql("""
+                        UPDATE webhooks.endpoints SET failing_since = NULL, consecutive_failures = 0
+                         WHERE id = ?
+                        """).param(row.id).update();
+
+        assertThat(updated).isOne();
+    }
+
+    @Test
     void deniesTheModuleRoleDeletingAnEndpoint() {
         var row = endpoint();
         insert(row);
@@ -470,6 +503,42 @@ class WebhookEndpointsSchemaTest {
     }
 
     @Test
+    void letsTheJobsRoleRecordHowEveryTenantsReceivingEndpointFares() {
+        var row = endpoint().tenant(UUID.randomUUID());
+        insert(row);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThat(jdbc.sql("SELECT failing_since FROM webhooks.endpoints WHERE id = ? FOR UPDATE")
+                        .param(row.id)
+                        .query()
+                        .listOfRows())
+                .hasSize(1);
+        assertThat(jdbc.sql("""
+                                UPDATE webhooks.endpoints SET failing_since = now(), consecutive_failures = 1
+                                 WHERE id = ?
+                                """).param(row.id).update()).isOne();
+    }
+
+    @Test
+    void hidesFromTheJobsRolesChangesAnEndpointThatNoLongerReceives() {
+        var disabled = endpoint().status("DISABLED", "BY_TENANT");
+        insert(disabled);
+        var deleted = endpoint();
+        insert(deleted);
+        jdbc.sql("UPDATE webhooks.endpoints SET deleted_at = now() WHERE id = ?")
+                .param(deleted.id)
+                .update();
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        int updated = jdbc.sql("""
+                        UPDATE webhooks.endpoints SET failing_since = now(), consecutive_failures = 1
+                         WHERE id IN (?, ?)
+                        """).params(disabled.id, deleted.id).update();
+
+        assertThat(updated).isZero();
+    }
+
+    @Test
     void deniesTheJobsRoleChangingAnEndpoint() {
         var row = endpoint();
         insert(row);
@@ -480,6 +549,12 @@ class WebhookEndpointsSchemaTest {
                         .update())
                 .rootCause()
                 .hasMessageContaining("permission denied");
+    }
+
+    private void markFailing(Endpoint row) {
+        jdbc.sql("UPDATE webhooks.endpoints SET failing_since = now(), consecutive_failures = 4 WHERE id = ?")
+                .param(row.id)
+                .update();
     }
 
     private long visibleEndpoints() {

@@ -194,6 +194,9 @@ public class WebhooksService implements WebhooksApi {
             if (previous.status() == EndpointStatus.ENABLED && endpoint.status() == EndpointStatus.DISABLED) {
                 deliveries.cancelPending(tenant, id);
             }
+            if (previous.status() == EndpointStatus.DISABLED && endpoint.status() == EndpointStatus.ENABLED) {
+                endpoints.startAfresh(tenant, id);
+            }
             return new Change(endpoint, previous, now);
         });
     }

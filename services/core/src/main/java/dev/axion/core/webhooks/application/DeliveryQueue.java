@@ -4,6 +4,7 @@ import dev.axion.core.ModuleRoles;
 import dev.axion.core.shared.EventId;
 import dev.axion.core.webhooks.WebhookEndpointId;
 import dev.axion.core.webhooks.domain.Attempt;
+import dev.axion.core.webhooks.domain.EndpointHealth;
 import dev.axion.core.webhooks.domain.RetryPolicy;
 import dev.axion.core.webhooks.domain.SigningSecret;
 import dev.axion.core.webhooks.domain.WebhookSignature;
@@ -20,6 +21,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -135,10 +137,11 @@ public class DeliveryQueue implements DisposableBean {
             return;
         }
         Attempt attempt = client.send(delivery.url(), signed);
+        Instant ended = now();
         int number = delivery.attemptCount() + 1;
-        RetryPolicy.Next next = retries.after(number, attempt, now());
+        RetryPolicy.Next next = retries.after(number, attempt, ended);
         boolean recorded = Objects.requireNonNull(
-                transactions.execute(transaction -> roles.call(ROLE, () -> record(delivery, next))));
+                transactions.execute(transaction -> roles.call(ROLE, () -> record(delivery, attempt, next, ended))));
         // The URL is left out: its path or query may hold the tenant's token.
         if (!recorded) {
             LOG.info(
@@ -172,12 +175,23 @@ public class DeliveryQueue implements DisposableBean {
         }
     }
 
-    private boolean record(ClaimedDelivery delivery, RetryPolicy.Next next) {
-        return switch (next) {
+    // The endpoint is locked before its delivery, as every change of an endpoint locks it before its
+    // deliveries: two transactions never wait on each other's rows in opposite orders. Only an attempt
+    // whose result is recorded counts toward the endpoint's health.
+    private boolean record(ClaimedDelivery delivery, Attempt attempt, RetryPolicy.Next next, Instant ended) {
+        Optional<EndpointHealth> health = queue.lockEndpoint(delivery.endpoint());
+        boolean recorded = switch (next) {
             case RetryPolicy.Next.Succeeded() -> queue.finish(delivery, "SUCCEEDED");
             case RetryPolicy.Next.RetryAt(Instant at) -> queue.retry(delivery, at);
             case RetryPolicy.Next.Dead() -> queue.finish(delivery, "DEAD");
         };
+        if (recorded && health.isPresent()) {
+            EndpointHealth after = health.get().after(attempt, ended);
+            if (!after.equals(health.get())) {
+                queue.recordHealth(delivery.endpoint(), after);
+            }
+        }
+        return recorded;
     }
 
     // Signed at the attempt's time, so a request sent again is signed afresh.

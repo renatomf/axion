@@ -1,5 +1,6 @@
 package dev.axion.core.webhooks.persistence;
 
+import dev.axion.core.webhooks.domain.EndpointHealth;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
@@ -8,6 +9,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -116,6 +118,37 @@ public class JdbcQueue {
                         .param("leasedUntil", utc(delivery.leasedUntil()))
                         .update()
                 == 1;
+    }
+
+    /**
+     * Locks the endpoint until the transaction ends and reads its health; empty if it no longer
+     * receives, disabled or deleted, as the role's policies show it.
+     */
+    public Optional<EndpointHealth> lockEndpoint(UUID endpoint) {
+        return jdbc.sql("""
+                        SELECT failing_since, consecutive_failures FROM webhooks.endpoints
+                         WHERE id = :id
+                           FOR UPDATE
+                        """)
+                .param("id", endpoint)
+                .query((row, number) -> new EndpointHealth(
+                        Optional.ofNullable(row.getObject("failing_since", OffsetDateTime.class))
+                                .map(OffsetDateTime::toInstant),
+                        row.getInt("consecutive_failures")))
+                .optional();
+    }
+
+    /** Stores the health of an endpoint the transaction locked. */
+    public void recordHealth(UUID endpoint, EndpointHealth health) {
+        jdbc.sql("""
+                        UPDATE webhooks.endpoints
+                           SET failing_since = :failingSince, consecutive_failures = :failures
+                         WHERE id = :id
+                        """)
+                .param("failingSince", health.failingSince().map(JdbcQueue::utc).orElse(null))
+                .param("failures", health.consecutiveFailures())
+                .param("id", endpoint)
+                .update();
     }
 
     private static ClaimedDelivery claimed(ResultSet row, int rowNumber) throws SQLException {
