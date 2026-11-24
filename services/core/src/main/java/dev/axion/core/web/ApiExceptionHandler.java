@@ -1,5 +1,6 @@
 package dev.axion.core.web;
 
+import java.net.URI;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
@@ -170,12 +172,18 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     record FieldProblem(String field, String detail) {}
 
-    // Every Spring MVC error passes here, so the default code is added in one place.
+    // Every Spring MVC error passes here, so the default code and the request's path, the contract's
+    // instance, are added in one place.
     @Override
     protected ResponseEntity<Object> createResponseEntity(
             @Nullable Object body, HttpHeaders headers, HttpStatusCode statusCode, WebRequest request) {
-        if (body instanceof ProblemDetail problem && !hasCode(problem)) {
-            problem.setProperty(CODE, defaultCode(statusCode));
+        if (body instanceof ProblemDetail problem) {
+            if (!hasCode(problem)) {
+                problem.setProperty(CODE, defaultCode(statusCode));
+            }
+            if (problem.getInstance() == null && request instanceof ServletWebRequest servlet) {
+                problem.setInstance(URI.create(servlet.getRequest().getRequestURI()));
+            }
         }
         return super.createResponseEntity(body, headers, statusCode, request);
     }
