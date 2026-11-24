@@ -330,7 +330,8 @@ RETURNING …
 - The lease, not a held lock, keeps the claim during the HTTP request: no transaction and no connection stays open while a tenant's server takes ten seconds to answer. A worker that dies mid-request leaves its lease to expire, and the delivery is claimed again: at least once, which receivers already handle by `id` (section 5.3).
 - Each attempt's result is written in a second short transaction that updates the delivery and inserts the attempt.
 - No endpoint has more than 4 deliveries in flight; the claim takes, for each endpoint with due deliveries, only what its limit leaves, oldest endpoint first, so one slow endpoint holds at most 4 of the workers' requests and every other endpoint keeps its pace. Claims are serialized by a transaction-level advisory lock, so each counts what every earlier claim holds; a claim lasts milliseconds.
-- The job role reads across tenants, like the billing jobs: its policies let it see deliveries, the events they send, their endpoints and the ciphertext of the secrets that sign them, and change only a delivery's status, lease, attempt count and next attempt. A claim returns each delivery with those ciphertexts, current secret first.
+- The job role reads across tenants, like the billing jobs: its policies let it see deliveries, the events they send, their endpoints and the ciphertext of the secrets that sign them, and change only a delivery's status, lease, attempt count and next attempt, and an endpoint that still receives as section 8.6 needs. A claim returns each delivery with those ciphertexts, current secret first.
+- The transaction that records an attempt locks the endpoint before the delivery, the order of every change of an endpoint and its deliveries, so two such transactions never wait on each other's rows. A result whose delivery is no longer the worker's, canceled or claimed again, changes nothing, and does not count toward the endpoint's health.
 
 ### 8.3 The request
 
@@ -365,11 +366,11 @@ A failed delivery is attempted again after a delay that grows with each attempt:
 |---|---|---|---|---|---|---|---|---|---|
 | After the previous | immediately | 1 min | 5 min | 30 min | 2 h | 6 h | 12 h | 24 h | 24 h |
 
-Nine attempts span about 68 hours, the overview's "about three days". Each delay varies by up to 10% at random, so the deliveries of an outage do not all return at the same second. A `410 Gone` ends the delivery at once: the receiver said the URL is not coming back. After the ninth failure the delivery is `DEAD`.
+Each delay counts from the end of the attempt before it. Nine attempts span about 68 hours, the overview's "about three days". Each delay varies by up to 10% at random, so the deliveries of an outage do not all return at the same second. A `410 Gone` ends the delivery at once: the receiver said the URL is not coming back. After the ninth failure the delivery is `DEAD`.
 
 ### 8.6 Disabling
 
-An endpoint records `failing_since`, the time of its first failure after its last success; a success clears it. When an endpoint has been failing for 72 hours and its last 20 attempts all failed, it is disabled with `disabled_reason: failing`: its pending deliveries are canceled, and `WebhookEndpointDisabled` puts a notice on the tenant's live stream and in the audit trail. The two conditions together keep an endpoint that receives one event a week from being disabled by a single bad night, and one that receives thousands from being disabled in minutes.
+An endpoint records `failing_since`, the time of its first failure after its last success, and `consecutive_failures`, the attempts failed since; a success clears both. Its last 20 attempts all failed exactly when the count is 20 or more, so the rule needs no attempt to be read. When an endpoint has been failing for 72 hours and its last 20 attempts all failed, the transaction of the attempt that finds it disables it with `disabled_reason: failing`: its pending deliveries are canceled, and `WebhookEndpointDisabled`, with the endpoint and `failing_since`, puts a notice on the tenant's live stream and in the audit trail. The workers act across tenants with none bound, so the event is headed with the endpoint's tenant and environment, which the endpoint stores, and the actor `Job("webhook-delivery")`. The two conditions together keep an endpoint that receives one event a week from being disabled by a single bad night, and one that receives thousands from being disabled in minutes.
 
 The tenant enables it again with an update (section 6.3), after fixing its server, and replays what it missed.
 
@@ -464,12 +465,14 @@ events.event_publication                 -- Modulith 2.1's table, unchanged (sec
 webhooks.endpoints
   id                uuid primary key
   tenant_id         uuid not null
+  environment       text not null            -- TEST | LIVE, its tenant's (CHECK)
   url               text not null            -- https, or http://localhost: (section 7.2); at most 2,048 characters (CHECK)
   description       text null                -- 1–140 characters (CHECK)
   enabled_events    text[] not null          -- 1–20 types, or {*} (CHECK)
   status            text not null            -- ENABLED | DISABLED (CHECK)
   disabled_reason   text null                -- FAILING | BY_TENANT, set exactly when DISABLED (CHECK)
-  failing_since     timestamptz null
+  failing_since     timestamptz null         -- set exactly when consecutive_failures > 0 (CHECK)
+  consecutive_failures integer not null      -- attempts failed since the last success (section 8.6)
   created_at        timestamptz not null
   updated_at        timestamptz not null
   deleted_at        timestamptz null
@@ -531,7 +534,7 @@ audit.chain_heads
 
 - `unique (endpoint_id, event_id)` repeats the rule that an event is delivered once to each endpoint, whatever the listener's retries.
 - Deleted endpoints keep their row, with `deleted_at`, until their deliveries' retention ends; they receive nothing and are never listed.
-- Roles: `axion_events` reads how far each publication has got, never `serialized_event`, removes completed publications and runs the operator's command; `axion_webhooks` manages endpoints, secrets, events and deliveries for the tenant bound; `axion_webhooks_jobs` drains the queue, disables endpoints and removes old rows (section 8.2); `axion_audit` appends (section 9.2); `axion_audit_checks` reads every chain. No role may update or delete an attempt or an audit record.
+- Roles: `axion_events` reads how far each publication has got, never `serialized_event`, removes completed publications and runs the operator's command; `axion_webhooks` manages endpoints, secrets, events and deliveries for the tenant bound; `axion_webhooks_jobs` drains the queue, disables endpoints for failing only and cancels their pending deliveries, and removes old rows (sections 8.2 and 8.6); `axion_audit` appends (section 9.2); `axion_audit_checks` reads every chain. No role may update or delete an attempt or an audit record.
 
 ## 12. API
 
