@@ -148,6 +148,14 @@ val faultInjectionTest by tasks.registering(Test::class) {
     classpath = sourceSets.test.get().runtimeClasspath
     useJUnitPlatform { includeTags("fault-injection") }
     shouldRunAfter(tasks.test)
+    // The webhook scenarios kill the core, so they run its packaged JAR in a
+    // process of their own (CoreProcess), built from this commit.
+    dependsOn(tasks.bootJar)
+    val jar = tasks.bootJar.flatMap { it.archiveFile }
+    inputs.file(jar)
+    jvmArgumentProviders.add(CommandLineArgumentProvider {
+        listOf("-Daxion.core.jar=" + jar.get().asFile.absolutePath)
+    })
     // The image is not an input Gradle can see: a rebuilt simulator must
     // rerun the suite instead of leaving a cached result up to date.
     outputs.upToDateWhen { false }
