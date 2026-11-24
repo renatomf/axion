@@ -800,6 +800,86 @@ paths:
           $ref: "components.yaml#/responses/TooManyRequests"
         "500":
           $ref: "components.yaml#/responses/InternalServerError"
+  /v1/webhook_endpoints/{id}/deliveries/{delivery_id}/replay:
+    parameters:
+      - $ref: "#/components/parameters/WebhookEndpointId"
+      - $ref: "#/components/parameters/WebhookDeliveryId"
+    post:
+      operationId: replayWebhookDelivery
+      tags: [Webhook deliveries]
+      summary: Replay a delivery
+      description: >-
+        Sends the delivery's event to the endpoint again, now: the same
+        `webhook-id` and body, with a fresh `webhook-timestamp` and
+        signature. The request follows within seconds, in the delivery's
+        `attempts` with `replay` set to `true`. A delivery in any status can
+        be replayed, at most 10 times in 24 hours; a replay changes neither
+        its status nor its schedule. The endpoint must be enabled: replay
+        what it missed while disabled once it is enabled again. Requires
+        `webhooks:manage`.
+      parameters:
+        - $ref: "components.yaml#/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: >-
+            The replay is queued. The body is the delivery as it is, which
+            the replay does not change.
+          headers:
+            Idempotent-Replayed:
+              $ref: "components.yaml#/headers/Idempotent-Replayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+        "400":
+          description: >-
+            The `Idempotency-Key` is missing (`idempotency_key_required`) or
+            malformed (`invalid_idempotency_key`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "401":
+          $ref: "components.yaml#/responses/Unauthorized"
+        "403":
+          description: >-
+            The key lacks `webhooks:manage` (`insufficient_permission`), or
+            its tenant is not active (`tenant_inactive`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "404":
+          $ref: "components.yaml#/responses/NotFound"
+        "409":
+          description: >-
+            The endpoint is disabled (`endpoint_disabled`), the delivery was
+            replayed 10 times in the last 24 hours (`replay_limit_reached`;
+            `detail` says from when it can be replayed again, with another
+            `Idempotency-Key`), or a request with the same `Idempotency-Key`
+            is still running (`request_in_progress`; retry after
+            `Retry-After`).
+          headers:
+            Retry-After:
+              $ref: "components.yaml#/headers/Retry-After"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "413":
+          $ref: "components.yaml#/responses/ContentTooLarge"
+        "422":
+          description: >-
+            The `Idempotency-Key` was used for another request
+            (`idempotency_key_reused`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "components.yaml#/schemas/Problem"
+        "429":
+          $ref: "components.yaml#/responses/TooManyRequests"
+        "500":
+          $ref: "components.yaml#/responses/InternalServerError"
 webhooks:
   charge.created:
     post:

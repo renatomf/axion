@@ -57,6 +57,24 @@ final class WebhookProblems {
         return new ErrorResponseException(HttpStatus.CONFLICT, problem, null);
     }
 
+    static ErrorResponseException endpointDisabled() {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.CONFLICT, "The endpoint is disabled; enable it to replay its deliveries.");
+        problem.setProperty("code", "endpoint_disabled");
+        return new ErrorResponseException(HttpStatus.CONFLICT, problem, null);
+    }
+
+    // 409, not 429: the limit is the delivery's, not the caller's request budget, and the answer is
+    // stored with the key like any other, so a retry needs a key of its own.
+    static ErrorResponseException replayLimitReached(int limit, Instant retryAt) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.CONFLICT,
+                "The delivery was replayed " + limit + " times in the last 24 hours; it can be replayed again from "
+                        + retryAt + ".");
+        problem.setProperty("code", "replay_limit_reached");
+        return new ErrorResponseException(HttpStatus.CONFLICT, problem, null);
+    }
+
     static ErrorResponseException notFound() {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "The resource was not found.");
         problem.setProperty("code", "not_found");

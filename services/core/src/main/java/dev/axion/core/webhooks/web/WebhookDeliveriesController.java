@@ -7,8 +7,10 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import org.jspecify.annotations.Nullable;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -52,5 +54,13 @@ class WebhookDeliveriesController {
         return webhooks.delivery(EndpointIds.inPath(id), DeliveryQuery.inPath(deliveryId))
                 .map(WebhookDeliveryDetailResponse::of)
                 .orElseThrow(WebhookProblems::notFound);
+    }
+
+    // Idempotent: a retry under the same key gets the first answer and queues nothing more.
+    @RequiresPermission(Permission.WEBHOOKS_MANAGE)
+    @PostMapping(PATH + "/{delivery_id}/replay")
+    ResponseEntity<WebhookDeliveryResponse> replay(
+            @PathVariable("id") String id, @PathVariable("delivery_id") String deliveryId) {
+        return WebhookReplays.answer(webhooks.replay(EndpointIds.inPath(id), DeliveryQuery.inPath(deliveryId)));
     }
 }

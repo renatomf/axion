@@ -106,6 +106,7 @@ class TenantIsolationTest {
             Map.entry("rollWebhookEndpointSecret", this::rollWebhookEndpointSecretLeavesAnotherTenantsSecretInPlace),
             Map.entry("listWebhookDeliveries", this::listWebhookDeliveriesHidesAnotherTenantsLog),
             Map.entry("getWebhookDelivery", this::getWebhookDeliveryHidesAnotherTenantsDelivery),
+            Map.entry("replayWebhookDelivery", this::replayWebhookDeliveryQueuesNothingForAnotherTenant),
             Map.entry("listTenantWebhookDeliveries", this::listTenantWebhookDeliveriesHidesAnotherTenantsLog),
             Map.entry("getTenantWebhookDelivery", this::getTenantWebhookDeliveryHidesAnotherTenantsDelivery),
             Map.entry("listTenantWebhookEndpoints", this::listTenantWebhookEndpointsHidesAnotherTenantsEndpoints),
@@ -364,6 +365,24 @@ class TenantIsolationTest {
         assertNotFound(request.sendWithKey(manager, own.publicId(), othersDelivery.publicId()));
         assertThat(request.sendWithKey(manager, own.publicId(), owned.publicId()))
                 .hasStatus(HttpStatus.OK);
+    }
+
+    private void replayWebhookDeliveryQueuesNothingForAnotherTenant(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookDeliveryId othersDelivery = delivery(scene.other().test(), others);
+        WebhookEndpointId own = endpoint(scene.caller().test());
+        WebhookDeliveryId owned = delivery(scene.caller().test(), own);
+        IssuedApiKey manager = webhookManager(scene);
+        var deliveries = new TestDeliveries(owner.jdbc());
+
+        assertNotFound(request.postWithKey(manager, "replay-1", others.publicId(), othersDelivery.publicId()));
+        // The caller's own endpoint in the path, with the other tenant's delivery.
+        assertNotFound(request.postWithKey(manager, "replay-2", own.publicId(), othersDelivery.publicId()));
+        assertThat(deliveries.replays(othersDelivery.value())).isEmpty();
+
+        assertThat(request.postWithKey(manager, "replay-3", own.publicId(), owned.publicId()))
+                .hasStatus(HttpStatus.ACCEPTED);
+        assertThat(deliveries.replays(owned.value())).containsExactly("PENDING");
     }
 
     private void updateWebhookEndpointLeavesAnotherTenantsEndpointAsItWas(Request request, Scene scene) {
@@ -665,6 +684,17 @@ class TenantIsolationTest {
             MvcTestResult result = mvc.method(HttpMethod.valueOf(operation.method()))
                     .uri(operation.path(), pathVariables)
                     .header("Authorization", "Bearer " + key.secret())
+                    .exchange();
+            contract.assertConforms(result);
+            return result;
+        }
+
+        /** The operation of {@code /v1}, with no body and an {@code Idempotency-Key}, sent with a key. */
+        MvcTestResult postWithKey(IssuedApiKey key, String idempotencyKey, Object... pathVariables) {
+            MvcTestResult result = mvc.method(HttpMethod.valueOf(operation.method()))
+                    .uri(operation.path(), pathVariables)
+                    .header("Authorization", "Bearer " + key.secret())
+                    .header("Idempotency-Key", idempotencyKey)
                     .exchange();
             contract.assertConforms(result);
             return result;
