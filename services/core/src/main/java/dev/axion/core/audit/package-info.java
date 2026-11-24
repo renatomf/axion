@@ -8,7 +8,9 @@
  *   <li>{@code persistence}: the module's SQL.
  * </ul>
  */
-@ApplicationModule(displayName = "Audit", allowedDependencies = "shared")
+@ApplicationModule(
+        displayName = "Audit",
+        allowedDependencies = {"shared", "access", "tenancy", "webhooks", "billing"})
 @NullMarked
 package dev.axion.core.audit;
 
