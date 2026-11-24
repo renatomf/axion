@@ -151,6 +151,16 @@ public class LiveStreams {
         full.forEach(StreamSink::close);
     }
 
+    /** How many streams are open on this instance. */
+    public int openStreams() {
+        lock.lock();
+        try {
+            return byMember.values().stream().mapToInt(Integer::intValue).sum();
+        } finally {
+            lock.unlock();
+        }
+    }
+
     private static void resume(TenantStreams tenant, StreamMember member, StreamSink sink, String last, Instant now) {
         Optional<List<PublicEvent>> missed = parse(last).flatMap(id -> tenant.recent.after(id, now));
         if (missed.isEmpty()) {
