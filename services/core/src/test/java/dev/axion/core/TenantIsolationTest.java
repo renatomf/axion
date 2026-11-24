@@ -106,6 +106,8 @@ class TenantIsolationTest {
             Map.entry("rollWebhookEndpointSecret", this::rollWebhookEndpointSecretLeavesAnotherTenantsSecretInPlace),
             Map.entry("listWebhookDeliveries", this::listWebhookDeliveriesHidesAnotherTenantsLog),
             Map.entry("getWebhookDelivery", this::getWebhookDeliveryHidesAnotherTenantsDelivery),
+            Map.entry("listTenantWebhookDeliveries", this::listTenantWebhookDeliveriesHidesAnotherTenantsLog),
+            Map.entry("getTenantWebhookDelivery", this::getTenantWebhookDeliveryHidesAnotherTenantsDelivery),
             Map.entry("listTenantWebhookEndpoints", this::listTenantWebhookEndpointsHidesAnotherTenantsEndpoints),
             Map.entry("getTenantWebhookEndpoint", this::getTenantWebhookEndpointHidesAnotherTenantsEndpoint),
             Map.entry("createTenantWebhookEndpoint", this::createTenantWebhookEndpointRegistersNothingForAnotherTenant),
@@ -481,6 +483,37 @@ class TenantIsolationTest {
         assertNotFound(request.send(scene, null, scene.caller().test().publicId(), others.publicId()));
 
         assertThat(request.send(scene, null, scene.caller().test().publicId(), own.publicId()))
+                .hasStatus(HttpStatus.OK);
+    }
+
+    private void listTenantWebhookDeliveriesHidesAnotherTenantsLog(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        delivery(scene.other().test(), others);
+        WebhookEndpointId own = endpoint(scene.caller().test());
+        WebhookDeliveryId owned = delivery(scene.caller().test(), own);
+
+        assertNotFound(request.send(scene, null, scene.other().test().publicId(), others.publicId()));
+        // The caller's own tenant in the path, with the other tenant's endpoint.
+        assertNotFound(request.send(scene, null, scene.caller().test().publicId(), others.publicId()));
+
+        MvcTestResult result = request.send(scene, null, scene.caller().test().publicId(), own.publicId());
+        assertThat(result).hasStatus(HttpStatus.OK);
+        assertThat(result).body().asString().contains(owned.publicId().toString());
+    }
+
+    private void getTenantWebhookDeliveryHidesAnotherTenantsDelivery(Request request, Scene scene) {
+        WebhookEndpointId others = endpoint(scene.other().test());
+        WebhookDeliveryId othersDelivery = delivery(scene.other().test(), others);
+        WebhookEndpointId own = endpoint(scene.caller().test());
+        WebhookDeliveryId owned = delivery(scene.caller().test(), own);
+        Object callerTenant = scene.caller().test().publicId();
+
+        assertNotFound(request.send(
+                scene, null, scene.other().test().publicId(), others.publicId(), othersDelivery.publicId()));
+        assertNotFound(request.send(scene, null, callerTenant, others.publicId(), othersDelivery.publicId()));
+        assertNotFound(request.send(scene, null, callerTenant, own.publicId(), othersDelivery.publicId()));
+
+        assertThat(request.send(scene, null, callerTenant, own.publicId(), owned.publicId()))
                 .hasStatus(HttpStatus.OK);
     }
 
