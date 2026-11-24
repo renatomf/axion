@@ -13,7 +13,7 @@ services:
     profiles: [core, auth, rails]
     # Pinned by digest: a tag can be moved, a digest cannot.
     # Dependabot bumps the tag and the digest together.
-    image: postgres:17.12-bookworm@sha256:40865bc877a289da75963d97d72b59633f639fc5af7a4e856bfa3714cae5b536
+    image: postgres:17.12-bookworm@sha256:837bed18782820fe967067cb5328b02b0d9992c1be9a37ee0c9c492cfc03af3b
     environment:
       POSTGRES_DB: axion
       POSTGRES_USER: axion
@@ -36,7 +36,7 @@ services:
   # start with `compose run`, since `up --wait` counts a job that exits as failed.
   core-database:
     profiles: [jobs]
-    image: postgres:17.12-bookworm@sha256:40865bc877a289da75963d97d72b59633f639fc5af7a4e856bfa3714cae5b536
+    image: postgres:17.12-bookworm@sha256:837bed18782820fe967067cb5328b02b0d9992c1be9a37ee0c9c492cfc03af3b
     environment:
       PGHOST: postgres
       PGUSER: axion
@@ -55,7 +55,7 @@ services:
   # (ADR 0005), then exits. Idempotent, so it runs on every start.
   keycloak-database:
     profiles: [auth]
-    image: postgres:17.12-bookworm@sha256:40865bc877a289da75963d97d72b59633f639fc5af7a4e856bfa3714cae5b536
+    image: postgres:17.12-bookworm@sha256:837bed18782820fe967067cb5328b02b0d9992c1be9a37ee0c9c492cfc03af3b
     environment:
       PGHOST: postgres
       PGUSER: axion
@@ -124,7 +124,7 @@ services:
   # runs on every start.
   rails-simulator-database:
     profiles: [rails]
-    image: postgres:17.12-bookworm@sha256:40865bc877a289da75963d97d72b59633f639fc5af7a4e856bfa3714cae5b536
+    image: postgres:17.12-bookworm@sha256:837bed18782820fe967067cb5328b02b0d9992c1be9a37ee0c9c492cfc03af3b
     environment:
       PGHOST: postgres
       PGUSER: axion
