@@ -14,6 +14,8 @@ import java.time.ZoneOffset;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -129,11 +131,12 @@ class RegistryRecoveryTest {
         assertThat(row(probe)).isEqualTo(new Row("FAILED", 10));
     }
 
-    @Test
-    void handsBackOnStartWhatAStoppedProcessLeftRunning() {
+    @ParameterizedTest
+    @ValueSource(strings = {"PUBLISHED", "PROCESSING", "RESUBMITTED"})
+    void handsBackOnStartWhatAStoppedProcessLeftIncomplete(String status) {
         var probe = Probe.next();
         var published = clock.instant().minusSeconds(1);
-        strand(probe, "PROCESSING", published, published, 1);
+        strand(probe, status, published, published, 1);
 
         interrupted.resubmitPublishedBefore(clock.instant());
 

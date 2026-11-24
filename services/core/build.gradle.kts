@@ -63,6 +63,8 @@ dependencies {
     // Domain events through Spring Modulith's publication registry, a table written in the
     // publishing transaction: the core's transactional outbox.
     implementation(libs.spring.modulith.starter.jdbc)
+    // The registry's core, to mark the publications a stopped process interrupted failed at start.
+    implementation(libs.spring.modulith.events.core)
     // Annotations that state, in the code, which references may be null.
     implementation(libs.jspecify)
     // Token buckets that limit the requests of each tenant and API key.
@@ -81,7 +83,6 @@ dependencies {
     testImplementation(libs.spring.boot.testcontainers)
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.spring.modulith.starter.test)
-    testImplementation(libs.spring.modulith.events.core)
     testImplementation(libs.archunit.junit5)
     testImplementation(libs.jqwik)
     testImplementation(libs.json.schema.validator) {
