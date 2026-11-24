@@ -3,10 +3,13 @@ package dev.axion.core.webhooks;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.axion.core.MutableClock;
 import dev.axion.core.PostgresTestConfiguration;
 import dev.axion.core.TestCaller;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.TenantId;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -17,19 +20,38 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 
-/** {@link WebhooksApi#endpoints} and {@link WebhooksApi#endpoint}, against a real PostgreSQL. */
+/**
+ * {@link WebhooksApi#endpoints} and {@link WebhooksApi#endpoint}, against a real PostgreSQL. Each
+ * endpoint is created a millisecond after the previous one: UUIDv7 keys of one millisecond are not
+ * ordered, so endpoints created within it would list in any order.
+ */
 @SpringBootTest
-@Import({PostgresTestConfiguration.class, TestDns.class})
+@Import({PostgresTestConfiguration.class, TestDns.class, ReadEndpointsTest.Clocked.class})
 class ReadEndpointsTest {
 
+    @TestConfiguration(proxyBeanMethods = false)
+    static class Clocked {
+
+        @Bean
+        @Primary
+        MutableClock mutableClock() {
+            return new MutableClock(Instant.parse("2026-11-23T12:00:00Z"));
+        }
+    }
+
     private final WebhooksApi webhooks;
+    private final MutableClock clock;
     private final TenantId tenant = new TenantId(UUID.randomUUID());
 
     @Autowired
-    ReadEndpointsTest(WebhooksApi webhooks) {
+    ReadEndpointsTest(WebhooksApi webhooks, MutableClock clock) {
         this.webhooks = webhooks;
+        this.clock = clock;
     }
 
     @Test
@@ -125,6 +147,7 @@ class ReadEndpointsTest {
     }
 
     private EndpointView create(String description) {
+        clock.advance(Duration.ofMillis(1));
         var request = new EndpointRequest(
                 "https://orders.example.com/axion", Optional.of(description), Set.of("charge.paid", "charge.expired"));
         var result = as(tenant, () -> webhooks.create(request));

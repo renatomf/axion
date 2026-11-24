@@ -6,12 +6,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.axion.core.DatabaseOwner;
+import dev.axion.core.MutableClock;
 import dev.axion.core.PostgresTestConfiguration;
 import dev.axion.core.TestCaller;
 import dev.axion.core.shared.Environment;
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.tenancy.NewOrganization;
 import dev.axion.core.tenancy.TenancyApi;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -23,23 +25,42 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
-/** {@link BillingApi#charges} against a real PostgreSQL. */
+/**
+ * {@link BillingApi#charges} against a real PostgreSQL. Each charge is created a millisecond after
+ * the previous one: UUIDv7 keys of one millisecond are not ordered, so charges created within it
+ * would list in any order.
+ */
 @SpringBootTest
-@Import(PostgresTestConfiguration.class)
+@Import({PostgresTestConfiguration.class, ListChargesTest.Clocked.class})
 class ListChargesTest {
+
+    @TestConfiguration(proxyBeanMethods = false)
+    static class Clocked {
+
+        @Bean
+        @Primary
+        MutableClock mutableClock() {
+            return new MutableClock(Instant.parse("2026-11-23T12:00:00Z"));
+        }
+    }
 
     private final BillingApi billing;
     private final TenancyApi tenancy;
     private final JdbcClient owner;
+    private final MutableClock clock;
 
     private NewOrganization organization;
 
     @Autowired
-    ListChargesTest(BillingApi billing, TenancyApi tenancy, DatabaseOwner owner) {
+    ListChargesTest(BillingApi billing, TenancyApi tenancy, DatabaseOwner owner, MutableClock clock) {
         this.billing = billing;
+        this.clock = clock;
         this.tenancy = tenancy;
         this.owner = owner.jdbc();
     }
@@ -155,10 +176,13 @@ class ListChargesTest {
 
     private List<ChargeView> create(int count) {
         return IntStream.range(0, count)
-                .mapToObj(i -> TestCaller.call(
-                        organization.test(),
-                        Environment.TEST,
-                        () -> created(billing.createCharge(ChargeRequest.of(brl(100 + i))))))
+                .mapToObj(i -> {
+                    clock.advance(Duration.ofMillis(1));
+                    return TestCaller.call(
+                            organization.test(),
+                            Environment.TEST,
+                            () -> created(billing.createCharge(ChargeRequest.of(brl(100 + i)))));
+                })
                 .toList();
     }
 
