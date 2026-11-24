@@ -154,7 +154,7 @@ public class DeliveryQueue implements DisposableBean {
                     e);
             return;
         }
-        Attempt attempt = client.send(delivery.url(), signed);
+        Attempt attempt = client.send(delivery.url(), signed).attempt();
         Instant ended = now();
         int number = delivery.attemptCount() + 1;
         RetryPolicy.Next next = retries.after(number, attempt, ended);
