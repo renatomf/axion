@@ -30,7 +30,8 @@ class LoginRoleTest {
             "axion_rails",
             "axion_events",
             "axion_webhooks",
-            "axion_audit");
+            "axion_audit",
+            "axion_audit_checks");
 
     private final JdbcClient jdbc;
 

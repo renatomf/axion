@@ -1,9 +1,9 @@
 /**
  * The audit trail (events and webhooks design, section 9): one record per security-relevant action,
- * in a hash chain per tenant, so that a record changed, removed or reordered shows.
+ * in a hash chain per tenant whose tampering {@link dev.axion.core.audit.AuditApi#verify} detects.
  *
  * <ul>
- *   <li>{@code application}: appending to a tenant's chain, which owns the transactions;
+ *   <li>{@code application}: appending to a tenant's chain and verifying one, which own the transactions;
  *   <li>{@code domain}: a record's fields and the hash that chains it, in plain Java;
  *   <li>{@code persistence}: the module's SQL.
  * </ul>

@@ -21,7 +21,8 @@ public enum DatabaseRole {
     EVENTS,
     WEBHOOKS,
     WEBHOOKS_JOBS,
-    AUDIT;
+    AUDIT,
+    AUDIT_CHECKS;
 
     /** Acts as this role until the current transaction ends. */
     public void actAs(JdbcClient jdbc) {

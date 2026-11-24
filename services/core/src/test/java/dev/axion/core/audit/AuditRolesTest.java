@@ -75,6 +75,12 @@ class AuditRolesTest {
         DatabaseRole.AUDIT.actAs(jdbc, new TenantId(tenant));
 
         assertThatThrownBy(() -> insertRecord(other)).rootCause().hasMessageContaining(RLS_VIOLATION);
+    }
+
+    @Test
+    void deniesTheModuleRoleStartingAnotherTenantsChain() {
+        DatabaseRole.AUDIT.actAs(jdbc, new TenantId(tenant));
+
         assertThatThrownBy(() -> insertHead(other)).rootCause().hasMessageContaining(RLS_VIOLATION);
     }
 
@@ -97,15 +103,57 @@ class AuditRolesTest {
     }
 
     @Test
-    void deniesTheModuleRoleRemovingARecordOrAHead() {
-        insertHead(tenant);
+    void deniesTheModuleRoleRemovingARecord() {
         insertRecord(tenant);
         DatabaseRole.AUDIT.actAs(jdbc, new TenantId(tenant));
 
         assertThatThrownBy(() -> jdbc.sql("DELETE FROM audit.records").update())
                 .rootCause()
                 .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void deniesTheModuleRoleRemovingAHead() {
+        insertHead(tenant);
+        DatabaseRole.AUDIT.actAs(jdbc, new TenantId(tenant));
+
         assertThatThrownBy(() -> jdbc.sql("DELETE FROM audit.chain_heads").update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void letsTheChecksRoleReadEveryChain() {
+        insertHead(tenant);
+        insertRecord(tenant);
+        insertHead(other);
+        insertRecord(other);
+        DatabaseRole.AUDIT_CHECKS.actAs(jdbc);
+
+        assertThat(jdbc.sql("SELECT tenant_id FROM audit.records")
+                        .query(UUID.class)
+                        .list())
+                .contains(tenant, other);
+        assertThat(jdbc.sql("SELECT tenant_id FROM audit.chain_heads")
+                        .query(UUID.class)
+                        .list())
+                .contains(tenant, other);
+    }
+
+    @Test
+    void deniesTheChecksRoleAppendingARecord() {
+        DatabaseRole.AUDIT_CHECKS.actAs(jdbc);
+
+        assertThatThrownBy(() -> insertRecord(tenant)).rootCause().hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void deniesTheChecksRoleMovingAHead() {
+        insertHead(tenant);
+        DatabaseRole.AUDIT_CHECKS.actAs(jdbc);
+
+        assertThatThrownBy(() ->
+                        jdbc.sql("UPDATE audit.chain_heads SET sequence = 1").update())
                 .rootCause()
                 .hasMessageContaining("permission denied");
     }
