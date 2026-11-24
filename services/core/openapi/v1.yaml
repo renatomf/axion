@@ -45,7 +45,10 @@ tags:
       API returns it at the event's time. An event may arrive more than
       once and in any order: deduplicate by `id`, and compare `time` or the
       resource's state before overwriting newer data. Ignore fields and
-      types you do not know; new ones are added without notice.
+      types you do not know; new ones are added without notice. Every
+      request is signed with the endpoint's secret: verify its signature
+      and timestamp over the raw body before parsing it, as the webhook
+      guide in `docs/api` shows.
 paths:
   /v1/charges:
     get:
@@ -684,6 +687,10 @@ webhooks:
       description: >-
         Sent when a charge is created; it has no payment yet.
       security: []
+      parameters:
+        - $ref: "components.yaml#/parameters/WebhookId"
+        - $ref: "components.yaml#/parameters/WebhookTimestamp"
+        - $ref: "components.yaml#/parameters/WebhookSignature"
       requestBody:
         required: true
         content:
@@ -704,6 +711,10 @@ webhooks:
         Sent once per charge, by the payment that settles it, also when
         the charge had expired before a payment accepted in time arrived.
       security: []
+      parameters:
+        - $ref: "components.yaml#/parameters/WebhookId"
+        - $ref: "components.yaml#/parameters/WebhookTimestamp"
+        - $ref: "components.yaml#/parameters/WebhookSignature"
       requestBody:
         required: true
         content:
@@ -723,6 +734,10 @@ webhooks:
       description: >-
         Sent when an active charge reaches its `expires_at` unpaid.
       security: []
+      parameters:
+        - $ref: "components.yaml#/parameters/WebhookId"
+        - $ref: "components.yaml#/parameters/WebhookTimestamp"
+        - $ref: "components.yaml#/parameters/WebhookSignature"
       requestBody:
         required: true
         content:
@@ -744,6 +759,10 @@ webhooks:
         its charge, with its `review_reason`, for the tenant to decide
         whether to refund it.
       security: []
+      parameters:
+        - $ref: "components.yaml#/parameters/WebhookId"
+        - $ref: "components.yaml#/parameters/WebhookTimestamp"
+        - $ref: "components.yaml#/parameters/WebhookSignature"
       requestBody:
         required: true
         content:
@@ -764,6 +783,10 @@ webhooks:
         Sent for every refund, of the settling payment or of a flagged
         one.
       security: []
+      parameters:
+        - $ref: "components.yaml#/parameters/WebhookId"
+        - $ref: "components.yaml#/parameters/WebhookTimestamp"
+        - $ref: "components.yaml#/parameters/WebhookSignature"
       requestBody:
         required: true
         content:

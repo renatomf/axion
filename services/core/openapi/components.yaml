@@ -104,6 +104,45 @@ parameters:
       maxLength: 255
       pattern: "^[!-~]+$"
     example: 5f0c6a8e-3b1d-4f7a-9c2e-8d4b6a1f0e37
+  WebhookId:
+    name: webhook-id
+    in: header
+    required: true
+    description: >-
+      The event's ID, the same as the body's `id`, on every delivery of the
+      event. Signed with the request, so a receiver deduplicates by it and
+      refuses a request it already processed.
+    schema:
+      type: string
+      pattern: "^evt_[0-7][0-9a-hjkmnp-tv-z]{25}$"
+    example: evt_01jdr3b6f7g8h9j0k1m2n3p4q5
+  WebhookTimestamp:
+    name: webhook-timestamp
+    in: header
+    required: true
+    description: >-
+      When the request was sent, in Unix seconds. Signed with the request; a
+      receiver refuses one more than five minutes from its clock.
+    schema:
+      type: string
+      pattern: "^[0-9]+$"
+    example: "1795442591"
+  WebhookSignature:
+    name: webhook-signature
+    in: header
+    required: true
+    description: >-
+      Standard Webhooks signatures, separated by a space: `v1,` and the
+      base64 of HMAC-SHA256, keyed with the 32 bytes of the endpoint's
+      secret, over `{webhook-id}.{webhook-timestamp}.{body}`, the body as
+      the bytes received. While a rolled secret's grace period lasts, the
+      new secret's signature comes first and the old one's after it; a
+      receiver accepts the request if any one verifies. See the webhook
+      guide in `docs/api`.
+    schema:
+      type: string
+      pattern: "^v1,[A-Za-z0-9+/]{43}=( v1,[A-Za-z0-9+/]{43}=)*$"
+    example: v1,K5oZfzN95Z9UVu1EsfQmfVNQhnkZ2pj9o9NDN/H/pI4=
 responses:
   BadRequest:
     description: >-
