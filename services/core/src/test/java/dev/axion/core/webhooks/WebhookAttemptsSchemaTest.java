@@ -175,20 +175,47 @@ class WebhookAttemptsSchemaTest {
         assertThat(countAttempts()).isZero();
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"UPDATE webhooks.attempts SET status_code = 200", "DELETE FROM webhooks.attempts"})
-    void deniesEveryRoleChangingAnAttempt(String change) {
+    @Test
+    void deniesEveryRoleUpdatingAnAttempt() {
         insertAttempt(tenant, 500, null, null);
 
         for (DatabaseRole role : new DatabaseRole[] {DatabaseRole.WEBHOOKS, DatabaseRole.WEBHOOKS_JOBS}) {
             jdbc.sql("SAVEPOINT change").update();
             role.actAs(jdbc, new TenantId(tenant));
-            assertThatThrownBy(() -> jdbc.sql(change).update())
+            assertThatThrownBy(() -> jdbc.sql("UPDATE webhooks.attempts SET status_code = 200")
+                            .update())
                     .as(role.name())
                     .rootCause()
                     .hasMessageContaining("permission denied");
             jdbc.sql("ROLLBACK TO SAVEPOINT change").update();
         }
+    }
+
+    @Test
+    void deniesTheModuleRoleRemovingAnAttempt() {
+        insertAttempt(tenant, 500, null, null);
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        assertThatThrownBy(() -> jdbc.sql("DELETE FROM webhooks.attempts").update())
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void letsTheJobsRoleRemoveOnlyAnAttemptPastItsRetention() {
+        insertAttempt(tenant, 500, null, null);
+        jdbc.sql("""
+                        INSERT INTO webhooks.attempts (id, tenant_id, delivery_id, started_at, duration_ms, status_code)
+                        VALUES (gen_random_uuid(), ?, ?, now() - interval '31 days', 5, 500)
+                        """).params(tenant, delivery).update();
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        int removed = jdbc.sql("DELETE FROM webhooks.attempts WHERE delivery_id = ?")
+                .param(delivery)
+                .update();
+
+        assertThat(removed).isOne();
+        assertThat(countAttempts()).isOne();
     }
 
     private int countAttempts() {

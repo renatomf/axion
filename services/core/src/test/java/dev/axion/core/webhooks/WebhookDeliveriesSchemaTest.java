@@ -7,6 +7,7 @@ import dev.axion.core.DatabaseOwner;
 import dev.axion.core.DatabaseRole;
 import dev.axion.core.PostgresTestConfiguration;
 import dev.axion.core.shared.TenantId;
+import java.util.List;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
@@ -274,7 +275,6 @@ class WebhookDeliveriesSchemaTest {
                 "INSERT INTO webhooks.deliveries (id, tenant_id, endpoint_id, event_id, status, attempt_count,"
                         + " next_attempt_at, created_at) SELECT gen_random_uuid(), tenant_id, endpoint_id, event_id,"
                         + " 'PENDING', 0, now(), now() FROM webhooks.deliveries",
-                "DELETE FROM webhooks.deliveries",
                 "UPDATE webhooks.deliveries SET endpoint_id = gen_random_uuid()",
                 "UPDATE webhooks.events SET body = '\\x00'"
             })
@@ -283,6 +283,86 @@ class WebhookDeliveriesSchemaTest {
         DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
 
         assertThatThrownBy(() -> jdbc.sql(statement).update()).rootCause().hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void letsTheJobsRoleRemoveOnlyEndedDeliveriesPastTheirRetention() {
+        UUID expired = insertAged(endpoint, "SUCCEEDED", "now() - interval '31 days'");
+        insertAged(endpoint, "DEAD", "now() - interval '29 days'");
+        insertAged(endpoint, "PENDING", "now() - interval '31 days'");
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        List<UUID> removed = jdbc.sql("DELETE FROM webhooks.deliveries WHERE endpoint_id = ? RETURNING id")
+                .param(endpoint)
+                .query((row, number) -> row.getObject("id", UUID.class))
+                .list();
+
+        assertThat(removed).containsExactly(expired);
+    }
+
+    @Test
+    void letsTheJobsRoleRemoveOnlyEventsPastTheirRetention() {
+        UUID expired = UUID.randomUUID();
+        jdbc.sql("""
+                        INSERT INTO webhooks.events (id, tenant_id, type, body, occurred_at)
+                        VALUES (?, ?, 'charge.paid', '\\x7b7d', now() - interval '31 days')
+                        """).params(expired, tenant).update();
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        int removed = jdbc.sql("DELETE FROM webhooks.events WHERE id IN (?, ?)")
+                .params(expired, event)
+                .update();
+
+        assertThat(removed).isOne();
+    }
+
+    @Test
+    void letsTheJobsRoleRemoveOnlyEndpointsDeletedPastTheirRetentionWithTheirSecrets() {
+        UUID expired = insertDeletedEndpoint("now() - interval '31 days'");
+        UUID recent = insertDeletedEndpoint("now() - interval '29 days'");
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        int secrets = jdbc.sql("DELETE FROM webhooks.secrets WHERE endpoint_id IN (?, ?, ?)")
+                .params(expired, recent, endpoint)
+                .update();
+        int endpoints = jdbc.sql("DELETE FROM webhooks.endpoints WHERE id IN (?, ?, ?)")
+                .params(expired, recent, endpoint)
+                .update();
+
+        assertThat(secrets).isOne();
+        assertThat(endpoints).isOne();
+    }
+
+    // Each with an event of its own; createdAt is an SQL expression.
+    private UUID insertAged(UUID to, String status, String createdAt) {
+        UUID of = UUID.randomUUID();
+        insertEvent(of);
+        UUID id = UUID.randomUUID();
+        boolean pending = status.equals("PENDING");
+        jdbc.sql("""
+                        INSERT INTO webhooks.deliveries
+                               (id, tenant_id, endpoint_id, event_id, status, attempt_count, next_attempt_at, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, %s, %s)
+                        """.formatted(pending ? "now()" : "NULL", createdAt))
+                .params(id, tenant, to, of, status, pending ? 0 : 1)
+                .update();
+        return id;
+    }
+
+    // With a current secret; deletedAt is an SQL expression.
+    private UUID insertDeletedEndpoint(String deletedAt) {
+        UUID id = UUID.randomUUID();
+        jdbc.sql("""
+                        INSERT INTO webhooks.endpoints
+                               (id, tenant_id, environment, url, enabled_events, status, created_at, updated_at,
+                                deleted_at)
+                        VALUES (?, ?, 'TEST', 'https://example.com/axion/webhooks', '{*}', 'ENABLED', now(), now(), %s)
+                        """.formatted(deletedAt)).params(id, tenant).update();
+        jdbc.sql("""
+                        INSERT INTO webhooks.secrets (id, endpoint_id, tenant_id, ciphertext, created_at)
+                        VALUES (gen_random_uuid(), ?, ?, '\\x00', now())
+                        """).params(id, tenant).update();
+        return id;
     }
 
     private void insertEvent(UUID id) {
