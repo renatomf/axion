@@ -341,6 +341,8 @@ class DeliveryQueueTest {
         deliveries.failing(endpoint, failingSince, EndpointHealth.FAILED_ATTEMPTS - 1);
         UUID failing = deliveries.pending(tenant, endpoint, clock.instant(), null);
         UUID waiting = deliveries.pending(tenant, endpoint, clock.instant().plusSeconds(60), null);
+        UUID replayed = deliveries.succeeded(tenant, endpoint);
+        deliveries.replay(replayed, tenant, "PENDING", clock.instant().plusSeconds(60));
 
         drainAndWait();
 
@@ -350,6 +352,7 @@ class DeliveryQueueTest {
         assertThat(disabled.disabledReason()).contains(DisabledReason.FAILING);
         assertThat(deliveries.status(failing)).isEqualTo("CANCELED");
         assertThat(deliveries.status(waiting)).isEqualTo("CANCELED");
+        assertThat(deliveries.replays(replayed)).containsExactly("CANCELED");
         assertThat(events.of(tenant, WebhookEndpointDisabled.class))
                 .singleElement()
                 .satisfies(event -> {

@@ -130,6 +130,38 @@ class ReplayDeliveryTest {
         assertThat(deliveries.replays(delivery)).containsExactly("PENDING");
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void cancelsThePendingReplaysOfAnEndpointThatStopsReceiving(boolean deleted) {
+        WebhookEndpointId endpoint = create(tenant);
+        UUID delivery = delivered(endpoint, "DEAD");
+        deliveries.replay(delivery, tenant, "SENT", clock.instant().minusSeconds(60));
+        replay(tenant, endpoint, delivery);
+        WebhookEndpointId other = create(tenant);
+        UUID untouched = delivered(other, "DEAD");
+        replay(tenant, other, untouched);
+
+        if (deleted) {
+            as(tenant, () -> webhooks.delete(endpoint));
+        } else {
+            change(endpoint, EndpointStatus.DISABLED);
+        }
+
+        assertThat(deliveries.replays(delivery)).containsExactly("SENT", "CANCELED");
+        assertThat(deliveries.replays(untouched)).containsExactly("PENDING");
+    }
+
+    @Test
+    void countsACanceledReplayTowardTheLimit() {
+        WebhookEndpointId endpoint = create(tenant);
+        UUID delivery = delivered(endpoint, "DEAD");
+        for (int i = 0; i < WebhooksApi.MAX_REPLAYS; i++) {
+            deliveries.replay(delivery, tenant, "CANCELED", clock.instant());
+        }
+
+        assertThat(replay(tenant, endpoint, delivery)).isInstanceOf(ReplayResult.LimitReached.class);
+    }
+
     @Test
     void replaysADeliveryTenTimesADayAndAgainOnceTheFirstIsADayOld() {
         WebhookEndpointId endpoint = create(tenant);

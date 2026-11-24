@@ -219,6 +219,22 @@ public class JdbcQueue {
                         """).param("endpoint", endpoint).update();
     }
 
+    /**
+     * Cancels the pending replays of the endpoint's deliveries, those other workers hold included:
+     * their requests are still recorded, as sent.
+     *
+     * @return how many were canceled
+     */
+    public int cancelPendingReplays(UUID endpoint) {
+        return jdbc.sql("""
+                        UPDATE webhooks.replays AS replay
+                           SET status = 'CANCELED', leased_until = NULL
+                          FROM webhooks.deliveries AS delivery
+                         WHERE replay.status = 'PENDING' AND delivery.id = replay.delivery_id
+                           AND delivery.endpoint_id = :endpoint
+                        """).param("endpoint", endpoint).update();
+    }
+
     private static ClaimedDelivery claimed(ResultSet row, int rowNumber) throws SQLException {
         return new ClaimedDelivery(
                 row.getObject("id", UUID.class),

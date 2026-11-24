@@ -2,6 +2,7 @@ package dev.axion.core.webhooks.persistence;
 
 import dev.axion.core.shared.TenantId;
 import dev.axion.core.webhooks.WebhookDeliveryId;
+import dev.axion.core.webhooks.WebhookEndpointId;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -45,6 +46,25 @@ public class JdbcReplays {
                 .param("tenant", tenant.value())
                 .param("delivery", delivery.value())
                 .param("requestedAt", utc(requestedAt))
+                .update();
+    }
+
+    /**
+     * Cancels the pending replays of the endpoint's deliveries, those a worker holds included: the
+     * request in flight is still recorded, as sent.
+     *
+     * @return how many were canceled
+     */
+    public int cancelPending(TenantId tenant, WebhookEndpointId endpoint) {
+        return jdbc.sql("""
+                        UPDATE webhooks.replays AS replay
+                           SET status = 'CANCELED', leased_until = NULL
+                          FROM webhooks.deliveries AS delivery
+                         WHERE replay.tenant_id = :tenant AND replay.status = 'PENDING'
+                           AND delivery.id = replay.delivery_id AND delivery.endpoint_id = :endpoint
+                        """)
+                .param("tenant", tenant.value())
+                .param("endpoint", endpoint.value())
                 .update();
     }
 

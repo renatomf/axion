@@ -104,6 +104,16 @@ public final class TestDeliveries {
                 .list();
     }
 
+    /** A replay of the delivery in the status, asked for at the time. */
+    public void replay(UUID delivery, TenantId tenant, String status, Instant requestedAt) {
+        owner.sql("""
+                        INSERT INTO webhooks.replays (id, tenant_id, delivery_id, status, requested_at)
+                        VALUES (gen_random_uuid(), ?, ?, ?, ?)
+                        """)
+                .params(tenant.value(), delivery, status, requestedAt.atOffset(ZoneOffset.UTC))
+                .update();
+    }
+
     /** The statuses of the delivery's replays, in the order they were asked for. */
     public List<String> replays(UUID delivery) {
         return owner.sql("SELECT status FROM webhooks.replays WHERE delivery_id = ? ORDER BY requested_at, id")

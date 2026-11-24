@@ -157,6 +157,64 @@ class WebhookReplaysSchemaTest {
                 .hasMessageContaining("permission denied");
     }
 
+    @Test
+    void letsTheModuleRoleCancelItsTenantsPendingReplay() {
+        insertReplay(tenant, delivery, "PENDING", "now()");
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        assertThat(setStatus("CANCELED", "leased_until = NULL")).isOne();
+    }
+
+    @Test
+    void hidesAnotherTenantsReplayFromTheModuleRolesChanges() {
+        insertReplay(other, othersDelivery, "PENDING", null);
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        assertThat(setStatus("CANCELED", "leased_until = NULL")).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SENT", "CANCELED"})
+    void hidesAReplayThatEndedFromTheModuleRolesChanges(String status) {
+        insertReplay(tenant, delivery, status, null);
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        assertThat(setStatus("CANCELED", "leased_until = NULL")).isZero();
+    }
+
+    @Test
+    void deniesTheModuleRoleMarkingAReplaySent() {
+        insertReplay(tenant, delivery, "PENDING", null);
+        DatabaseRole.WEBHOOKS.actAs(jdbc, new TenantId(tenant));
+
+        assertThatThrownBy(() -> setStatus("SENT", "leased_until = NULL"))
+                .rootCause()
+                .hasMessageContaining(RLS_VIOLATION);
+    }
+
+    @Test
+    void letsTheJobsRoleCancelAPendingReplayOfAnyTenant() {
+        insertReplay(other, othersDelivery, "PENDING", "now()");
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThat(setStatus("CANCELED", "leased_until = NULL")).isOne();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SENT", "CANCELED"})
+    void hidesAReplayThatEndedFromTheJobsRolesChanges(String status) {
+        insertReplay(tenant, delivery, status, null);
+        DatabaseRole.WEBHOOKS_JOBS.actAs(jdbc);
+
+        assertThat(setStatus("PENDING", "leased_until = NULL")).isZero();
+    }
+
+    private int setStatus(String status, String alsoSet) {
+        return jdbc.sql("UPDATE webhooks.replays SET status = ?, " + alsoSet)
+                .param(status)
+                .update();
+    }
+
     private void insertDelivery(UUID owner, UUID id) {
         UUID endpoint = UUID.randomUUID();
         UUID event = UUID.randomUUID();

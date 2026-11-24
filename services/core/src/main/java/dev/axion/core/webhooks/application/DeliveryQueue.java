@@ -50,8 +50,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>A delivery that fails is attempted again as {@link RetryPolicy} schedules, until it succeeds
  * or its attempts run out (section 8.5). Each recorded attempt updates its endpoint's health, and an
- * endpoint that has failed long enough is disabled, its pending deliveries canceled and {@link
- * WebhookEndpointDisabled} published, all in the attempt's transaction (section 8.6). A delivery that
+ * endpoint that has failed long enough is disabled, its pending deliveries and replays canceled and
+ * {@link WebhookEndpointDisabled} published, all in the attempt's transaction (section 8.6). A delivery that
  * cannot be signed is not sent: it keeps its lease until it passes, and is claimed again.
  */
 @Service
@@ -202,7 +202,7 @@ public class DeliveryQueue implements DisposableBean {
         recorded.disabled()
                 .ifPresent(disabled -> LOG.warn(
                         "Disabled webhook endpoint {}: its attempts have failed since {}; its pending deliveries"
-                                + " were canceled",
+                                + " and replays were canceled",
                         delivery.endpoint(),
                         disabled.failingSince()));
     }
@@ -246,6 +246,7 @@ public class DeliveryQueue implements DisposableBean {
         }
         DisabledEndpoint disabled = queue.disable(delivery.endpoint(), ended);
         queue.cancelPending(delivery.endpoint());
+        queue.cancelPendingReplays(delivery.endpoint());
         return new Recorded(
                 true, Optional.of(new Disabled(disabled, after.failingSince().orElseThrow())));
     }

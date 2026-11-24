@@ -209,7 +209,7 @@ public class WebhooksService implements WebhooksApi {
         Instant now = now();
         Optional<EndpointView> deleted = roles.call(ROLE, () -> {
             Optional<EndpointView> marked = endpoints.markDeleted(tenant, id, now);
-            marked.ifPresent(endpoint -> deliveries.cancelPending(tenant, endpoint.id()));
+            marked.ifPresent(endpoint -> cancelPending(tenant, endpoint.id()));
             return marked;
         });
         deleted.ifPresent(endpoint -> events.publishEvent(new WebhookEndpointDeleted(header(now), endpoint)));
@@ -261,13 +261,19 @@ public class WebhooksService implements WebhooksApi {
             }
             // A disabled endpoint receives nothing, and enabled again it starts afresh (section 6.3).
             if (previous.status() == EndpointStatus.ENABLED && endpoint.status() == EndpointStatus.DISABLED) {
-                deliveries.cancelPending(tenant, id);
+                cancelPending(tenant, id);
             }
             if (previous.status() == EndpointStatus.DISABLED && endpoint.status() == EndpointStatus.ENABLED) {
                 endpoints.startAfresh(tenant, id);
             }
             return new Change(endpoint, previous, now);
         });
+    }
+
+    // What an endpoint that stops receiving had still to send: its pending deliveries and replays.
+    private void cancelPending(TenantId tenant, WebhookEndpointId endpoint) {
+        deliveries.cancelPending(tenant, endpoint);
+        replays.cancelPending(tenant, endpoint);
     }
 
     private static EndpointView changed(EndpointView previous, EndpointChanges changes) {
