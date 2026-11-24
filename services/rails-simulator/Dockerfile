@@ -8,7 +8,7 @@
 #
 # Base images are pinned by digest; Dependabot bumps tag and digest together.
 
-FROM eclipse-temurin:25-jdk-noble@sha256:80f67fb3d6f76e2d817d98a4cc2a9cf05f054d4e6adc5e2144bde671d722e63f AS build
+FROM eclipse-temurin:25-jdk-noble@sha256:4ddc1a8bdaf283421df5487411aff10b797ccf1e06a339041005114c8f489b5c AS build
 WORKDIR /workspace
 COPY . .
 # Tests run in CI before an image is built, so this stage only packages the
@@ -21,7 +21,7 @@ RUN java -Djarmode=tools -jar build/libs/axion-rails-simulator.jar \
     extract --layers --destination extracted
 
 # Distroless, `nonroot` variant: the Java runtime only, running as user 65532.
-FROM gcr.io/distroless/java25-debian13:nonroot@sha256:b0a31b9a063a6fb8132ec93da4cfd8515421ad35e40d7ac79fbebbaaae98227f
+FROM gcr.io/distroless/java25-debian13:nonroot@sha256:59bbb349c9752fc57b75744b41b1614c9dabe8bb4869523aabd5a4288f6c09a0
 WORKDIR /app
 COPY --from=build /workspace/extracted/dependencies/ ./
 COPY --from=build /workspace/extracted/spring-boot-loader/ ./
